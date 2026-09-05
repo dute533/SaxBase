@@ -4,7 +4,7 @@ SaxBase is a Go database deployment CLI built around [Goose](https://github.com/
 Goose remains an external Go module and owns structural migrations. SaxBase owns
 deployment semantics through an internal migration engine interface.
 
-## Current milestone
+## Structural migrations
 
 Requires Go 1.26 or newer and SQL Server. Build with `go build -o saxbase .`,
 or substitute `go run .` for `./saxbase` below. Running without arguments prints help.
@@ -50,6 +50,66 @@ DROP TABLE dbo.example;
 Use Goose's SQL annotations and transaction rules. SQL Server `GO` batch separators
 are client directives and should not be included in migration SQL sent through this CLI.
 
+## Full-state objects
+
+Put complete current definitions in `database/objects/**/*.sql`, for example
+`database/objects/views/customers.sql`:
+
+```sql
+CREATE OR ALTER VIEW dbo.customer_names AS
+SELECT id, name FROM dbo.customers;
+```
+
+Or `database/objects/procedures/get_customer.sql`:
+
+```sql
+CREATE OR ALTER PROCEDURE dbo.get_customer @id INT AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT id, name FROM dbo.customers WHERE id = @id;
+END;
+```
+
+Functions work the same way. Run structural migrations first, then deploy objects:
+
+```sh
+./saxbase up
+./saxbase objects status
+./saxbase objects apply
+```
+
+These commands use the same connection settings as migrations. Set
+`SAXBASE_OBJECTS_DIR` or pass `-objects-dir PATH` before the command to override
+`database/objects`. Positional connections also work:
+`./saxbase mssql "$GOOSE_DBSTRING" objects apply`. Object commands do not require
+a migrations directory and do not change the Goose version.
+
+SaxBase hashes exact file bytes with SHA-256, including whitespace and line endings.
+The relative, case-sensitive file path identifies the tracked definition.
+`objects status` reports `new`, `changed`, `unchanged`, or `missing` alongside
+the path and checksum, without writing to the database. For missing files, it
+shows the last deployed checksum. `objects apply` runs new and changed files and
+reports `applied` only after the transaction commits. Unchanged files are skipped.
+
+Definitions and checksums in `dbo.saxbase_objects` commit together in one SQL Server
+transaction. A failure rolls back the whole object apply. A database application
+lock serializes SaxBase object applies, with a 30-second lock wait. Structural
+migrations are a separate operation; coordinate them with object deployments.
+
+Each file must contain one complete object definition in a single SQL batch,
+typically `CREATE OR ALTER`. Do not include Goose annotations, `GO` separators,
+`USE`, or transaction-control statements. SaxBase executes the SQL as supplied;
+it does not parse object names or resolve dependencies. Files run in lexical
+order of their relative slash paths; arrange paths so dependencies come first.
+An object should have one stable file path. Renaming a file is treated as a new
+definition plus a missing old path.
+
+Missing files are reported but never automatically dropped or removed from
+tracking. Checksums compare files with the last deployment, not live database
+definitions, so manual database edits are not detected. Release history, automatic
+object removal, dependency resolution, and restoring prior object versions are
+not implemented yet.
+
 ## Development
 
 ```sh
@@ -59,6 +119,8 @@ go vet ./...
 
 Unit tests cover command routing, configuration, output, error propagation,
 cleanup, and Goose migration discovery without a database.
+They also cover recursive object scanning, exact-byte checksums, state comparison,
+object command routing, and error cleanup.
 
 ### SQL Server integration pipeline
 
@@ -70,6 +132,10 @@ migrations: creating a customers table with a row, then adding a nullable
 `status`, and `version`; verifies a second `up` does not rerun migrations; and
 checks each `down` removes only its corresponding change. Cleanup drops the
 test database even after assertion failures.
+The same pipeline deploys and queries a view, procedure, and function, verifies
+unchanged objects are skipped, updates a view, checks its stored SHA-256, verifies
+transaction rollback after a later invalid object, and checks missing files are
+not dropped.
 
 To run it locally, start a disposable SQL Server instance (Docker on x86-64):
 
@@ -92,7 +158,7 @@ The password and unencrypted connection above are for the disposable local/CI
 server. Integration tests require the `integration` build tag and fail if the
 connection environment variable is missing, so CI cannot silently skip them.
 
-## Planned deployment model
+## Database layout and future releases
 
 ```text
 database/
@@ -103,14 +169,9 @@ database/
     functions/
 ```
 
-The next milestone will scan `database/objects/**/*.sql`, hash complete object
-definitions with SHA-256, persist deployed checksums in SQL Server, and deploy
-only changed objects via `objects apply` and `objects status`. Object SQL will
-typically use `CREATE OR ALTER`.
-
 Future releases will pair a Goose structural version with an exact object state.
 Versions such as `30`, `30.1`, `30.2`, `31`, and `31.1` consist of an integer
 schema version and an optional object revision; they must never use floating-point
 representation. Release tracking, rollback to previous releases, planning, and
-eventual ArchiMate model generation are future work. Object deployment and release
-manifests are not implemented in this milestone.
+eventual ArchiMate model generation are future work. Release manifests are not
+implemented in this milestone.

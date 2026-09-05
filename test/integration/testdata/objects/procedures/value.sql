@@ -1,0 +1,5 @@
+CREATE OR ALTER PROCEDURE dbo.saxbase_get_value AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT 1 AS value;
+END;

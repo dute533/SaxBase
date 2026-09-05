@@ -4,8 +4,10 @@ package integration
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"os/exec"
@@ -67,9 +69,31 @@ func TestSQLServerMigration(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	run := func(command string) string {
+	objectDir := t.TempDir()
+	if err := filepath.WalkDir("testdata/objects", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel("testdata/objects", path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(objectDir, rel)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0700)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0600)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	execute := func(command ...string) (string, error) {
 		t.Helper()
-		cmd := exec.CommandContext(ctx, binary, "-dir", "testdata/migrations", command)
+		args := append([]string{"-dir", "testdata/migrations", "-objects-dir", objectDir}, command...)
+		cmd := exec.CommandContext(ctx, binary, args...)
 		// Keep developer Goose settings from changing this test's target.
 		for _, value := range os.Environ() {
 			if !strings.HasPrefix(value, "GOOSE_") {
@@ -78,10 +102,15 @@ func TestSQLServerMigration(t *testing.T) {
 		}
 		cmd.Env = append(cmd.Env, "GOOSE_DRIVER=mssql", "GOOSE_DBSTRING="+dsn)
 		output, err := cmd.CombinedOutput()
+		return strings.TrimSpace(string(output)), err
+	}
+	run := func(command ...string) string {
+		t.Helper()
+		output, err := execute(command...)
 		if err != nil {
 			t.Fatalf("saxbase %s: %v\n%s", command, err, output)
 		}
-		return strings.TrimSpace(string(output))
+		return output
 	}
 	assertVersion := func(want string) {
 		t.Helper()
@@ -122,6 +151,85 @@ func TestSQLServerMigration(t *testing.T) {
 	assertVersion("2")
 	assertCount("SELECT COUNT(*) FROM dbo.customers", 1)
 	assertCount("SELECT COUNT(*) FROM dbo.goose_db_version WHERE version_id IN (1, 2) AND is_applied = 1", 2)
+
+	// Object status is read-only, including before its metadata table exists.
+	if output := run("objects", "status"); strings.Count(output, "new") != 3 {
+		t.Fatalf("initial objects: %s", output)
+	}
+	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_objects')", 0)
+	if output := run("objects", "apply"); strings.Count(output, "applied") != 3 {
+		t.Fatalf("apply objects: %s", output)
+	}
+	assertCount("SELECT value FROM dbo.saxbase_value", 1)
+	assertCount("EXEC dbo.saxbase_get_value", 1)
+	assertCount("SELECT dbo.saxbase_function()", 1)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_objects", 3)
+	assertVersion("2")
+	var originalTime time.Time
+	if err := db.QueryRowContext(ctx, "SELECT deployed_at FROM dbo.saxbase_objects WHERE path=N'views/value.sql'").Scan(&originalTime); err != nil {
+		t.Fatal(err)
+	}
+	if output := run("objects", "apply"); strings.Count(output, "unchanged") != 3 {
+		t.Fatalf("repeat objects: %s", output)
+	}
+	var unchangedTime time.Time
+	if err := db.QueryRowContext(ctx, "SELECT deployed_at FROM dbo.saxbase_objects WHERE path=N'views/value.sql'").Scan(&unchangedTime); err != nil {
+		t.Fatal(err)
+	}
+	if !originalTime.Equal(unchangedTime) {
+		t.Fatal("unchanged view was redeployed")
+	}
+	updated := []byte("CREATE OR ALTER VIEW dbo.saxbase_value AS SELECT 2 AS value;\n")
+	if err := os.WriteFile(filepath.Join(objectDir, "views/value.sql"), updated, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if output := run("objects", "status"); strings.Count(output, "changed") != 3 || strings.Count(output, "unchanged") != 2 {
+		t.Fatalf("changed status: %s", output)
+	}
+	if output := run("objects", "apply"); strings.Count(output, "applied") != 1 || strings.Count(output, "unchanged") != 2 {
+		t.Fatalf("changed apply: %s", output)
+	}
+	assertCount("SELECT value FROM dbo.saxbase_value", 2)
+	var storedChecksum string
+	if err := db.QueryRowContext(ctx, "SELECT checksum FROM dbo.saxbase_objects WHERE path=N'views/value.sql'").Scan(&storedChecksum); err != nil {
+		t.Fatal(err)
+	}
+	if storedChecksum != fmt.Sprintf("%x", sha256.Sum256(updated)) {
+		t.Fatal("stored checksum does not match file bytes")
+	}
+
+	// An error in a later batch must roll back earlier definitions AND metadata.
+	if err := os.WriteFile(filepath.Join(objectDir, "views/value.sql"), []byte("CREATE OR ALTER VIEW dbo.saxbase_value AS SELECT 3 AS value;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	broken := filepath.Join(objectDir, "zz_broken.sql")
+	if err := os.WriteFile(broken, []byte("CREATE OR ALTER VIEW dbo.saxbase_broken AS SELECT missing FROM dbo.saxbase_nonexistent;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := execute("objects", "apply"); err == nil {
+		t.Fatalf("invalid object succeeded: %s", output)
+	}
+	assertCount("SELECT value FROM dbo.saxbase_value", 2)
+	var afterFailure string
+	if err := db.QueryRowContext(ctx, "SELECT checksum FROM dbo.saxbase_objects WHERE path=N'views/value.sql'").Scan(&afterFailure); err != nil {
+		t.Fatal(err)
+	}
+	if afterFailure != storedChecksum {
+		t.Fatal("failed transaction changed checksum")
+	}
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_objects", 3)
+	if err := os.Remove(broken); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(objectDir, "views/value.sql")); err != nil {
+		t.Fatal(err)
+	}
+	if output := run("objects", "status"); !strings.Contains(output, "missing") {
+		t.Fatalf("missing status: %s", output)
+	}
+	run("objects", "apply")
+	assertCount("SELECT value FROM dbo.saxbase_value", 2)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_objects", 3)
 
 	run("down")
 	assertVersion("1")
