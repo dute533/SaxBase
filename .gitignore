@@ -1,0 +1,12 @@
+# Build outputs
+/saxbase
+/saxbase.exe
+/bin/
+/dist/
+*.test
+*.exe
+
+# Coverage and profiling output
+/coverage.out
+/coverage.html
+*.prof
