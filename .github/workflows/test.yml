@@ -1,0 +1,46 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test ./...
+      - run: go vet ./...
+
+  sqlserver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_PID: Developer
+          # Disposable CI server only; this is not a production credential.
+          MSSQL_SA_PASSWORD: SaxBase_Test_Only_42!
+        ports:
+          - 1433/tcp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Create database, migrate, verify, and roll back
+        env:
+          SAXBASE_TEST_SQLSERVER_DSN: 'sqlserver://sa:SaxBase_Test_Only_42!@localhost:${{ job.services.sqlserver.ports[1433] }}?database=master&encrypt=disable'
+        run: go test -tags=integration -count=1 -timeout=6m -v ./test/integration

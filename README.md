@@ -57,9 +57,40 @@ go test ./...
 go vet ./...
 ```
 
-Tests cover command routing, configuration, output, error propagation, cleanup,
-and Goose migration discovery without a database. Live SQL Server migration
-execution requires a separate test database and is not covered by these tests.
+Unit tests cover command routing, configuration, output, error propagation,
+cleanup, and Goose migration discovery without a database.
+
+### SQL Server integration pipeline
+
+GitHub Actions runs unit tests and a SQL Server 2022 integration test on pushes,
+pull requests, and manual runs. The integration test builds the actual CLI,
+waits for SQL Server, creates a uniquely named database, and runs two fixture
+migrations: creating a customers table with a row, then adding a nullable
+`NVARCHAR(100)` nickname column. It checks the schema, data, Goose history,
+`status`, and `version`; verifies a second `up` does not rerun migrations; and
+checks each `down` removes only its corresponding change. Cleanup drops the
+test database even after assertion failures.
+
+To run it locally, start a disposable SQL Server instance (Docker on x86-64):
+
+```sh
+docker run --rm -d --name saxbase-test-sqlserver \
+  -e ACCEPT_EULA=Y -e MSSQL_PID=Developer \
+  -e 'MSSQL_SA_PASSWORD=SaxBase_Test_Only_42!' \
+  -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest
+
+export SAXBASE_TEST_SQLSERVER_DSN='sqlserver://sa:SaxBase_Test_Only_42!@localhost:1433?database=master&encrypt=disable'
+go test -tags=integration -count=1 -timeout=6m -v ./test/integration
+
+docker stop saxbase-test-sqlserver
+```
+
+The connection must point to a test server with permission to create and drop
+databases. The test selects `master` for setup and changes to its own database
+for migrations; it never migrates the database named in the supplied URL.
+The password and unencrypted connection above are for the disposable local/CI
+server. Integration tests require the `integration` build tag and fail if the
+connection environment variable is missing, so CI cannot silently skip them.
 
 ## Planned deployment model
 
