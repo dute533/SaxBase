@@ -69,16 +69,20 @@ func TestSQLServerMigration(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	objectDir := t.TempDir()
-	if err := filepath.WalkDir("testdata/objects", func(path string, entry fs.DirEntry, err error) error {
+	// Use the documented example with the CLI's default database/ layout.
+	// Copy it so change/failure tests never modify the example in the checkout.
+	workDir := t.TempDir()
+	objectDir := filepath.Join(workDir, "database", "objects")
+	exampleDir := filepath.Join("..", "..", "examples", "sqlserver", "database")
+	if err := filepath.WalkDir(exampleDir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel("testdata/objects", path)
+		rel, err := filepath.Rel(exampleDir, path)
 		if err != nil {
 			return err
 		}
-		target := filepath.Join(objectDir, rel)
+		target := filepath.Join(workDir, "database", rel)
 		if entry.IsDir() {
 			return os.MkdirAll(target, 0700)
 		}
@@ -92,11 +96,11 @@ func TestSQLServerMigration(t *testing.T) {
 	}
 	execute := func(command ...string) (string, error) {
 		t.Helper()
-		args := append([]string{"-dir", "testdata/migrations", "-objects-dir", objectDir}, command...)
-		cmd := exec.CommandContext(ctx, binary, args...)
+		cmd := exec.CommandContext(ctx, binary, command...)
+		cmd.Dir = workDir
 		// Keep developer Goose settings from changing this test's target.
 		for _, value := range os.Environ() {
-			if !strings.HasPrefix(value, "GOOSE_") {
+			if !strings.HasPrefix(value, "GOOSE_") && !strings.HasPrefix(value, "SAXBASE_OBJECTS_DIR=") {
 				cmd.Env = append(cmd.Env, value)
 			}
 		}

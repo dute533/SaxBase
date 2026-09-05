@@ -1,6 +1,0 @@
-CREATE OR ALTER FUNCTION dbo.saxbase_function()
-RETURNS INT
-AS
-BEGIN
-    RETURN 1;
-END;

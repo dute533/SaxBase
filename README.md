@@ -112,6 +112,11 @@ not implemented yet.
 
 ## Development
 
+The [SQL Server example](examples/sqlserver/README.md) contains a complete
+`database/migrations` and `database/objects/{views,procedures,functions}` layout,
+with commands and SQL queries for applying and checking changes. The integration
+pipeline uses these same files and the CLI's default directory paths.
+
 ```sh
 go test ./...
 go vet ./...
