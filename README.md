@@ -1,5 +1,7 @@
 # SaxBase
 
+## THIS PROJECT IS WORK IN PROGRESS AND WILL RECEIVE ITS FIRST TAG AS SOON AS BASE FUNCTIONALITY IS COMPLETED AND FULLY TESTED
+
 SaxBase is a Go database deployment CLI built around [Goose](https://github.com/pressly/goose).
 Goose remains an external Go module and owns structural migrations. SaxBase owns
 deployment semantics through an internal migration engine interface.
