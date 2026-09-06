@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"saxbase/internal/deploymentlock"
 
 	_ "github.com/microsoft/go-mssqldb"
 )
@@ -98,6 +99,9 @@ func (s *store) apply(ctx context.Context, files []File, release *Release) ([]St
 	if lock < 0 {
 		return nil, fmt.Errorf("lock object deployment failed (code %d)", lock)
 	}
+	if err := deploymentlock.CheckPending(ctx, tx); err != nil {
+		return nil, err
+	}
 	if release != nil {
 		if err := checkReleaseSchema(ctx, tx, release.SchemaVersion); err != nil {
 			return nil, err
@@ -146,6 +150,20 @@ func (s *store) apply(ctx context.Context, files []File, release *Release) ([]St
 	if newRelease {
 		if err := recordSnapshot(ctx, tx, releaseID, files); err != nil {
 			return nil, err
+		}
+	}
+	if release != nil {
+		if err := setCurrent(ctx, tx, release.Version); err != nil {
+			return nil, err
+		}
+	} else {
+		for _, row := range result {
+			if row.State == "new" || row.State == "changed" {
+				if err := deploymentlock.Invalidate(ctx, tx); err != nil {
+					return nil, err
+				}
+				break
+			}
 		}
 	}
 	if err := tx.Commit(); err != nil {

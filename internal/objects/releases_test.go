@@ -34,6 +34,7 @@ func mockStore(t *testing.T) (*store, sqlmock.Sqlmock) {
 func expectReleaseStart(mock sqlmock.Sqlmock, schema int64, deployed []File) {
 	mock.ExpectBegin()
 	mock.ExpectQuery("DECLARE @result int;").WillReturnRows(sqlmock.NewRows([]string{"result"}).AddRow(0))
+	mock.ExpectQuery("SELECT OBJECT_ID.*saxbase_rollbacks").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(nil))
 	mock.ExpectQuery(`SELECT MAX\(version_id\) FROM goose_db_version`).WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow(schema))
 	mock.ExpectExec("IF OBJECT_ID.*saxbase_objects").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("SELECT OBJECT_ID.*saxbase_objects").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
@@ -66,6 +67,7 @@ func TestReleaseCommitsCompleteSnapshot(t *testing.T) {
 	for _, file := range files {
 		mock.ExpectExec("INSERT INTO dbo.saxbase_release_objects").WithArgs(int64(7), file.Path, file.Checksum, []byte(file.SQL)).WillReturnResult(sqlmock.NewResult(0, 1))
 	}
+	expectCurrent(mock, "30.1")
 	mock.ExpectCommit()
 	rows, err := s.ApplyRelease(context.Background(), files, 30, 1)
 	if err != nil {
@@ -103,6 +105,7 @@ func TestReleaseRollsBackOnSQLOrSnapshotFailure(t *testing.T) {
 				}
 			}
 			if phase == "commit" {
+				expectCurrent(mock, "30")
 				mock.ExpectCommit().WillReturnError(failure)
 			} else {
 				mock.ExpectRollback()
@@ -136,6 +139,7 @@ func TestReleaseIdentityAndOrdering(t *testing.T) {
 				mock.ExpectQuery("SELECT TOP.*schema_version, revision").WillReturnRows(sqlmock.NewRows([]string{"schema", "revision"}).AddRow(30, revision))
 			}
 			if scenario == "retry" {
+				expectCurrent(mock, "30.2")
 				mock.ExpectCommit()
 			} else {
 				mock.ExpectRollback()
@@ -175,6 +179,7 @@ func TestReleaseRechecksGooseVersionAndLock(t *testing.T) {
 			}
 			mock.ExpectQuery("DECLARE @result int;").WillReturnRows(sqlmock.NewRows([]string{"result"}).AddRow(code))
 			if scenario == "schema" {
+				mock.ExpectQuery("SELECT OBJECT_ID.*saxbase_rollbacks").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(nil))
 				mock.ExpectQuery(`SELECT MAX\(version_id\) FROM goose_db_version`).WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow(31))
 			}
 			mock.ExpectRollback()
@@ -183,6 +188,11 @@ func TestReleaseRechecksGooseVersionAndLock(t *testing.T) {
 			}
 		})
 	}
+}
+
+func expectCurrent(mock sqlmock.Sqlmock, version string) {
+	mock.ExpectExec("IF OBJECT_ID.*saxbase_release_state").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("UPDATE dbo.saxbase_release_state").WithArgs(version).WillReturnResult(sqlmock.NewResult(0, 1))
 }
 
 func TestReleaseHistoryBeforeFirstDeployment(t *testing.T) {

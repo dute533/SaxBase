@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"saxbase/internal/migrations"
 	"sort"
 	"strings"
 	"time"
@@ -21,6 +22,9 @@ type Engine interface {
 	ApplyRelease(context.Context, []File, int64, int64) ([]Status, error)
 	History(context.Context) ([]Release, error)
 	Snapshot(context.Context, string) (Snapshot, error)
+	Rollback(context.Context, string, migrations.Engine) (Rollback, error)
+	Rollbacks(context.Context) ([]Rollback, error)
+	Current(context.Context) (string, error)
 	Status(context.Context, []File) ([]Status, error)
 	Close() error
 }

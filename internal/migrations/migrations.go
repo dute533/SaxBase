@@ -20,6 +20,9 @@ type Status struct {
 type Engine interface {
 	Up(context.Context) error
 	Down(context.Context) error
+	// DownTo is used by the release coordinator while it holds the deployment lock.
+	DownTo(context.Context, int64) error
+	ValidateDownTo(context.Context, int64) error
 	Status(context.Context) ([]Status, error)
 	Version(context.Context) (int64, error)
 	Close() error

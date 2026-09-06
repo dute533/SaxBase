@@ -3,11 +3,14 @@ package migrations
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
+	"saxbase/internal/deploymentlock"
 
 	_ "github.com/microsoft/go-mssqldb"
 	"github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/database"
 )
 
 type gooseEngine struct {
@@ -40,13 +43,78 @@ func Open(cfg Config) (Engine, error) {
 }
 
 func (g *gooseEngine) Up(ctx context.Context) error {
-	_, err := g.provider.Up(ctx)
-	return err
+	return g.change(ctx, func() error { _, err := g.provider.Up(ctx); return err })
 }
 
 func (g *gooseEngine) Down(ctx context.Context) error {
-	_, err := g.provider.Down(ctx)
+	return g.change(ctx, func() error { _, err := g.provider.Down(ctx); return err })
+}
+
+func (g *gooseEngine) DownTo(ctx context.Context, version int64) error {
+	if err := g.ValidateDownTo(ctx, version); err != nil {
+		return err
+	}
+	_, err := g.provider.DownTo(ctx, version)
 	return err
+}
+
+func (g *gooseEngine) ValidateDownTo(ctx context.Context, target int64) error {
+	current, err := g.Version(ctx)
+	if err != nil {
+		return err
+	}
+	if target < 0 || target > current {
+		return fmt.Errorf("cannot roll schema %d back to %d", current, target)
+	}
+	store, err := database.NewStore(database.DialectMSSQL, goose.DefaultTablename)
+	if err != nil {
+		return err
+	}
+	rows, err := store.ListMigrations(ctx, g.db)
+	if err != nil {
+		return err
+	}
+	sources := map[int64]bool{}
+	for _, source := range g.provider.ListSources() {
+		sources[source.Version] = true
+	}
+	targetApplied := target == 0
+	for _, row := range rows {
+		if !row.IsApplied {
+			continue
+		}
+		if row.Version == target {
+			targetApplied = true
+		}
+		if row.Version > target && !sources[row.Version] {
+			return fmt.Errorf("migration file for applied version %d is missing", row.Version)
+		}
+	}
+	if !targetApplied {
+		return fmt.Errorf("target Goose version %d is not applied", target)
+	}
+	return nil
+}
+
+func (g *gooseEngine) change(ctx context.Context, fn func() error) (err error) {
+	conn, release, err := deploymentlock.Acquire(ctx, g.db)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, release()) }()
+	if err := deploymentlock.CheckPending(ctx, conn); err != nil {
+		return err
+	}
+	before, err := g.provider.GetDBVersion(ctx)
+	if err != nil {
+		return err
+	}
+	operationErr := fn()
+	after, versionErr := g.provider.GetDBVersion(ctx)
+	if versionErr != nil || after != before {
+		err = deploymentlock.Invalidate(ctx, conn)
+	}
+	return errors.Join(operationErr, versionErr, err)
 }
 
 func (g *gooseEngine) Status(ctx context.Context) ([]Status, error) {

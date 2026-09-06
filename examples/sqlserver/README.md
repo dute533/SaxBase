@@ -100,8 +100,41 @@ overwrite existing files. A successful manifest deployment stores a release
 record and the complete SQL snapshot in the database, atomically with the object
 changes. `release show 2` still returns the original view definition after `2.1`
 is deployed. Reusing `2.1` with different definitions fails; create a new revision
-instead. A failed deployment leaves no new release record. Automatic rollback to
-old object definitions is not implemented yet.
+instead. A failed deployment leaves no new release record.
+
+## Roll back a release
+
+After deploying `2.1`, restore the recorded release `2`:
+
+```sh
+../../saxbase release current
+../../saxbase release rollback 2
+../../saxbase release current
+../../saxbase release rollbacks
+```
+
+The view returns `1` again even though its local SQL file still contains `id + 1`.
+Goose remains at version `2`, and both release snapshots remain in history.
+The object restore, checksum changes, and rollback completion commit together.
+
+To try rollback across structural versions, first restore the local view file
+to its initial checked-in contents, then add the supplied third migration:
+
+```sh
+cp rollback/00003_add_customer_note.sql database/migrations/
+../../saxbase up
+../../saxbase -manifest database/release-3.json release create 3
+../../saxbase -manifest database/release-3.json objects apply
+../../saxbase release rollback 2
+../../saxbase version
+```
+
+Goose now returns to `2`, removes `rollback_note`, and SaxBase restores the release
+`2` objects. Structural rollback runs in phases because Goose commits its own
+migrations. If a Down migration or object restore fails, inspect
+`release rollbacks`, fix the issue, and retry the same target. Other SaxBase
+writes are blocked while that rollback is incomplete. The integration test uses
+this third migration and deliberately injects failures to verify recovery.
 
 `../../saxbase down` rolls back the column migration, leaving the customers table
 and its row intact. A second `down` drops the table; full-state objects are not
@@ -126,4 +159,7 @@ It also validates the checked-in release manifest, rejects a wrong Goose version
 and stale checksums, and generates and applies an object revision manifest.
 It verifies complete release snapshots, immutable versions, concurrent retries,
 and that failed deployments leave no release or snapshot rows behind.
+Rollback tests restore old views independently of local files, remove an object
+introduced later, retain permissions, and recover from failures in both Goose
+Down and object restoration.
 See the root README for disposable Docker setup and connection configuration.

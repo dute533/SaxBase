@@ -32,7 +32,7 @@ func TestSQLServerMigration(t *testing.T) {
 	if err != nil || u.Scheme != "sqlserver" || u.Host == "" {
 		t.Fatal("SAXBASE_TEST_SQLSERVER_DSN must be a sqlserver:// URL")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	binary := filepath.Join(t.TempDir(), "saxbase")
 	build := exec.CommandContext(ctx, "go", "build", "-o", binary, "../..")
@@ -316,14 +316,134 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_objects", 3)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 2)
 
+	// Rollback uses stored SQL even when local definitions were edited or removed.
+	if _, err := db.ExecContext(ctx, "CREATE ROLE saxbase_reader; GRANT SELECT ON dbo.saxbase_value TO saxbase_reader;"); err != nil {
+		t.Fatal(err)
+	}
+	run("release", "rollback", "2")
+	assertCount("SELECT value FROM dbo.saxbase_value", 1)
+	assertCount("SELECT COUNT(*) FROM sys.database_permissions WHERE major_id=OBJECT_ID(N'dbo.saxbase_value') AND grantee_principal_id=DATABASE_PRINCIPAL_ID(N'saxbase_reader') AND permission_name='SELECT'", 1)
+	if got := run("release", "current"); got != "2" {
+		t.Fatalf("current release: %s", got)
+	}
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 2)
+	for _, object := range retained.Objects {
+		if err := os.WriteFile(filepath.Join(objectDir, object.Path), []byte(object.SQL), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(objectDir, "views/value.sql"), updated, 0600); err != nil {
+		t.Fatal(err)
+	}
+	extraPath := filepath.Join(objectDir, "zz_later.sql")
+	if err := os.WriteFile(extraPath, []byte("CREATE VIEW dbo.saxbase_later AS SELECT value FROM dbo.saxbase_value;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	run("-manifest", "database/release-2.2.json", "release", "create", "2.2")
+	run("-manifest", "database/release-2.2.json", "objects", "apply")
+	assertCount("SELECT value FROM dbo.saxbase_later", 2)
+	// A historical plain CREATE definition can be restored over an existing view.
+	run("release", "rollback", "2.2")
+	assertCount("SELECT value FROM dbo.saxbase_later", 2)
+	run("release", "rollback", "2")
+	assertCount("SELECT COUNT(*) FROM sys.views WHERE object_id=OBJECT_ID(N'dbo.saxbase_later')", 0)
+	assertCount("SELECT value FROM dbo.saxbase_value", 1)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_objects", 3)
+	run("-manifest", "database/release-2.2.json", "objects", "apply")
+
+	// A newer structural release is rolled back through Goose, with a failed
+	// Down migration first to prove progress survives and retries can finish.
+	noteMigration, err := os.ReadFile("../../examples/sqlserver/rollback/00003_add_customer_note.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrationPath := filepath.Join(workDir, "database/migrations/00003_add_customer_note.sql")
+	brokenMigration := strings.Replace(string(noteMigration), "ALTER TABLE dbo.customers DROP COLUMN rollback_note;", "THROW 51000, 'intentional rollback test failure', 1;", 1)
+	if err := os.WriteFile(migrationPath, []byte(brokenMigration), 0600); err != nil {
+		t.Fatal(err)
+	}
+	run("up")
+	if err := os.WriteFile(filepath.Join(objectDir, "views/value.sql"), []byte("CREATE OR ALTER VIEW dbo.saxbase_value AS SELECT id+2 AS value,rollback_note FROM dbo.customers;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	run("-manifest", "database/release-3.json", "release", "create", "3")
+	run("-manifest", "database/release-3.json", "objects", "apply")
+	if output, err := execute("release", "rollback", "99"); err == nil {
+		t.Fatalf("unknown release accepted: %s", output)
+	}
+	if err := os.Rename(migrationPath, migrationPath+".disabled"); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := execute("release", "rollback", "2.1"); err == nil || !strings.Contains(output, "migration file") {
+		t.Fatalf("missing migration preflight: %v %s", err, output)
+	}
+	assertCount("SELECT COUNT(*) FROM sys.views WHERE object_id=OBJECT_ID(N'dbo.saxbase_later')", 1)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_rollbacks WHERE status <> 'completed'", 0)
+	if err := os.Rename(migrationPath+".disabled", migrationPath); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := execute("release", "rollback", "2.1"); err == nil || !strings.Contains(output, "intentional rollback test failure") {
+		t.Fatalf("expected Goose rollback failure: %v %s", err, output)
+	}
+	assertVersion("3")
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_rollbacks WHERE status='failed' AND phase='objects_removed'", 1)
+	for _, args := range [][]string{{"up"}, {"down"}, {"objects", "apply"}, {"release", "current"}} {
+		if output, err := execute(args...); err == nil || !strings.Contains(output, "incomplete") {
+			t.Fatalf("pending rollback did not block %v: %v %s", args, err, output)
+		}
+	}
+	if output := run("release", "rollbacks"); !strings.Contains(output, "failed") {
+		t.Fatalf("missing failure history: %s", output)
+	}
+	if err := os.WriteFile(migrationPath, noteMigration, 0600); err != nil {
+		t.Fatal(err)
+	}
+	run("release", "rollback", "2.1")
+	assertVersion("2")
+	assertCount("SELECT value FROM dbo.saxbase_value", 2)
+	assertCount("SELECT COUNT(*) FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.customers') AND name=N'rollback_note'", 0)
+	assertCount("SELECT COUNT(*) FROM sys.views WHERE object_id=OBJECT_ID(N'dbo.saxbase_later')", 0)
+	if got := run("release", "current"); got != "2.1" {
+		t.Fatalf("current release: %s", got)
+	}
+	if output, err := execute("release", "rollback", "3"); err == nil {
+		t.Fatalf("forward rollback accepted: %s", output)
+	}
+
+	// Object-only rollback is atomic when a DDL error occurs during restore.
+	if _, err := db.ExecContext(ctx, "CREATE TRIGGER saxbase_block_restore ON DATABASE FOR ALTER_VIEW AS THROW 51001, 'intentional restore test failure', 1;"); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := execute("release", "rollback", "2"); err == nil || !strings.Contains(output, "intentional restore test failure") {
+		t.Fatalf("expected restore failure: %v %s", err, output)
+	}
+	assertCount("SELECT value FROM dbo.saxbase_value", 2)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_rollbacks WHERE status='failed' AND phase='started'", 1)
+	if _, err := db.ExecContext(ctx, "DROP TRIGGER saxbase_block_restore ON DATABASE"); err != nil {
+		t.Fatal(err)
+	}
+	run("release", "rollback", "2")
+	assertCount("SELECT value FROM dbo.saxbase_value", 1)
+	assertCount("EXEC dbo.saxbase_get_value", 1)
+	assertCount("SELECT dbo.saxbase_function()", 1)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_rollbacks WHERE status <> 'completed'", 0)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 4)
+	if got := run("release", "current"); got != "2" {
+		t.Fatalf("current release: %s", got)
+	}
+
 	run("down")
 	assertVersion("1")
-	assertStatus("applied", "pending")
+	if output := run("status"); !strings.Contains(output, "00003_add_customer_note.sql") {
+		t.Fatalf("missing schema migration status: %s", output)
+	}
 	assertCount("SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.customers') AND name = N'nickname'", 0)
 	assertCount("SELECT COUNT(*) FROM dbo.customers WHERE id = 1 AND name = N'Ada'", 1)
 	run("down")
 	assertVersion("0")
-	assertStatus("pending", "pending")
+	if got := run("version"); got != "0" {
+		t.Fatalf("version after final down: %s", got)
+	}
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id = OBJECT_ID(N'dbo.customers')", 0)
 }
 

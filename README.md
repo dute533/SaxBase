@@ -93,8 +93,9 @@ reports `applied` only after the transaction commits. Unchanged files are skippe
 
 Definitions and checksums in `dbo.saxbase_objects` commit together in one SQL Server
 transaction. A failure rolls back the whole object apply. A database application
-lock serializes SaxBase object applies, with a 30-second lock wait. Structural
-migrations are a separate operation; coordinate them with object deployments.
+lock serializes SaxBase object applies, Goose Up/Down commands, and release
+rollback, with a 30-second lock wait. External database tools must still be
+coordinated with SaxBase deployments.
 
 Each file must contain one complete object definition in a single SQL batch,
 typically `CREATE OR ALTER`. Do not include Goose annotations, `GO` separators,
@@ -106,8 +107,9 @@ definition plus a missing old path.
 
 Missing files are reported but never automatically dropped or removed from
 tracking. Checksums compare files with the last deployment, not live database
-definitions, so manual database edits are not detected. Automatic object removal,
-dependency resolution, and restoring prior object versions are not implemented yet.
+definitions, so manual database edits are not detected. Automatic removal during
+normal apply and dependency resolution are not implemented. Explicit release
+rollback can restore saved definitions and remove objects introduced later.
 
 ## Release manifests
 
@@ -160,12 +162,13 @@ successful manifest deployments also store full SQL snapshots in the database.
 
 ### Database release history
 
-Deploying with `-manifest` automatically initializes two SaxBase-owned tables:
+Deploying with `-manifest` automatically maintains these SaxBase-owned tables:
 
 | Table | Contents |
 | --- | --- |
 | `dbo.saxbase_releases` | Release version, numeric Goose version and revision, first deployment time in UTC, and object count. |
 | `dbo.saxbase_release_objects` | Every object path, SHA-256 checksum, and exact UTF-8 SQL bytes for each release, including unchanged objects. |
+| `dbo.saxbase_release_state` | The last recorded active release, updated by versioned apply and successful rollback. |
 
 The object definitions, deployed checksums, release record, and complete snapshot
 commit in one transaction. SQL or metadata errors roll back the transaction,
@@ -177,6 +180,7 @@ Inspect releases using the configured `GOOSE_DBSTRING`:
 ```sh
 ./saxbase release history
 ./saxbase release show 30.1
+./saxbase release current
 ```
 
 `history` lists versions in descending numeric schema/revision order (`30.10`
@@ -189,8 +193,8 @@ Release versions are immutable: reusing a version with different SQL or a
 different object set fails. Reapplying the latest version with the same snapshot
 is allowed and creates no duplicate history or snapshot rows; its timestamp
 remains the first successful deployment time. Concurrent applies use the same
-database application lock. Older versions cannot be reapplied as an implicit
-rollback; explicit release rollback is future work.
+database application lock. To restore an older version, use explicit
+`release rollback VERSION` rather than `objects apply`.
 
 A release manifest must include every previously tracked object as well as the
 complete local file set. Omitted tracked objects block release deployment;
@@ -203,7 +207,68 @@ migrations with object deployment, especially nontransactional SQL or external
 tools. Release history is a record of successful versioned deployments, not a
 live drift detector: unversioned applies, Goose `down`, or manual SQL can change
 the current database without changing historical release snapshots. It is not
-an audit log of every retry. Automatic restoration of snapshots is not yet implemented.
+an audit log of every retry. SaxBase marks the active release as unversioned when
+an unversioned object apply changes SQL or a standalone Goose command changes
+the structural version. Manual SQL and external Goose commands cannot update
+this marker automatically.
+
+## Release rollback
+
+```sh
+./saxbase release current
+./saxbase release rollback 30.1
+./saxbase release rollbacks
+```
+
+Rollback reads the target SQL snapshot from the database. It does not read local
+object files or require a manifest. The migrations directory is still required;
+for a structural downgrade it must contain every applied migration above the
+target version with its Goose Down SQL. `-dir` selects an alternate directory.
+The target must be a previously recorded release no newer than the active release.
+
+Before modifying objects, SaxBase validates snapshot checksums and completeness,
+the active release's tracked object set and Goose version, and the required
+migration files. A changed, unversioned object state must be deployed with a
+manifest before rollback. Objects must use schema-qualified
+`CREATE [OR ALTER] VIEW`, `PROCEDURE`/`PROC`, or `FUNCTION` definitions. Quoted
+identifiers and leading SQL comments are supported; unsupported headers are
+rejected before object changes.
+For an older snapshot using plain `CREATE`, rollback executes it with
+`CREATE OR ALTER`; the stored SQL bytes and checksum remain unchanged.
+
+For an object-only rollback, SaxBase restores all target definitions, drops
+tracked objects absent from the target, replaces the deployed checksum set,
+updates the active release, and records completion in one transaction. Existing
+target objects are altered rather than dropped, preserving their permissions.
+Untracked database objects are never dropped. Historical releases and snapshots
+remain unchanged.
+
+For rollback across structural versions, Goose owns its migration transactions,
+so the entire operation is **not atomic**. The phases are:
+
+1. Drop tracked objects absent from the target and commit that phase.
+2. Run Goose Down migrations to the target structural version.
+3. Restore the target SQL definitions, checksums, and active release in one transaction.
+
+Goose Down SQL can remove data. Retained modules are not automatically dropped
+before structural rollback. Schema-bound modules or other dependencies may need
+explicit preparation; SaxBase does not resolve dependency graphs. Target SQL is
+restored in lexical file-path order, and removed objects are dropped in reverse
+source-path order. All DDL is executed as supplied in the saved snapshots and
+migration files.
+
+`dbo.saxbase_rollbacks` stores each operation's source, target, phase, status,
+timestamps, and latest error. `release rollbacks` prints those records as JSON.
+Phases are `started`, `objects_removed`, `schema_rolled_back`, and `restored`.
+After failure, repair the migration or database issue and rerun the **same**
+`release rollback VERSION` command. It resumes the existing operation using the
+actual Goose version; it does not replay already completed Down migrations.
+
+An incomplete operation blocks other SaxBase writes and `release current` until
+the rollback completes. `version`, `status`, release history, and rollback history
+remain available for inspection. A session-scoped database lock prevents another
+SaxBase deployment from interleaving between phases. The test suite exercises
+both partial structural failure and atomic object-restore failure with retries.
 
 ## Development
 
@@ -240,6 +305,9 @@ Release tests verify complete SQL snapshots, retained historical definitions,
 immutable version identities, concurrent retries without duplicate records,
 and rollback of failed release records. SQL mock tests additionally inject
 checksum and snapshot write failures to check transaction rollback without a server.
+Rollback coverage also includes restoring despite changed local files, removing
+newer objects, preserving permissions, rejecting missing migration files,
+structural downgrade failure/retry, and DDL-trigger failure during object restore.
 
 To run it locally, start a disposable SQL Server instance (Docker on x86-64):
 
@@ -277,5 +345,5 @@ Releases pair a Goose structural version with an exact object state.
 Versions such as `30`, `30.1`, `30.2`, `31`, and `31.1` consist of an integer
 schema version and an optional object revision; they must never use floating-point
 representation. Release manifests, database release history, and historical SQL
-snapshots are implemented. Rollback to previous releases, unified deployment
-planning, and eventual ArchiMate model generation remain future work.
+snapshots and explicit release rollback are implemented. Unified deployment
+planning and eventual ArchiMate model generation remain future work.

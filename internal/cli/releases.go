@@ -48,8 +48,8 @@ func runRelease(args []string, filename, dir string, out io.Writer) error {
 }
 
 func runReleaseDatabase(ctx context.Context, args []string, cfg migrations.Config, out io.Writer, open func(string) (objects.Engine, error)) (err error) {
-	if !((len(args) == 1 && args[0] == "history") || (len(args) == 2 && args[0] == "show")) {
-		return errors.New("expected release history or release show VERSION")
+	if !((len(args) == 1 && (args[0] == "history" || args[0] == "rollbacks" || args[0] == "current")) || (len(args) == 2 && args[0] == "show")) {
+		return errors.New("expected release history, current, rollbacks, or show VERSION")
 	}
 	if args[0] == "show" {
 		if _, err := releases.ParseVersion(args[1]); err != nil {
@@ -67,6 +67,23 @@ func runReleaseDatabase(ctx context.Context, args []string, cfg migrations.Confi
 		return err
 	}
 	defer func() { err = errors.Join(err, engine.Close()) }()
+	if args[0] == "current" {
+		version, err := engine.Current(ctx)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(out, version)
+		return err
+	}
+	if args[0] == "rollbacks" {
+		rows, err := engine.Rollbacks(ctx)
+		if err != nil {
+			return err
+		}
+		encoder := json.NewEncoder(out)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(rows)
+	}
 	if args[0] == "show" {
 		snapshot, err := engine.Snapshot(ctx, args[1])
 		if err != nil {
@@ -86,6 +103,37 @@ func runReleaseDatabase(ctx context.Context, args []string, cfg migrations.Confi
 		fmt.Fprintf(w, "%s\t%d\t%d\t%s\n", row.Version, row.SchemaVersion, row.ObjectCount, row.DeployedAt.UTC().Format(time.RFC3339))
 	}
 	return w.Flush()
+}
+
+func runRollback(ctx context.Context, args []string, cfg migrations.Config, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {
+	if len(args) != 1 {
+		return errors.New("expected release rollback VERSION")
+	}
+	if _, err := releases.ParseVersion(args[0]); err != nil {
+		return err
+	}
+	if cfg.Driver != "mssql" && cfg.Driver != "sqlserver" {
+		return fmt.Errorf("unsupported driver %q", cfg.Driver)
+	}
+	if cfg.DSN == "" {
+		return errors.New("set GOOSE_DBSTRING before rollback")
+	}
+	engine, err := openObjects(cfg.DSN)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, engine.Close()) }()
+	goose, err := open(cfg)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, goose.Close()) }()
+	result, err := engine.Rollback(ctx, args[0], goose)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(out, "Rolled back release %s to %s\n", result.SourceVersion, result.TargetVersion)
+	return err
 }
 
 func checkSchema(ctx context.Context, cfg migrations.Config, m releases.Manifest, open OpenFunc) (err error) {

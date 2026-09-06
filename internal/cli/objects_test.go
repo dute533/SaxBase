@@ -33,6 +33,18 @@ func (f *fakeObjects) Status(_ context.Context, files []objects.File) ([]objects
 	return []objects.Status{{Path: files[0].Path, State: "new", Checksum: files[0].Checksum}}, f.err
 }
 func (f *fakeObjects) Close() error { f.closed = true; return nil }
+func (f *fakeObjects) Rollback(_ context.Context, version string, _ migrations.Engine) (objects.Rollback, error) {
+	f.command = "rollback"
+	return objects.Rollback{SourceVersion: "30.2", TargetVersion: version, Status: "completed"}, f.err
+}
+func (f *fakeObjects) Rollbacks(context.Context) ([]objects.Rollback, error) {
+	f.command = "rollbacks"
+	return []objects.Rollback{}, f.err
+}
+func (f *fakeObjects) Current(context.Context) (string, error) {
+	f.command = "current"
+	return "30.1", f.err
+}
 
 func (f *fakeObjects) ApplyRelease(ctx context.Context, files []objects.File, schema, revision int64) ([]objects.Status, error) {
 	f.schema, f.revision = schema, revision

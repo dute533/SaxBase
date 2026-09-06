@@ -23,8 +23,10 @@ func (f *fakeEngine) call(ctx context.Context, command string) error {
 	f.ctx, f.command = ctx, command
 	return f.err
 }
-func (f *fakeEngine) Up(ctx context.Context) error   { return f.call(ctx, "up") }
-func (f *fakeEngine) Down(ctx context.Context) error { return f.call(ctx, "down") }
+func (f *fakeEngine) Up(ctx context.Context) error                { return f.call(ctx, "up") }
+func (f *fakeEngine) Down(ctx context.Context) error              { return f.call(ctx, "down") }
+func (f *fakeEngine) DownTo(ctx context.Context, _ int64) error   { return f.call(ctx, "down-to") }
+func (f *fakeEngine) ValidateDownTo(context.Context, int64) error { return f.err }
 func (f *fakeEngine) Version(ctx context.Context) (int64, error) {
 	return 20260905123456, f.call(ctx, "version")
 }
