@@ -3,12 +3,18 @@
 A SQL Server deployment CLI that combines [Goose](https://github.com/pressly/goose)
 schema migrations with versioned views, procedures, and functions.
 
-**Work in progress — no stable release yet.** Requires Go 1.26+ and SQL Server.
+**Work in progress — no stable release yet.** Requires SQL Server.
+
+Download Linux, macOS, and Windows binaries (amd64/arm64) from
+[GitHub Releases](https://github.com/dute533/SaxBase/releases) once published.
+Extract the archive and use `saxbase` (`saxbase.exe` on Windows); Go is only needed
+to build from source. Preview builds are available as `saxbase-binaries` artifacts
+in the [Binaries workflow](https://github.com/dute533/SaxBase/actions/workflows/binaries.yml).
 
 ## Quick start
 
 ```sh
-go build -o saxbase .
+go build -o saxbase .          # Source builds require Go 1.26+
 cp saxbase.yaml.example saxbase.yaml
 cp .env.example .env
 ```

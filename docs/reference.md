@@ -525,3 +525,31 @@ schema version and an optional object revision; they must never use floating-poi
 representation. Release manifests, database release history, and historical SQL
 snapshots, explicit release rollback, and read-only release planning are implemented.
 Unified deployment is also implemented; ArchiMate model generation remains future work.
+
+## Binary distribution
+
+The Binaries workflow runs unit tests, vet, and SQL Server integration tests before
+packaging Linux, macOS, and Windows binaries for amd64 and arm64. Linux and macOS
+use `.tar.gz` archives; Windows uses `.zip`.
+Each includes the executable, license,
+documentation, examples, and configuration templates. SHA-256 checksums accompany
+the archives. Cross-compiled binaries do not require Go on the user's machine.
+
+Pushes to `main` and manual workflow runs upload preview builds to Actions artifacts
+for 14 days. Pushing a `v*` tag builds the tagged code and creates a **draft GitHub
+Release** with the same archives and checksums. Review its notes and publish it
+when ready; prerelease tags should be marked as prereleases before publishing.
+No release is published automatically. Existing releases are never overwritten.
+
+Build packages locally from the repository root with Go, Bash, tar, Python 3, and
+sha256sum available:
+
+```sh
+bash scripts/build-binaries.sh snapshot
+```
+
+Files are written to `dist/`. On Linux, verify downloads with
+`sha256sum -c saxbase_VERSION_checksums.txt` after downloading all six archives.
+Binaries are currently unsigned and cross-compiled. Before creating a draft
+release, CI verifies archive checksums and runs each packaged binary with `-h`
+on a matching native runner. SQL Server integration tests run on Linux.

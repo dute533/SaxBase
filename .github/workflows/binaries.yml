@@ -1,0 +1,121 @@
+name: Binaries
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: ./.github/workflows/test.yml
+
+  build:
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Package binaries
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          label="snapshot-${GITHUB_SHA:0:12}"
+          if [[ "$REF_TYPE" == tag ]]; then label="$REF_NAME"; fi
+          bash scripts/build-binaries.sh "$label"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: saxbase-binaries
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*_checksums.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  smoke:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux_amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux_arm64
+          - runner: macos-15-intel
+            platform: darwin_amd64
+          - runner: macos-15
+            platform: darwin_arm64
+          - runner: windows-2025
+            platform: windows_amd64
+          - runner: windows-11-arm
+            platform: windows_arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: saxbase-binaries
+          path: dist
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify and run packaged binary
+        shell: python {0}
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          import hashlib
+          import os
+          from pathlib import Path
+          import subprocess
+          import tarfile
+          import zipfile
+
+          platform = os.environ["PLATFORM"]
+          archives = list(Path("dist").glob(f"*_{platform}.tar.gz")) + list(Path("dist").glob(f"*_{platform}.zip"))
+          assert len(archives) == 1, "Expected exactly one platform archive"
+          archive = archives[0]
+          checksum_files = list(Path("dist").glob("*_checksums.txt"))
+          assert len(checksum_files) == 1
+          checksums = dict(line.split()[::-1] for line in checksum_files[0].read_text().splitlines())
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == checksums[archive.name]
+          if archive.suffix == ".zip":
+              with zipfile.ZipFile(archive) as package:
+                  package.extractall("unpack")
+          else:
+              with tarfile.open(archive) as package:
+                  package.extractall("unpack", filter="data")
+          executable = "saxbase.exe" if platform.startswith("windows_") else "saxbase"
+          binaries = list(Path("unpack").glob(f"*/{executable}"))
+          assert len(binaries) == 1
+          subprocess.run([str(binaries[0].resolve()), "-h"], check=True)
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: saxbase-binaries
+          path: dist
+      - name: Create draft release with downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" dist/*.tar.gz dist/*.zip dist/*_checksums.txt --verify-tag --draft --generate-notes --title "$RELEASE_TAG"
