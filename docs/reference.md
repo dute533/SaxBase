@@ -526,6 +526,13 @@ representation. Release manifests, database release history, and historical SQL
 snapshots, explicit release rollback, and read-only release planning are implemented.
 Unified deployment is also implemented; ArchiMate model generation remains future work.
 
+## CLI version
+
+Run `saxbase --version` (or `-version`) to print the CLI version without loading
+configuration or connecting to a database. Source builds report `saxbase dev`;
+packaged builds report their release tag or snapshot label. The existing
+`saxbase version` command reports the Goose database migration version.
+
 ## Binary distribution
 
 The Binaries workflow runs unit tests, vet, and SQL Server integration tests before

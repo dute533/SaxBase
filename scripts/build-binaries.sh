@@ -18,7 +18,7 @@ for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 
   mkdir -p "$package/docs"
   binary=saxbase
   if [[ "$os" == windows ]]; then binary=saxbase.exe; fi
-  CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -o "$package/$binary" .
+  CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-X saxbase/internal/cli.Version=$label" -o "$package/$binary" .
   cp LICENSE README.md saxbase.yaml.example .env.example "$package/"
   cp docs/reference.md "$package/docs/"
   cp -R examples "$package/"

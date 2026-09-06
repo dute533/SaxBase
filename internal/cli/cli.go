@@ -14,9 +14,13 @@ import (
 	"saxbase/internal/releases"
 )
 
+// Version is set by the release build; local source builds report dev.
+var Version = "dev"
+
 const usage = `SaxBase
 
 Usage:
+  saxbase --version
   saxbase [-dir database/migrations] COMMAND
   saxbase [-dir database/migrations] mssql CONNECTION_STRING COMMAND
   saxbase [-objects-dir database/objects] objects apply|status
@@ -89,7 +93,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	flags := flag.NewFlagSet("saxbase", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var dir, objectDir, manifestPath, configPath, target string
-	var yes bool
+	var yes, showVersion bool
+	flags.BoolVar(&showVersion, "version", false, "print SaxBase CLI version")
 	flags.BoolVar(&yes, "yes", false, "confirm writes to protected targets")
 	flags.StringVar(&dir, "dir", "", "migration directory")
 	flags.StringVar(&objectDir, "objects-dir", "", "full-state object directory")
@@ -102,6 +107,13 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 			return err
 		}
 		return parseErr
+	}
+	if showVersion {
+		if flags.NArg() != 0 {
+			return errors.New("--version does not accept a command")
+		}
+		_, err = fmt.Fprintf(out, "saxbase %s\n", Version)
+		return err
 	}
 	var lookup []func(string) (string, bool)
 	targetOut := out

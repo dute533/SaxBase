@@ -100,6 +100,10 @@ jobs:
           binaries = list(Path("unpack").glob(f"*/{executable}"))
           assert len(binaries) == 1
           subprocess.run([str(binaries[0].resolve()), "-h"], check=True)
+          suffix = f"_{platform}.zip" if platform.startswith("windows_") else f"_{platform}.tar.gz"
+          label = archive.name.removeprefix("saxbase_").removesuffix(suffix)
+          result = subprocess.run([str(binaries[0].resolve()), "--version"], check=True, capture_output=True, text=True)
+          assert result.stdout.strip() == f"saxbase {label}", "Incorrect embedded version"
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

@@ -76,6 +76,7 @@ missing files. Review dependencies when adding objects.
 
 | Command | Purpose |
 | --- | --- |
+| `--version` | Show the SaxBase CLI version |
 | `release validate` | Check the manifest against local SQL files |
 | `release current` / `release history` | Inspect deployed releases |
 | `release show VERSION` | Print a stored release and its SQL |
