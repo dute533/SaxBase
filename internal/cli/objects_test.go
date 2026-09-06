@@ -14,10 +14,12 @@ import (
 )
 
 type fakeObjects struct {
-	command string
-	files   []objects.File
-	closed  bool
-	err     error
+	command  string
+	files    []objects.File
+	closed   bool
+	err      error
+	schema   int64
+	revision int64
 }
 
 func (f *fakeObjects) Apply(_ context.Context, files []objects.File) ([]objects.Status, error) {
@@ -31,6 +33,21 @@ func (f *fakeObjects) Status(_ context.Context, files []objects.File) ([]objects
 	return []objects.Status{{Path: files[0].Path, State: "new", Checksum: files[0].Checksum}}, f.err
 }
 func (f *fakeObjects) Close() error { f.closed = true; return nil }
+
+func (f *fakeObjects) ApplyRelease(ctx context.Context, files []objects.File, schema, revision int64) ([]objects.Status, error) {
+	f.schema, f.revision = schema, revision
+	rows, err := f.Apply(ctx, files)
+	f.command = "apply-release"
+	return rows, err
+}
+func (f *fakeObjects) History(context.Context) ([]objects.Release, error) {
+	f.command = "history"
+	return []objects.Release{{Version: "30.1", SchemaVersion: 30, Revision: 1, ObjectCount: 1}}, f.err
+}
+func (f *fakeObjects) Snapshot(_ context.Context, version string) (objects.Snapshot, error) {
+	f.command = "show"
+	return objects.Snapshot{Release: objects.Release{Version: version}, Objects: []objects.SnapshotObject{{Path: "view.sql", SQL: "SELECT 1;"}}}, f.err
+}
 
 func TestObjectCommands(t *testing.T) {
 	dir := t.TempDir()

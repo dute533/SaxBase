@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf16"
 )
 
@@ -17,8 +18,30 @@ type File struct{ Path, SQL, Checksum string }
 type Status struct{ Path, State, Checksum string }
 type Engine interface {
 	Apply(context.Context, []File) ([]Status, error)
+	ApplyRelease(context.Context, []File, int64, int64) ([]Status, error)
+	History(context.Context) ([]Release, error)
+	Snapshot(context.Context, string) (Snapshot, error)
 	Status(context.Context, []File) ([]Status, error)
 	Close() error
+}
+
+type Release struct {
+	Version       string    `json:"version"`
+	SchemaVersion int64     `json:"schema_version"`
+	Revision      int64     `json:"revision"`
+	DeployedAt    time.Time `json:"deployed_at"`
+	ObjectCount   int       `json:"object_count"`
+}
+
+type SnapshotObject struct {
+	Path     string `json:"path"`
+	Checksum string `json:"sha256"`
+	SQL      string `json:"sql"`
+}
+
+type Snapshot struct {
+	Release
+	Objects []SnapshotObject `json:"objects"`
 }
 
 // Scan hashes exact file bytes and orders definitions by relative slash path.

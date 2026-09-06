@@ -69,7 +69,7 @@ func TestManifestApplyGuards(t *testing.T) {
 				t.Fatal("schema mismatch did not block apply")
 			}
 		} else {
-			if err != nil || !objectEngine.closed || objectEngine.command != "apply" {
+			if err != nil || !objectEngine.closed || objectEngine.command != "apply-release" || objectEngine.schema != 20260905123456 || objectEngine.revision != 1 {
 				t.Fatalf("matching release failed: %v", err)
 			}
 		}
@@ -82,6 +82,23 @@ func TestManifestApplyGuards(t *testing.T) {
 		err = run(context.Background(), []string{"-objects-dir", dir, "-manifest", filename, "objects", "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &bytes.Buffer{}, nil, nil)
 		if err == nil {
 			t.Fatal("file mismatch accepted")
+		}
+	}
+}
+
+func TestReleaseDatabaseCommands(t *testing.T) {
+	for _, args := range [][]string{{"release", "history"}, {"release", "show", "30.1"}} {
+		f := &fakeObjects{}
+		var out bytes.Buffer
+		err := run(context.Background(), args, env(map[string]string{"GOOSE_DBSTRING": "dsn", "GOOSE_MIGRATION_DIR": "missing", "SAXBASE_OBJECTS_DIR": "missing"}), &out, nil, func(string) (objects.Engine, error) { return f, nil })
+		if err != nil || !f.closed || !strings.Contains(out.String(), "30.1") {
+			t.Fatalf("%v: %v, %s", args, err, out.String())
+		}
+	}
+	for _, args := range [][]string{{"release", "show"}, {"release", "show", "30.0"}, {"release", "history", "extra"}, {"release", "history"}} {
+		err := run(context.Background(), args, env(nil), &bytes.Buffer{}, nil, func(string) (objects.Engine, error) { t.Fatal("opened database on invalid input"); return nil, nil })
+		if err == nil {
+			t.Fatalf("accepted %v", args)
 		}
 	}
 }

@@ -106,9 +106,8 @@ definition plus a missing old path.
 
 Missing files are reported but never automatically dropped or removed from
 tracking. Checksums compare files with the last deployment, not live database
-definitions, so manual database edits are not detected. Release history, automatic
-object removal, dependency resolution, and restoring prior object versions are
-not implemented yet.
+definitions, so manual database edits are not detected. Automatic object removal,
+dependency resolution, and restoring prior object versions are not implemented yet.
 
 ## Release manifests
 
@@ -148,18 +147,63 @@ directory. An empty objects array represents an empty local object set.
 When `-manifest` is supplied to `objects apply`, SaxBase validates the files and
 requires the current Goose database version to equal the version's integer
 component before applying objects. It does not run structural migrations for
-you. The check uses Goose and requires the migrations directory. Supplying
+you. The initial check uses Goose and requires the migrations directory; the
+version is checked again using Goose's store API inside the object transaction.
+Supplying
 `-manifest` to `objects status` validates the local files before displaying object
 status; it does not check the database's Goose version.
 
 The manifest is opt-in for object commands; without `-manifest`, existing object
-deployment behavior is retained. Keep manifests and their matching SQL in Git.
-They record intended release contents, not a database release history, and do
-not embed old SQL definitions. A manifest is checked against the local file set;
-it does not assert that no other objects exist in the database. The Goose version
-check and object transaction are separate, so coordinate structural migrations
-with deployment. Restoring historical releases and enforcing immutable release
-identities in the database are future work.
+deployment behavior is retained and no release is recorded. Keep manifests and
+their matching SQL in Git. The manifest itself contains checksums rather than SQL;
+successful manifest deployments also store full SQL snapshots in the database.
+
+### Database release history
+
+Deploying with `-manifest` automatically initializes two SaxBase-owned tables:
+
+| Table | Contents |
+| --- | --- |
+| `dbo.saxbase_releases` | Release version, numeric Goose version and revision, first deployment time in UTC, and object count. |
+| `dbo.saxbase_release_objects` | Every object path, SHA-256 checksum, and exact UTF-8 SQL bytes for each release, including unchanged objects. |
+
+The object definitions, deployed checksums, release record, and complete snapshot
+commit in one transaction. SQL or metadata errors roll back the transaction,
+leaving no successful release record. Existing databases with only
+`dbo.saxbase_objects` need no manual metadata migration.
+
+Inspect releases using the configured `GOOSE_DBSTRING`:
+
+```sh
+./saxbase release history
+./saxbase release show 30.1
+```
+
+`history` lists versions in descending numeric schema/revision order (`30.10`
+comes after `30.2` in version order). `show` prints JSON containing the release
+metadata and each object's path, checksum, and SQL definition. These commands
+are read-only, need no local SQL files, and never initialize database tables.
+Before the first deployment, history is empty and showing a release returns an error.
+
+Release versions are immutable: reusing a version with different SQL or a
+different object set fails. Reapplying the latest version with the same snapshot
+is allowed and creates no duplicate history or snapshot rows; its timestamp
+remains the first successful deployment time. Concurrent applies use the same
+database application lock. Older versions cannot be reapplied as an implicit
+rollback; explicit release rollback is future work.
+
+A release manifest must include every previously tracked object as well as the
+complete local file set. Omitted tracked objects block release deployment;
+unversioned `objects apply` still reports missing files without dropping them.
+Objects that SaxBase has never tracked are outside this check.
+
+The Goose version is rechecked within a serializable release transaction, while
+Goose still owns all structural migration tracking. Coordinate structural
+migrations with object deployment, especially nontransactional SQL or external
+tools. Release history is a record of successful versioned deployments, not a
+live drift detector: unversioned applies, Goose `down`, or manual SQL can change
+the current database without changing historical release snapshots. It is not
+an audit log of every retry. Automatic restoration of snapshots is not yet implemented.
 
 ## Development
 
@@ -192,6 +236,10 @@ The same pipeline deploys and queries a view, procedure, and function, verifies
 unchanged objects are skipped, updates a view, checks its stored SHA-256, verifies
 transaction rollback after a later invalid object, and checks missing files are
 not dropped.
+Release tests verify complete SQL snapshots, retained historical definitions,
+immutable version identities, concurrent retries without duplicate records,
+and rollback of failed release records. SQL mock tests additionally inject
+checksum and snapshot write failures to check transaction rollback without a server.
 
 To run it locally, start a disposable SQL Server instance (Docker on x86-64):
 
@@ -225,10 +273,9 @@ database/
     functions/
 ```
 
-Future releases will pair a Goose structural version with an exact object state.
+Releases pair a Goose structural version with an exact object state.
 Versions such as `30`, `30.1`, `30.2`, `31`, and `31.1` consist of an integer
 schema version and an optional object revision; they must never use floating-point
-representation. Release tracking, rollback to previous releases, planning, and
-eventual ArchiMate model generation are future work. File-based release manifests
-are available; deployed release history and historical SQL snapshots are not yet
-stored in the database.
+representation. Release manifests, database release history, and historical SQL
+snapshots are implemented. Rollback to previous releases, unified deployment
+planning, and eventual ArchiMate model generation remain future work.

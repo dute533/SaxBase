@@ -3,6 +3,7 @@ module saxbase
 go 1.26.0
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/microsoft/go-mssqldb v1.11.0
 	github.com/pressly/goose/v3 v3.28.0
 )

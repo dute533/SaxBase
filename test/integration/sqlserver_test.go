@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net/url"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	_ "github.com/microsoft/go-mssqldb"
+	"saxbase/internal/objects"
 )
 
 // TestSQLServerMigration runs the actual CLI against a newly created database.
@@ -142,6 +144,8 @@ func TestSQLServerMigration(t *testing.T) {
 	}
 
 	assertVersion("0")
+	run("release", "history")
+	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_releases')", 0)
 	assertStatus("pending", "pending")
 	run("up")
 	assertVersion("2")
@@ -173,6 +177,27 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("EXEC dbo.saxbase_get_value", 1)
 	assertCount("SELECT dbo.saxbase_function()", 1)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_objects", 3)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='2' AND schema_version=2 AND revision=0 AND object_count=3", 1)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_release_objects", 3)
+	var originalSnapshot objects.Snapshot
+	if err := json.Unmarshal([]byte(run("release", "show", "2")), &originalSnapshot); err != nil {
+		t.Fatal(err)
+	}
+	if originalSnapshot.Version != "2" || len(originalSnapshot.Objects) != 3 {
+		t.Fatalf("snapshot: %+v", originalSnapshot)
+	}
+	for _, object := range originalSnapshot.Objects {
+		data, err := os.ReadFile(filepath.Join(objectDir, object.Path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if object.SQL != string(data) || object.Checksum != fmt.Sprintf("%x", sha256.Sum256(data)) {
+			t.Fatalf("snapshot differs from file %s", object.Path)
+		}
+	}
+	run("-manifest", "database/release.json", "objects", "apply")
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 1)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_release_objects", 3)
 	assertVersion("2")
 	var originalTime time.Time
 	if err := db.QueryRowContext(ctx, "SELECT deployed_at FROM dbo.saxbase_objects WHERE path=N'views/value.sql'").Scan(&originalTime); err != nil {
@@ -212,11 +237,45 @@ func TestSQLServerMigration(t *testing.T) {
 	if storedChecksum != fmt.Sprintf("%x", sha256.Sum256(updated)) {
 		t.Fatal("stored checksum does not match file bytes")
 	}
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='2.1' AND schema_version=2 AND revision=1 AND object_count=3", 1)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_release_objects", 6)
+	if output := run("release", "history"); !strings.Contains(output, "2.1") {
+		t.Fatalf("history: %s", output)
+	}
+	var retained objects.Snapshot
+	if err := json.Unmarshal([]byte(run("release", "show", "2")), &retained); err != nil {
+		t.Fatal(err)
+	}
+	for i := range originalSnapshot.Objects {
+		if originalSnapshot.Objects[i] != retained.Objects[i] {
+			t.Fatal("old release snapshot was overwritten")
+		}
+	}
+	// Concurrent retries serialize and must not create duplicate release records.
+	retries := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			_, err := execute("-manifest", "database/release-2.1.json", "objects", "apply")
+			retries <- err
+		}()
+	}
+	for i := 0; i < 2; i++ {
+		if err := <-retries; err != nil {
+			t.Fatalf("concurrent release retry: %v", err)
+		}
+	}
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 2)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_release_objects", 6)
 
 	// An error in a later batch must roll back earlier definitions AND metadata.
 	if err := os.WriteFile(filepath.Join(objectDir, "views/value.sql"), []byte("CREATE OR ALTER VIEW dbo.saxbase_value AS SELECT 3 AS value;"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	run("-manifest", "database/conflicting-2.1.json", "release", "create", "2.1")
+	if output, err := execute("-manifest", "database/conflicting-2.1.json", "objects", "apply"); err == nil || !strings.Contains(output, "immutable") {
+		t.Fatalf("release identity conflict: %v %s", err, output)
+	}
+	assertCount("SELECT value FROM dbo.saxbase_value", 2)
 	broken := filepath.Join(objectDir, "zz_broken.sql")
 	if err := os.WriteFile(broken, []byte("CREATE OR ALTER VIEW dbo.saxbase_broken AS SELECT missing FROM dbo.saxbase_nonexistent;"), 0600); err != nil {
 		t.Fatal(err)
@@ -224,6 +283,12 @@ func TestSQLServerMigration(t *testing.T) {
 	if output, err := execute("objects", "apply"); err == nil {
 		t.Fatalf("invalid object succeeded: %s", output)
 	}
+	run("-manifest", "database/failed-2.2.json", "release", "create", "2.2")
+	if output, err := execute("-manifest", "database/failed-2.2.json", "objects", "apply"); err == nil {
+		t.Fatalf("invalid release succeeded: %s", output)
+	}
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 2)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_release_objects", 6)
 	assertCount("SELECT value FROM dbo.saxbase_value", 2)
 	var afterFailure string
 	if err := db.QueryRowContext(ctx, "SELECT checksum FROM dbo.saxbase_objects WHERE path=N'views/value.sql'").Scan(&afterFailure); err != nil {
@@ -242,9 +307,14 @@ func TestSQLServerMigration(t *testing.T) {
 	if output := run("objects", "status"); !strings.Contains(output, "missing") {
 		t.Fatalf("missing status: %s", output)
 	}
+	run("-manifest", "database/incomplete-2.2.json", "release", "create", "2.2")
+	if output, err := execute("-manifest", "database/incomplete-2.2.json", "objects", "apply"); err == nil || !strings.Contains(output, "omits tracked object") {
+		t.Fatalf("incomplete release accepted: %v %s", err, output)
+	}
 	run("objects", "apply")
 	assertCount("SELECT value FROM dbo.saxbase_value", 2)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_objects", 3)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 2)
 
 	run("down")
 	assertVersion("1")

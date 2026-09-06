@@ -21,6 +21,8 @@ Usage:
   saxbase [-objects-dir database/objects] objects apply|status
   saxbase [-manifest database/release.json] release create VERSION
   saxbase [-manifest database/release.json] release validate
+  saxbase release history
+  saxbase release show VERSION
 
 Commands:
   up       Apply all pending Goose migrations
@@ -31,6 +33,8 @@ Commands:
   objects status  Compare local objects with deployed checksums
   release create VERSION  Write a new manifest from current object files
   release validate        Check the manifest against current object files
+  release history         List successfully recorded database releases
+  release show VERSION    Print a stored release and its SQL definitions as JSON
 
 Environment:
   GOOSE_DRIVER    mssql (default) or sqlserver
@@ -78,6 +82,12 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	pos := flags.Args()
 	if len(pos) > 0 && pos[0] == "release" {
+		if len(pos) > 1 && (pos[1] == "history" || pos[1] == "show") {
+			if manifestPath != "" {
+				return errors.New("-manifest does not apply to database release history")
+			}
+			return runReleaseDatabase(ctx, pos[1:], cfg, out, openObjects)
+		}
 		return runRelease(pos[1:], manifestPath, objectDir, out)
 	}
 	var command string
@@ -114,6 +124,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		return errors.New("set GOOSE_DBSTRING or provide a connection string")
 	}
 	if command == "objects apply" || command == "objects status" {
+		var releaseVersion *releases.Version
 		files, scanErr := objects.Scan(objectDir)
 		if scanErr != nil {
 			return fmt.Errorf("scan objects: %w", scanErr)
@@ -130,6 +141,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 				if checkErr := checkSchema(ctx, cfg, manifest, open); checkErr != nil {
 					return checkErr
 				}
+				version, _ := releases.ParseVersion(manifest.Version)
+				releaseVersion = &version
 			}
 		}
 		engine, openErr := openObjects(cfg.DSN)
@@ -139,7 +152,11 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		defer func() { err = errors.Join(err, engine.Close()) }()
 		var rows []objects.Status
 		if command == "objects apply" {
-			rows, err = engine.Apply(ctx, files)
+			if releaseVersion != nil {
+				rows, err = engine.ApplyRelease(ctx, files, releaseVersion.Schema, releaseVersion.Revision)
+			} else {
+				rows, err = engine.Apply(ctx, files)
+			}
 		} else {
 			rows, err = engine.Status(ctx, files)
 		}

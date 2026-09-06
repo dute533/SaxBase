@@ -61,7 +61,29 @@ func (s *store) Status(ctx context.Context, files []File) ([]Status, error) {
 // Apply serializes SaxBase object deployments and commits definitions and their
 // checksums together. Each file is a separate SQL batch within the transaction.
 func (s *store) Apply(ctx context.Context, files []File) ([]Status, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	return s.apply(ctx, files, nil)
+}
+
+func (s *store) ApplyRelease(ctx context.Context, files []File, schema, revision int64) ([]Status, error) {
+	if schema < 0 || revision < 0 {
+		return nil, errors.New("release components must be nonnegative")
+	}
+	version := fmt.Sprint(schema)
+	if revision > 0 {
+		version += fmt.Sprintf(".%d", revision)
+	}
+	return s.apply(ctx, files, &Release{Version: version, SchemaVersion: schema, Revision: revision})
+}
+
+func (s *store) apply(ctx context.Context, files []File, release *Release) ([]Status, error) {
+	if err := validateFiles(files); err != nil {
+		return nil, err
+	}
+	var options *sql.TxOptions
+	if release != nil {
+		options = &sql.TxOptions{Isolation: sql.LevelSerializable}
+	}
+	tx, err := s.db.BeginTx(ctx, options)
 	if err != nil {
 		return nil, err
 	}
@@ -75,6 +97,11 @@ func (s *store) Apply(ctx context.Context, files []File) ([]Status, error) {
 	}
 	if lock < 0 {
 		return nil, fmt.Errorf("lock object deployment failed (code %d)", lock)
+	}
+	if release != nil {
+		if err := checkReleaseSchema(ctx, tx, release.SchemaVersion); err != nil {
+			return nil, err
+		}
 	}
 	_, err = tx.ExecContext(ctx, `IF OBJECT_ID(N'dbo.saxbase_objects', N'U') IS NULL
  CREATE TABLE dbo.saxbase_objects (
@@ -90,6 +117,19 @@ func (s *store) Apply(ctx context.Context, files []File) ([]Status, error) {
 		return nil, err
 	}
 	result := compare(files, deployed)
+	var releaseID int64
+	var newRelease bool
+	if release != nil {
+		for _, row := range result {
+			if row.State == "missing" {
+				return nil, fmt.Errorf("release omits tracked object %s; object removal must be handled explicitly", row.Path)
+			}
+		}
+		releaseID, newRelease, err = prepareRelease(ctx, tx, *release, files)
+		if err != nil {
+			return nil, err
+		}
+	}
 	for _, file := range files {
 		if deployed[file.Path] == file.Checksum {
 			continue
@@ -101,6 +141,11 @@ func (s *store) Apply(ctx context.Context, files []File) ([]Status, error) {
  IF @@ROWCOUNT=0 INSERT INTO dbo.saxbase_objects(path,checksum) VALUES(@path,@checksum);`, sql.Named("path", file.Path), sql.Named("checksum", file.Checksum))
 		if err != nil {
 			return nil, fmt.Errorf("track %s: %w", file.Path, err)
+		}
+	}
+	if newRelease {
+		if err := recordSnapshot(ctx, tx, releaseID, files); err != nil {
+			return nil, err
 		}
 	}
 	if err := tx.Commit(); err != nil {
