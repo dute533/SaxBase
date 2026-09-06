@@ -55,8 +55,11 @@ const releaseTables = `IF OBJECT_ID(N'dbo.saxbase_releases', N'U') IS NULL
  path nvarchar(450) COLLATE Latin1_General_100_BIN2 NOT NULL,
  checksum char(64) NOT NULL,
  definition varbinary(max) NOT NULL,
+ deployment_order int NULL,
  PRIMARY KEY NONCLUSTERED(release_id,path)
- );`
+ );
+ IF COL_LENGTH(N'dbo.saxbase_release_objects', N'deployment_order') IS NULL
+ ALTER TABLE dbo.saxbase_release_objects ADD deployment_order int NULL;`
 
 func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, files []File) (int64, bool, error) {
 	if _, err := tx.ExecContext(ctx, releaseTables); err != nil {
@@ -100,13 +103,12 @@ func sameSnapshot(snapshot []SnapshotObject, files []File) error {
 	if len(snapshot) != len(files) {
 		return errors.New("object set differs")
 	}
-	byPath := make(map[string]SnapshotObject, len(snapshot))
-	for _, object := range snapshot {
-		byPath[object.Path] = object
-	}
-	for _, file := range files {
-		object, ok := byPath[file.Path]
-		if !ok || object.Checksum != file.Checksum || object.SQL != file.SQL {
+	for i, file := range files {
+		object := snapshot[i]
+		if object.Path != file.Path {
+			return fmt.Errorf("object order differs at position %d", i+1)
+		}
+		if object.Checksum != file.Checksum || object.SQL != file.SQL {
 			return fmt.Errorf("definition differs for %s", file.Path)
 		}
 	}
@@ -114,9 +116,9 @@ func sameSnapshot(snapshot []SnapshotObject, files []File) error {
 }
 
 func recordSnapshot(ctx context.Context, tx *sql.Tx, id int64, files []File) error {
-	for _, file := range files {
-		_, err := tx.ExecContext(ctx, `INSERT INTO dbo.saxbase_release_objects(release_id,path,checksum,definition)
- VALUES(@id,@path,@checksum,@definition);`, sql.Named("id", id), sql.Named("path", file.Path), sql.Named("checksum", file.Checksum), sql.Named("definition", []byte(file.SQL)))
+	for i, file := range files {
+		_, err := tx.ExecContext(ctx, `INSERT INTO dbo.saxbase_release_objects(release_id,path,checksum,definition,deployment_order)
+ VALUES(@id,@path,@checksum,@definition,@order);`, sql.Named("id", id), sql.Named("path", file.Path), sql.Named("checksum", file.Checksum), sql.Named("definition", []byte(file.SQL)), sql.Named("order", i))
 		if err != nil {
 			return fmt.Errorf("snapshot %s: %w", file.Path, err)
 		}
@@ -152,7 +154,9 @@ func (s *store) History(ctx context.Context) ([]Release, error) {
 }
 
 func readSnapshotObjects(ctx context.Context, db reader, id int64) ([]SnapshotObject, error) {
-	rows, err := db.QueryContext(ctx, "SELECT path, checksum, definition FROM dbo.saxbase_release_objects WHERE release_id=@id ORDER BY path", sql.Named("id", id))
+	rows, err := db.QueryContext(ctx, `IF COL_LENGTH(N'dbo.saxbase_release_objects', N'deployment_order') IS NULL
+ SELECT path, checksum, definition FROM dbo.saxbase_release_objects WHERE release_id=@id ORDER BY path;
+ ELSE EXEC sys.sp_executesql N'SELECT path, checksum, definition FROM dbo.saxbase_release_objects WHERE release_id=@id ORDER BY deployment_order, path', N'@id bigint', @id=@id;`, sql.Named("id", id))
 	if err != nil {
 		return nil, err
 	}

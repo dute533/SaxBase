@@ -64,8 +64,8 @@ func TestReleaseCommitsCompleteSnapshot(t *testing.T) {
 	expectReleaseStart(mock, 30, files[1:])
 	expectNewRelease(mock, "30.1", 30, 1, 2)
 	expectObjectApply(mock, files[0])
-	for _, file := range files {
-		mock.ExpectExec("INSERT INTO dbo.saxbase_release_objects").WithArgs(int64(7), file.Path, file.Checksum, []byte(file.SQL)).WillReturnResult(sqlmock.NewResult(0, 1))
+	for i, file := range files {
+		mock.ExpectExec("INSERT INTO dbo.saxbase_release_objects").WithArgs(int64(7), file.Path, file.Checksum, []byte(file.SQL), i).WillReturnResult(sqlmock.NewResult(0, 1))
 	}
 	expectCurrent(mock, "30.1")
 	mock.ExpectCommit()
@@ -96,7 +96,7 @@ func TestReleaseRollsBackOnSQLOrSnapshotFailure(t *testing.T) {
 					checksum.WillReturnError(failure)
 				} else {
 					checksum.WillReturnResult(sqlmock.NewResult(0, 1))
-					snapshot := mock.ExpectExec("INSERT INTO dbo.saxbase_release_objects").WithArgs(int64(7), file.Path, file.Checksum, []byte(file.SQL))
+					snapshot := mock.ExpectExec("INSERT INTO dbo.saxbase_release_objects").WithArgs(int64(7), file.Path, file.Checksum, []byte(file.SQL), 0)
 					if phase == "snapshot" {
 						snapshot.WillReturnError(failure)
 					} else {

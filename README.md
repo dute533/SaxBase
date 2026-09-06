@@ -100,8 +100,9 @@ coordinated with SaxBase deployments.
 Each file must contain one complete object definition in a single SQL batch,
 typically `CREATE OR ALTER`. Do not include Goose annotations, `GO` separators,
 `USE`, or transaction-control statements. SaxBase executes the SQL as supplied;
-it does not parse object names or resolve dependencies. Files run in lexical
-order of their relative slash paths; arrange paths so dependencies come first.
+it does not parse object names or resolve dependencies. With a release manifest,
+files run in the order of entries in its `objects` array; put dependencies first.
+Without a manifest, `objects apply` uses lexical relative-path order.
 An object should have one stable file path. Renaming a file is treated as a new
 definition plus a missing old path.
 
@@ -129,6 +130,21 @@ Create a manifest from current object files without connecting to a database:
 Both commands default to `database/release.json`. `release create` writes
 `format: 1`, a string `version`, and an `objects` array containing `path` and
 `sha256` for every scanned SQL file. It refuses to overwrite an existing file.
+Creation initially lists objects in lexical path order. Reorder the array before
+deploying to place dependencies before their consumers; there is no separate
+priority field. `plan`, `deploy`, and manifest-backed `objects apply` and
+`objects status` follow this order. Each path must still appear exactly once
+with its matching checksum. Unchanged objects are skipped without changing the
+relative execution order of changed objects.
+
+Order is part of a release's immutable identity. To reorder an already recorded
+release, create a new revision even if its SQL and checksums are unchanged.
+Snapshots store the full array order, including unchanged objects; `release show`
+returns that order and rollback restores it. Older snapshots retain the lexical
+path order used when they were deployed. Read-only commands support the old
+metadata layout; a versioned deployment adds the order column when needed.
+See the [dependency ordering example](examples/sqlserver/ordering/README.md).
+
 See the [complete example manifest](examples/sqlserver/database/release.json).
 The schema component is supplied by you; creation does not inspect the database
 or certify that the corresponding migration exists.
@@ -253,8 +269,8 @@ so the entire operation is **not atomic**. The phases are:
 Goose Down SQL can remove data. Retained modules are not automatically dropped
 before structural rollback. Schema-bound modules or other dependencies may need
 explicit preparation; SaxBase does not resolve dependency graphs. Target SQL is
-restored in lexical file-path order, and removed objects are dropped in reverse
-source-path order. All DDL is executed as supplied in the saved snapshots and
+restored in the target snapshot’s stored deployment order, and removed objects
+are dropped in reverse source snapshot order. All DDL is executed as supplied in the saved snapshots and
 migration files.
 
 `dbo.saxbase_rollbacks` stores each operation's source, target, phase, status,
@@ -282,7 +298,7 @@ both partial structural failure and atomic object-restore failure with retries.
 
 The output shows the last recorded active release and actual Goose version,
 the target release and schema version, every migration's action, and each
-object's state and checksum. Pending migrations through the target are marked
+object's state and checksum in manifest order. Pending migrations through the target are marked
 `apply`; later files are `deferred`. Already applied migrations remain visible.
 Objects are `new`, `changed`, `unchanged`, or `missing` based on stored checksums.
 

@@ -38,8 +38,12 @@ func BuildPlan(ctx context.Context, manifest Manifest, files []objects.File, goo
 		return p, err
 	}
 	p.TargetSchema = version.Schema
-	if err := manifest.Validate(files); err != nil {
+	ordered, orderErr := manifest.OrderedFiles(files)
+	if err := orderErr; err != nil {
 		p.Blockers = append(p.Blockers, err.Error())
+	}
+	if orderErr == nil {
+		files = ordered
 	}
 	schema, err := goose.Inspect(ctx)
 	if err != nil {
@@ -104,13 +108,27 @@ func BuildPlan(ctx context.Context, manifest Manifest, files []objects.File, goo
 				return p, fmt.Errorf("inspect release snapshot: %w", err)
 			}
 			if !matchesSnapshot(snapshot, files) {
-				p.Blockers = append(p.Blockers, fmt.Sprintf("release %s is immutable: the object set or definitions differ", manifest.Version))
+				p.Blockers = append(p.Blockers, fmt.Sprintf("release %s is immutable: the object order, set, or definitions differ", manifest.Version))
 			}
 			break
 		}
 	}
 	sort.Slice(p.Migrations, func(i, j int) bool { return p.Migrations[i].Version < p.Migrations[j].Version })
-	sort.Slice(p.Objects, func(i, j int) bool { return p.Objects[i].Path < p.Objects[j].Path })
+	positions := make(map[string]int, len(manifest.Objects))
+	for i, object := range manifest.Objects {
+		positions[object.Path] = i
+	}
+	sort.SliceStable(p.Objects, func(i, j int) bool {
+		a, aok := positions[p.Objects[i].Path]
+		b, bok := positions[p.Objects[j].Path]
+		if aok != bok {
+			return aok
+		}
+		if aok {
+			return a < b
+		}
+		return p.Objects[i].Path < p.Objects[j].Path
+	})
 	return p, nil
 }
 
@@ -118,16 +136,11 @@ func matchesSnapshot(snapshot objects.Snapshot, files []objects.File) bool {
 	if snapshot.ObjectCount != len(files) || len(snapshot.Objects) != len(files) {
 		return false
 	}
-	expected := map[string]objects.SnapshotObject{}
-	for _, object := range snapshot.Objects {
-		expected[object.Path] = object
-	}
-	for _, file := range files {
-		object, ok := expected[file.Path]
-		if !ok || object.Checksum != file.Checksum || object.SQL != file.SQL {
+	for i, file := range files {
+		object := snapshot.Objects[i]
+		if object.Path != file.Path || object.Checksum != file.Checksum || object.SQL != file.SQL {
 			return false
 		}
-		delete(expected, file.Path)
 	}
-	return len(expected) == 0
+	return true
 }

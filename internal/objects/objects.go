@@ -118,11 +118,12 @@ func compare(files []File, deployed map[string]string) []Status {
 		result = append(result, Status{Path: file.Path, State: state, Checksum: file.Checksum})
 		seen[file.Path] = true
 	}
+	var missing []Status
 	for path, sum := range deployed {
 		if !seen[path] {
-			result = append(result, Status{Path: path, State: "missing", Checksum: sum})
+			missing = append(missing, Status{Path: path, State: "missing", Checksum: sum})
 		}
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
-	return result
+	sort.Slice(missing, func(i, j int) bool { return missing[i].Path < missing[j].Path })
+	return append(result, missing...)
 }

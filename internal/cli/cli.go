@@ -155,7 +155,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 			if loadErr != nil {
 				return loadErr
 			}
-			if validateErr := manifest.Validate(files); validateErr != nil {
+			var validateErr error
+			files, validateErr = manifest.OrderedFiles(files)
+			if validateErr != nil {
 				return validateErr
 			}
 			if command == "objects apply" {

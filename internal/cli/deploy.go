@@ -25,7 +25,8 @@ func runDeploy(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 	if err != nil {
 		return fmt.Errorf("scan objects: %w", err)
 	}
-	if err := manifest.Validate(files); err != nil {
+	files, err = manifest.OrderedFiles(files)
+	if err != nil {
 		return err
 	}
 	version, err := releases.ParseVersion(manifest.Version)

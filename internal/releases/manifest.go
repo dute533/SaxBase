@@ -146,3 +146,19 @@ func (m Manifest) Write(filename string) error {
 	_, writeErr := file.Write(append(data, '\n'))
 	return errors.Join(writeErr, file.Close())
 }
+
+// OrderedFiles validates the complete file set and returns manifest array order.
+func (m Manifest) OrderedFiles(files []objects.File) ([]objects.File, error) {
+	if err := m.Validate(files); err != nil {
+		return nil, err
+	}
+	byPath := make(map[string]objects.File, len(files))
+	for _, file := range files {
+		byPath[file.Path] = file
+	}
+	ordered := make([]objects.File, 0, len(files))
+	for _, object := range m.Objects {
+		ordered = append(ordered, byPath[object.Path])
+	}
+	return ordered, nil
+}
