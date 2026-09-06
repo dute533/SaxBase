@@ -151,7 +151,26 @@ See the [complete example manifest](examples/sqlserver/database/release.json).
 The schema component is supplied by you; creation does not inspect the database
 or certify that the corresponding migration exists.
 
-After editing objects, create a manifest at a new path for the next revision:
+After editing objects, refresh an existing manifest while preserving its object order:
+
+```sh
+./saxbase release sync 30.1
+./saxbase release validate
+```
+
+`release sync [VERSION]` defaults to `database/release.json`; use `-manifest`
+to select another existing manifest. It updates changed checksums and appends
+new files in lexical path order. Review the order of new objects before deployment
+so dependencies run first. Missing local objects cause an error; sync never removes
+manifest entries. Validation completes before the manifest is replaced atomically,
+and an unchanged manifest is left untouched.
+
+Omitting `VERSION` keeps the current version. Sync only edits the local manifest
+and does not connect to the database. If the release has already been deployed,
+supply a new version when changing its contents because recorded releases are
+immutable. Sync does not check migration availability or database release history.
+
+Alternatively, create a manifest at a new path for the next revision:
 
 ```sh
 ./saxbase -manifest database/release-30.1.json release create 30.1

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -15,8 +16,8 @@ import (
 )
 
 func runRelease(args []string, filename, dir string, out io.Writer) error {
-	if !((len(args) == 2 && args[0] == "create") || (len(args) == 1 && args[0] == "validate")) {
-		return errors.New("expected release create VERSION or release validate")
+	if !((len(args) == 2 && args[0] == "create") || (len(args) == 1 && args[0] == "validate") || ((len(args) == 1 || len(args) == 2) && args[0] == "sync")) {
+		return errors.New("expected release create VERSION, release validate, or release sync [VERSION]")
 	}
 	if filename == "" {
 		filename = "database/release.json"
@@ -24,6 +25,34 @@ func runRelease(args []string, filename, dir string, out io.Writer) error {
 	files, err := objects.Scan(dir)
 	if err != nil {
 		return fmt.Errorf("scan objects: %w", err)
+	}
+
+	if args[0] == "sync" {
+		version := ""
+		if len(args) == 2 {
+			version = args[1]
+		}
+		result, err := releases.Sync(filename, files, version)
+		if err != nil {
+			return err
+		}
+		var report strings.Builder
+		if result.Version != result.PreviousVersion {
+			fmt.Fprintf(&report, "Version: %s -> %s\n", result.PreviousVersion, result.Version)
+		}
+		for _, path := range result.Updated {
+			fmt.Fprintf(&report, "Updated: %s\n", path)
+		}
+		for _, path := range result.Added {
+			fmt.Fprintf(&report, "Added: %s\n", path)
+		}
+		if report.Len() == 0 {
+			fmt.Fprintf(&report, "Release %s is already synchronized: %s\n", result.Version, filename)
+		} else {
+			fmt.Fprintf(&report, "Synced release %s: %s\n", result.Version, filename)
+		}
+		_, err = io.WriteString(out, report.String())
+		return err
 	}
 	if args[0] == "create" {
 		m, err := releases.New(args[1], files)

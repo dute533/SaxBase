@@ -20,6 +20,7 @@ Usage:
   saxbase [-dir database/migrations] mssql CONNECTION_STRING COMMAND
   saxbase [-objects-dir database/objects] objects apply|status
   saxbase [-manifest database/release.json] release create VERSION
+  saxbase [-manifest database/release.json] release sync [VERSION]
   saxbase [-manifest database/release.json] release validate
   saxbase release history
   saxbase release show VERSION
@@ -38,6 +39,7 @@ Commands:
   objects apply   Deploy changed full-state SQL objects
   objects status  Compare local objects with deployed checksums
   release create VERSION  Write a new manifest from current object files
+  release sync [VERSION]  Refresh a local manifest, preserving object order
   release validate        Check the manifest against current object files
   release history         List successfully recorded database releases
   release show VERSION    Print a stored release and its SQL definitions as JSON
