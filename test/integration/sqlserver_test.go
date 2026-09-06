@@ -21,9 +21,10 @@ import (
 	"saxbase/internal/objects"
 )
 
-// TestSQLServerMigration runs the actual CLI against a newly created database.
+// integrationDatabase builds the CLI and creates an isolated example database.
 // The supplied login must be able to create and drop databases on a test server.
-func TestSQLServerMigration(t *testing.T) {
+func integrationDatabase(t *testing.T) (context.Context, *sql.DB, string, func(...string) (string, error), func(...string) string) {
+	t.Helper()
 	raw := os.Getenv("SAXBASE_TEST_SQLSERVER_DSN")
 	if raw == "" {
 		t.Fatal("set SAXBASE_TEST_SQLSERVER_DSN to a SQL Server test instance URL")
@@ -33,7 +34,7 @@ func TestSQLServerMigration(t *testing.T) {
 		t.Fatal("SAXBASE_TEST_SQLSERVER_DSN must be a sqlserver:// URL")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 	binary := filepath.Join(t.TempDir(), "saxbase")
 	build := exec.CommandContext(ctx, "go", "build", "-o", binary, "../..")
 	if output, err := build.CombinedOutput(); err != nil {
@@ -74,7 +75,6 @@ func TestSQLServerMigration(t *testing.T) {
 	// Use the documented example with the CLI's default database/ layout.
 	// Copy it so change/failure tests never modify the example in the checkout.
 	workDir := t.TempDir()
-	objectDir := filepath.Join(workDir, "database", "objects")
 	exampleDir := filepath.Join("..", "..", "examples", "sqlserver", "database")
 	if err := filepath.WalkDir(exampleDir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -118,6 +118,12 @@ func TestSQLServerMigration(t *testing.T) {
 		}
 		return output
 	}
+	return ctx, db, workDir, execute, run
+}
+
+func TestSQLServerMigration(t *testing.T) {
+	ctx, db, workDir, execute, run := integrationDatabase(t)
+	objectDir := filepath.Join(workDir, "database", "objects")
 	assertVersion := func(want string) {
 		t.Helper()
 		if got := run("version"); got != want {
@@ -410,7 +416,7 @@ func TestSQLServerMigration(t *testing.T) {
 	}
 	assertVersion("3")
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_rollbacks WHERE status='failed' AND phase='objects_removed'", 1)
-	for _, args := range [][]string{{"up"}, {"down"}, {"objects", "apply"}, {"release", "current"}, {"-manifest", "database/release-3.json", "plan"}} {
+	for _, args := range [][]string{{"up"}, {"down"}, {"objects", "apply"}, {"release", "current"}, {"-manifest", "database/release-3.json", "plan"}, {"-manifest", "database/release-3.json", "deploy"}} {
 		if output, err := execute(args...); err == nil || !strings.Contains(output, "incomplete") {
 			t.Fatalf("pending rollback did not block %v: %v %s", args, err, output)
 		}

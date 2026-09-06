@@ -302,7 +302,46 @@ Malformed files, directory errors, or query failures return errors immediately.
 The plan is bounded by the manifest's structural version. `saxbase up` still
 applies **all** pending migrations, including those marked `deferred` by a plan;
 do not use it blindly when the directory contains versions above your target.
-The unified `deploy` command is a separate upcoming feature.
+Use `deploy` to honor the manifest target.
+
+## Release deployment
+
+```sh
+./saxbase plan
+./saxbase deploy
+# Or select another manifest:
+./saxbase -manifest database/release-30.1.json deploy
+```
+
+`deploy` defaults to `database/release.json` and accepts the same connection,
+`-dir`, and `-objects-dir` settings as `plan`. It validates the local manifest,
+acquires the database deployment lock, and repeats the planning checks under
+that lock before changing the database. Blocked deployments exit nonzero.
+
+Goose applies only pending migrations up to the manifest's integer schema
+version. Later migration files remain pending. SaxBase then verifies that schema
+version and applies changed objects, stores their checksums and complete SQL
+snapshots, and marks the release current in one object transaction. An object-only
+revision skips structural migrations. Retrying an identical successful release
+skips unchanged objects and does not duplicate release history.
+
+The lock spans both phases and serializes cooperating SaxBase deployments,
+rollbacks, and other writes. External SQL clients do not honor this lock.
+
+The entire release is **not one transaction**: Goose retains its own transaction
+rules. If a migration fails, completed migrations remain; fix the cause and retry.
+Before attempting structural changes, SaxBase clears the active release marker,
+so a partially migrated database does not claim the previous release is current.
+If object execution fails, its transaction rolls back while successful structural
+migrations remain. Correct the SQL, regenerate the manifest if its files changed,
+and retry `deploy`. SQL errors, dependencies, and permissions can still cause
+failure after a successful plan. A lost connection during commit can leave the
+outcome uncertain; inspect the database and retry the same manifest.
+
+Deployment never automatically runs Down migrations after a failure. Use
+`release rollback VERSION` for an intentional rollback from a recorded current
+release. After a failed structural deployment, finish or repair that deployment
+before requesting release rollback.
 
 ## Development
 
@@ -345,6 +384,8 @@ structural downgrade failure/retry, and DDL-trigger failure during object restor
 Planner tests cover read-only inspection, target boundaries, validation blockers,
 and immutable release checks. The integration suite confirms that planning an
 empty SQL Server database creates no tables and tests blocked and unchanged plans.
+Deployment tests cover a fresh database, target boundaries, object revisions,
+concurrent retries, blocked targets, and recovery after SQL failures in each phase.
 
 Run the same step locally and in CI with Go and Docker available (SQL Server on x86-64):
 
@@ -388,4 +429,4 @@ Versions such as `30`, `30.1`, `30.2`, `31`, and `31.1` consist of an integer
 schema version and an optional object revision; they must never use floating-point
 representation. Release manifests, database release history, and historical SQL
 snapshots, explicit release rollback, and read-only release planning are implemented.
-Unified deployment and eventual ArchiMate model generation remain future work.
+Unified deployment is also implemented; ArchiMate model generation remains future work.

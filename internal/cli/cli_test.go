@@ -144,3 +144,5 @@ func TestErrorsAndCleanup(t *testing.T) {
 		t.Fatalf("open error: %v", err)
 	}
 }
+
+func (f *fakeEngine) UpTo(ctx context.Context, version int64) error { return f.call(ctx, "up-to") }

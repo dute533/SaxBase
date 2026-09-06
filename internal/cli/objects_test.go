@@ -112,3 +112,10 @@ func TestInvalidObjectCommand(t *testing.T) {
 		}
 	}
 }
+
+func (f *fakeObjects) Deploy(ctx context.Context, files []objects.File, schema, revision int64, goose migrations.Engine, preflight func(context.Context) error) ([]objects.Status, error) {
+	if err := preflight(ctx); err != nil {
+		return nil, err
+	}
+	return f.ApplyRelease(ctx, files, schema, revision)
+}

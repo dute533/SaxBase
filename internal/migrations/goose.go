@@ -46,6 +46,11 @@ func (g *gooseEngine) Up(ctx context.Context) error {
 	return g.change(ctx, func() error { _, err := g.provider.Up(ctx); return err })
 }
 
+func (g *gooseEngine) UpTo(ctx context.Context, version int64) error {
+	_, err := g.provider.UpTo(ctx, version)
+	return err
+}
+
 func (g *gooseEngine) Down(ctx context.Context) error {
 	return g.change(ctx, func() error { _, err := g.provider.Down(ctx); return err })
 }

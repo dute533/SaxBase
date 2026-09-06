@@ -18,6 +18,7 @@ import (
 type File struct{ Path, SQL, Checksum string }
 type Status struct{ Path, State, Checksum string }
 type Engine interface {
+	Deploy(context.Context, []File, int64, int64, migrations.Engine, func(context.Context) error) ([]Status, error)
 	Apply(context.Context, []File) ([]Status, error)
 	ApplyRelease(context.Context, []File, int64, int64) ([]Status, error)
 	History(context.Context) ([]Release, error)

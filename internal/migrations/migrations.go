@@ -19,6 +19,8 @@ type Status struct {
 // rolls back one migration. Version is the database's structural version.
 type Engine interface {
 	Up(context.Context) error
+	// UpTo is called by the release coordinator while holding the deployment lock.
+	UpTo(context.Context, int64) error
 	Down(context.Context) error
 	// DownTo is used by the release coordinator while it holds the deployment lock.
 	DownTo(context.Context, int64) error

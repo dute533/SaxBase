@@ -44,12 +44,9 @@ export GOOSE_DBSTRING='sqlserver://USER:PASSWORD@localhost:1433?database=SaxBase
 unset GOOSE_MIGRATION_DIR SAXBASE_OBJECTS_DIR
 
 ../../saxbase plan
+../../saxbase deploy
 ../../saxbase status
-../../saxbase up
 ../../saxbase version
-../../saxbase objects status
-../../saxbase release validate
-../../saxbase -manifest database/release.json objects apply
 ../../saxbase objects status
 ../../saxbase release history
 ../../saxbase release show 2
@@ -70,8 +67,7 @@ SELECT dbo.saxbase_function();               -- 1
 SELECT path, checksum, deployed_at FROM dbo.saxbase_objects;
 ```
 
-Run `../../saxbase up` and
-`../../saxbase -manifest database/release.json objects apply` again: both leave
+Run `../../saxbase deploy` again: it leaves
 the deployed state unchanged, and release `2` has only one history record.
 
 ## Change an object
@@ -168,4 +164,6 @@ and that failed deployments leave no release or snapshot rows behind.
 Rollback tests restore old views independently of local files, remove an object
 introduced later, retain permissions, and recover from failures in both Goose
 Down and object restoration.
+Deployment tests also use this layout to verify bounded migrations, object-only
+revisions, concurrent retries, and recovery from migration and object failures.
 See the root README for disposable Docker setup and connection configuration.

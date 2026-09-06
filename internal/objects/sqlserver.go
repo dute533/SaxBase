@@ -76,7 +76,17 @@ func (s *store) ApplyRelease(ctx context.Context, files []File, schema, revision
 	return s.apply(ctx, files, &Release{Version: version, SchemaVersion: schema, Revision: revision})
 }
 
+type transactionStarter interface {
+	BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
+}
+
 func (s *store) apply(ctx context.Context, files []File, release *Release) ([]Status, error) {
+	return s.applyOn(ctx, s.db, files, release, true)
+}
+
+// Deploy uses its locked connection for the object transaction to avoid taking
+// the same application lock on a second session.
+func (s *store) applyOn(ctx context.Context, db transactionStarter, files []File, release *Release, acquireLock bool) ([]Status, error) {
 	if err := validateFiles(files); err != nil {
 		return nil, err
 	}
@@ -84,20 +94,22 @@ func (s *store) apply(ctx context.Context, files []File, release *Release) ([]St
 	if release != nil {
 		options = &sql.TxOptions{Isolation: sql.LevelSerializable}
 	}
-	tx, err := s.db.BeginTx(ctx, options)
+	tx, err := db.BeginTx(ctx, options)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	var lock int
-	err = tx.QueryRowContext(ctx, `DECLARE @result int;
+	if acquireLock {
+		var lock int
+		err = tx.QueryRowContext(ctx, `DECLARE @result int;
  EXEC @result = sys.sp_getapplock @Resource=N'SaxBase.objects', @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=30000;
  SELECT @result;`).Scan(&lock)
-	if err != nil {
-		return nil, fmt.Errorf("lock object deployment: %w", err)
-	}
-	if lock < 0 {
-		return nil, fmt.Errorf("lock object deployment failed (code %d)", lock)
+		if err != nil {
+			return nil, fmt.Errorf("lock object deployment: %w", err)
+		}
+		if lock < 0 {
+			return nil, fmt.Errorf("lock object deployment failed (code %d)", lock)
+		}
 	}
 	if err := deploymentlock.CheckPending(ctx, tx); err != nil {
 		return nil, err
