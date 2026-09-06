@@ -24,6 +24,12 @@ type Engine interface {
 	DownTo(context.Context, int64) error
 	ValidateDownTo(context.Context, int64) error
 	Status(context.Context) ([]Status, error)
+	Inspect(context.Context) (Inspection, error)
 	Version(context.Context) (int64, error)
 	Close() error
+}
+
+type Inspection struct {
+	Version    int64
+	Migrations []Status
 }

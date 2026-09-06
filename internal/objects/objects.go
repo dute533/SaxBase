@@ -25,8 +25,15 @@ type Engine interface {
 	Rollback(context.Context, string, migrations.Engine) (Rollback, error)
 	Rollbacks(context.Context) ([]Rollback, error)
 	Current(context.Context) (string, error)
+	Inspect(context.Context) (Inspection, error)
 	Status(context.Context, []File) ([]Status, error)
 	Close() error
+}
+
+type Inspection struct {
+	Current   string
+	History   []Release
+	Rollbacks []Rollback
 }
 
 type Release struct {

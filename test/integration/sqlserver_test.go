@@ -143,6 +143,20 @@ func TestSQLServerMigration(t *testing.T) {
 		}
 	}
 
+	futureMigration := filepath.Join(workDir, "database/migrations/00099_future.sql")
+	if err := os.WriteFile(futureMigration, []byte("-- +goose Up\nCREATE TABLE dbo.future_table(id INT);\n-- +goose Down\nDROP TABLE dbo.future_table;\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	planOutput := strings.Join(strings.Fields(run("plan")), " ")
+	for _, want := range []string{"Goose: 0 -> 2", "1 apply", "2 apply", "99 deferred", "Ready:"} {
+		if !strings.Contains(planOutput, want) {
+			t.Fatalf("plan missing %q: %s", want, planOutput)
+		}
+	}
+	assertCount("SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped=0", 0)
+	if err := os.Remove(futureMigration); err != nil {
+		t.Fatal(err)
+	}
 	assertVersion("0")
 	run("release", "history")
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_releases')", 0)
@@ -220,6 +234,9 @@ func TestSQLServerMigration(t *testing.T) {
 	if output, err := execute("-manifest", "database/release.json", "objects", "apply"); err == nil {
 		t.Fatalf("stale manifest accepted: %s", output)
 	}
+	if output, err := execute("plan"); err == nil || !strings.Contains(output, "checksum mismatch") {
+		t.Fatalf("stale plan: %v %s", err, output)
+	}
 	assertCount("SELECT value FROM dbo.saxbase_value", 1)
 	run("-manifest", "database/release-2.1.json", "release", "create", "2.1")
 	run("-manifest", "database/release-2.1.json", "release", "validate")
@@ -239,6 +256,9 @@ func TestSQLServerMigration(t *testing.T) {
 	}
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='2.1' AND schema_version=2 AND revision=1 AND object_count=3", 1)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_release_objects", 6)
+	if output := run("-manifest", "database/release-2.1.json", "plan"); !strings.Contains(output, "Ready:") || strings.Count(output, "unchanged") != 3 {
+		t.Fatalf("unchanged plan: %s", output)
+	}
 	if output := run("release", "history"); !strings.Contains(output, "2.1") {
 		t.Fatalf("history: %s", output)
 	}
@@ -272,6 +292,9 @@ func TestSQLServerMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	run("-manifest", "database/conflicting-2.1.json", "release", "create", "2.1")
+	if output, err := execute("-manifest", "database/conflicting-2.1.json", "plan"); err == nil || !strings.Contains(output, "immutable") {
+		t.Fatalf("immutable plan: %v %s", err, output)
+	}
 	if output, err := execute("-manifest", "database/conflicting-2.1.json", "objects", "apply"); err == nil || !strings.Contains(output, "immutable") {
 		t.Fatalf("release identity conflict: %v %s", err, output)
 	}
@@ -387,7 +410,7 @@ func TestSQLServerMigration(t *testing.T) {
 	}
 	assertVersion("3")
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_rollbacks WHERE status='failed' AND phase='objects_removed'", 1)
-	for _, args := range [][]string{{"up"}, {"down"}, {"objects", "apply"}, {"release", "current"}} {
+	for _, args := range [][]string{{"up"}, {"down"}, {"objects", "apply"}, {"release", "current"}, {"-manifest", "database/release-3.json", "plan"}} {
 		if output, err := execute(args...); err == nil || !strings.Contains(output, "incomplete") {
 			t.Fatalf("pending rollback did not block %v: %v %s", args, err, output)
 		}

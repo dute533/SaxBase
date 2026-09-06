@@ -43,6 +43,7 @@ export GOOSE_DRIVER=mssql
 export GOOSE_DBSTRING='sqlserver://USER:PASSWORD@localhost:1433?database=SaxBaseExample'
 unset GOOSE_MIGRATION_DIR SAXBASE_OBJECTS_DIR
 
+../../saxbase plan
 ../../saxbase status
 ../../saxbase up
 ../../saxbase version
@@ -53,6 +54,10 @@ unset GOOSE_MIGRATION_DIR SAXBASE_OBJECTS_DIR
 ../../saxbase release history
 ../../saxbase release show 2
 ```
+
+The initial plan previews migrations 1 and 2 and three new objects without
+creating any tables. A later plan of an already deployed release reports applied
+migrations and unchanged objects. Blocked plans explain the issue and exit nonzero.
 
 The structural version is now `2`; all three objects should report `unchanged`
 after apply. Query the database to check the result:
@@ -88,6 +93,7 @@ To version this change as release `2.1`, generate a new manifest and deploy with
 ```sh
 ../../saxbase -manifest database/release-2.1.json release create 2.1
 ../../saxbase -manifest database/release-2.1.json release validate
+../../saxbase -manifest database/release-2.1.json plan
 ../../saxbase -manifest database/release-2.1.json objects apply
 ../../saxbase release history
 ../../saxbase release show 2.1
@@ -143,14 +149,14 @@ database for this walkthrough and drop it from `master` when finished.
 
 ## Automated verification
 
-From the repository root, point `SAXBASE_TEST_SQLSERVER_DSN` at a test server login
-that can create and drop databases, then run:
+From the repository root, with Go and Docker available, run:
 
 ```sh
-go test -tags=integration -count=1 -timeout=6m -v ./test/integration
+bash scripts/test-integration.sh
 ```
 
-The test creates its own database and copies this entire `database/` directory
+The script starts SQL Server and removes the container after the test, including
+on failure. The test creates its own database and copies this entire `database/` directory
 to a temporary working directory. It invokes the built CLI with its default
 paths, verifies migrations and object results, exercises object updates and
 rollback on failure, checks that missing files do not drop objects, and cleans

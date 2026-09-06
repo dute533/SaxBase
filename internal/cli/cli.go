@@ -26,12 +26,14 @@ Usage:
   saxbase release rollback VERSION
   saxbase release rollbacks
   saxbase release current
+  saxbase [-manifest database/release.json] plan
 
 Commands:
   up       Apply all pending Goose migrations
   down     Roll back one Goose migration
   status   List applied and pending migrations
   version  Print the current Goose database version
+  plan     Preview a manifest release without changing the database
   objects apply   Deploy changed full-state SQL objects
   objects status  Compare local objects with deployed checksums
   release create VERSION  Write a new manifest from current object files
@@ -122,18 +124,21 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		return errors.New("expected COMMAND or DRIVER CONNECTION_STRING COMMAND; use -h for help")
 	}
 	switch command {
-	case "up", "down", "status", "version", "objects apply", "objects status":
+	case "up", "down", "status", "version", "objects apply", "objects status", "plan":
 	default:
 		return fmt.Errorf("unknown command %q; use -h for help", command)
 	}
 	if cfg.Driver != "mssql" && cfg.Driver != "sqlserver" {
 		return fmt.Errorf("unsupported driver %q: use mssql or sqlserver", cfg.Driver)
 	}
-	if manifestPath != "" && command != "objects apply" && command != "objects status" {
-		return errors.New("-manifest is supported only for release and objects commands")
+	if manifestPath != "" && command != "objects apply" && command != "objects status" && command != "plan" {
+		return errors.New("-manifest is supported only for plan, release, and objects commands")
 	}
 	if cfg.DSN == "" {
 		return errors.New("set GOOSE_DBSTRING or provide a connection string")
+	}
+	if command == "plan" {
+		return runPlan(ctx, cfg, manifestPath, objectDir, out, open, openObjects)
 	}
 	if command == "objects apply" || command == "objects status" {
 		var releaseVersion *releases.Version

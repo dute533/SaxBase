@@ -270,6 +270,40 @@ remain available for inspection. A session-scoped database lock prevents another
 SaxBase deployment from interleaving between phases. The test suite exercises
 both partial structural failure and atomic object-restore failure with retries.
 
+## Release plan
+
+```sh
+./saxbase -manifest database/release-30.1.json plan
+```
+
+`plan` defaults to `database/release.json` and uses the usual connection settings,
+`-dir`, and `-objects-dir`. Goose-style positional connections also work:
+`./saxbase -manifest database/release.json mssql "$GOOSE_DBSTRING" plan`.
+
+The output shows the last recorded active release and actual Goose version,
+the target release and schema version, every migration's action, and each
+object's state and checksum. Pending migrations through the target are marked
+`apply`; later files are `deferred`. Already applied migrations remain visible.
+Objects are `new`, `changed`, `unchanged`, or `missing` based on stored checksums.
+
+Planning never executes SQL files or initializes metadata tables, even on an
+empty database. It rejects malformed manifests and reports deployment blockers:
+file/checksum mismatches, missing applied migration files, unknown targets,
+out-of-order migrations, schema downgrades, omitted tracked objects, incomplete
+rollbacks, older release versions, and conflicts with immutable release snapshots.
+Blockers are printed with the preview and produce a nonzero exit status. An
+unversioned starting database is allowed; a first deployment can be planned.
+
+A ready plan is advisory, not a guarantee that SQL will execute successfully.
+It does not validate SQL syntax, permissions, dependencies, or live object drift.
+It reads current metadata without reserving the database against later changes.
+Malformed files, directory errors, or query failures return errors immediately.
+
+The plan is bounded by the manifest's structural version. `saxbase up` still
+applies **all** pending migrations, including those marked `deferred` by a plan;
+do not use it blindly when the directory contains versions above your target.
+The unified `deploy` command is a separate upcoming feature.
+
 ## Development
 
 The [SQL Server example](examples/sqlserver/README.md) contains a complete
@@ -308,26 +342,34 @@ checksum and snapshot write failures to check transaction rollback without a ser
 Rollback coverage also includes restoring despite changed local files, removing
 newer objects, preserving permissions, rejecting missing migration files,
 structural downgrade failure/retry, and DDL-trigger failure during object restore.
+Planner tests cover read-only inspection, target boundaries, validation blockers,
+and immutable release checks. The integration suite confirms that planning an
+empty SQL Server database creates no tables and tests blocked and unchanged plans.
 
-To run it locally, start a disposable SQL Server instance (Docker on x86-64):
+Run the same step locally and in CI with Go and Docker available (SQL Server on x86-64):
 
 ```sh
-docker run --rm -d --name saxbase-test-sqlserver \
-  -e ACCEPT_EULA=Y -e MSSQL_PID=Developer \
-  -e 'MSSQL_SA_PASSWORD=SaxBase_Test_Only_42!' \
-  -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest
+bash scripts/test-integration.sh
+```
 
-export SAXBASE_TEST_SQLSERVER_DSN='sqlserver://sa:SaxBase_Test_Only_42!@localhost:1433?database=master&encrypt=disable'
+The script starts a disposable SQL Server container on a random loopback port,
+runs the integration suite, and removes the container on success, failure, or
+interruption. Failed runs print SQL Server logs before cleanup. The tests wait
+for database readiness and create and drop their own database. Set
+`SAXBASE_SQLSERVER_IMAGE` to override the default SQL Server 2022 image.
+
+To test an existing server instead, supply its connection directly:
+
+```sh
+export SAXBASE_TEST_SQLSERVER_DSN='sqlserver://sa:YOUR_PASSWORD@localhost:1433?database=master&encrypt=disable'
 go test -tags=integration -count=1 -timeout=6m -v ./test/integration
-
-docker stop saxbase-test-sqlserver
 ```
 
 The connection must point to a test server with permission to create and drop
 databases. The test selects `master` for setup and changes to its own database
 for migrations; it never migrates the database named in the supplied URL.
-The password and unencrypted connection above are for the disposable local/CI
-server. Integration tests require the `integration` build tag and fail if the
+The script’s fixed password and unencrypted connection are for its disposable
+local/CI server. Integration tests require the `integration` build tag and fail if the
 connection environment variable is missing, so CI cannot silently skip them.
 
 ## Database layout and future releases
@@ -345,5 +387,5 @@ Releases pair a Goose structural version with an exact object state.
 Versions such as `30`, `30.1`, `30.2`, `31`, and `31.1` consist of an integer
 schema version and an optional object revision; they must never use floating-point
 representation. Release manifests, database release history, and historical SQL
-snapshots and explicit release rollback are implemented. Unified deployment
-planning and eventual ArchiMate model generation remain future work.
+snapshots, explicit release rollback, and read-only release planning are implemented.
+Unified deployment and eventual ArchiMate model generation remain future work.
