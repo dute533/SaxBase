@@ -53,6 +53,11 @@ Environment:
   GOOSE_MIGRATION_DIR  Migration directory (default database/migrations)
   SAXBASE_OBJECTS_DIR  Object directory (default database/objects)
 
+Configuration:
+  -config PATH   Target config (default saxbase.yaml)
+  -target NAME   Database target (defaults to default_target in config)
+  .env           Loaded from the working directory; environment takes precedence
+
 Options must precede the command or connection arguments.
 `
 
@@ -62,9 +67,45 @@ func Run(ctx context.Context, args []string, getenv func(string) string, out io.
 	return run(ctx, args, getenv, out, open, objects.Open)
 }
 
-func run(ctx context.Context, args []string, getenv func(string) string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {
+type runEnvironment struct {
+	lookup      func(string) (string, bool)
+	diagnostics io.Writer
+}
+
+// RunWithLookup preserves explicitly empty environment variables when loading .env.
+func RunWithLookup(ctx context.Context, args []string, lookup func(string) (string, bool), out, diagnostics io.Writer, open OpenFunc) error {
+	getenv := func(key string) string { value, _ := lookup(key); return value }
+	return run(ctx, args, getenv, out, open, objects.Open, runEnvironment{lookup: lookup, diagnostics: diagnostics})
+}
+
+func run(ctx context.Context, args []string, getenv func(string) string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error), environment ...runEnvironment) (err error) {
 	if len(args) == 0 {
 		_, err = io.WriteString(out, usage)
+		return err
+	}
+	flags := flag.NewFlagSet("saxbase", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var dir, objectDir, manifestPath, configPath, target string
+	flags.StringVar(&dir, "dir", "", "migration directory")
+	flags.StringVar(&objectDir, "objects-dir", "", "full-state object directory")
+	flags.StringVar(&manifestPath, "manifest", "", "release manifest")
+	flags.StringVar(&configPath, "config", "", "target configuration file")
+	flags.StringVar(&target, "target", "", "database target")
+	if parseErr := flags.Parse(args); parseErr != nil {
+		if errors.Is(parseErr, flag.ErrHelp) {
+			_, err = io.WriteString(out, usage)
+			return err
+		}
+		return parseErr
+	}
+	var lookup []func(string) (string, bool)
+	targetOut := out
+	if len(environment) > 0 {
+		lookup = append(lookup, environment[0].lookup)
+		targetOut = environment[0].diagnostics
+	}
+	getenv, err = loadDotEnv(getenv, lookup...)
+	if err != nil {
 		return err
 	}
 	cfg := migrations.Config{Driver: getenv("GOOSE_DRIVER"), DSN: getenv("GOOSE_DBSTRING"), Dir: getenv("GOOSE_MIGRATION_DIR")}
@@ -74,22 +115,17 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	if cfg.Dir == "" {
 		cfg.Dir = "database/migrations"
 	}
-	flags := flag.NewFlagSet("saxbase", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	flags.StringVar(&cfg.Dir, "dir", cfg.Dir, "migration directory")
-	objectDir := getenv("SAXBASE_OBJECTS_DIR")
+	if dir != "" {
+		cfg.Dir = dir
+	}
+	if objectDir == "" {
+		objectDir = getenv("SAXBASE_OBJECTS_DIR")
+	}
 	if objectDir == "" {
 		objectDir = "database/objects"
 	}
-	flags.StringVar(&objectDir, "objects-dir", objectDir, "full-state object directory")
-	var manifestPath string
-	flags.StringVar(&manifestPath, "manifest", "", "release manifest (release commands default to database/release.json)")
-	if parseErr := flags.Parse(args); parseErr != nil {
-		if errors.Is(parseErr, flag.ErrHelp) {
-			_, err = io.WriteString(out, usage)
-			return err
-		}
-		return parseErr
+	resolveTarget := func(positional bool) error {
+		return selectTarget(configPath, target, positional, getenv, &cfg, targetOut)
 	}
 	pos := flags.Args()
 	if len(pos) > 0 && pos[0] == "release" {
@@ -97,11 +133,17 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 			if manifestPath != "" {
 				return errors.New("rollback uses database snapshots, not -manifest")
 			}
+			if err := resolveTarget(false); err != nil {
+				return err
+			}
 			return runRollback(ctx, pos[2:], cfg, out, open, openObjects)
 		}
 		if len(pos) > 1 && (pos[1] == "history" || pos[1] == "show" || pos[1] == "rollbacks" || pos[1] == "current") {
 			if manifestPath != "" {
 				return errors.New("-manifest does not apply to database release history")
+			}
+			if err := resolveTarget(false); err != nil {
+				return err
 			}
 			return runReleaseDatabase(ctx, pos[1:], cfg, out, openObjects)
 		}
@@ -130,6 +172,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	case "up", "down", "status", "version", "objects apply", "objects status", "plan", "deploy":
 	default:
 		return fmt.Errorf("unknown command %q; use -h for help", command)
+	}
+	if err := resolveTarget(len(pos) >= 3); err != nil {
+		return err
 	}
 	if cfg.Driver != "mssql" && cfg.Driver != "sqlserver" {
 		return fmt.Errorf("unsupported driver %q: use mssql or sqlserver", cfg.Driver)

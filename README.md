@@ -9,9 +9,22 @@ schema migrations with versioned views, procedures, and functions.
 
 ```sh
 go build -o saxbase .
-export GOOSE_DRIVER=mssql
-export GOOSE_DBSTRING='sqlserver://USER:PASSWORD@localhost:1433?database=example'
+cp saxbase.yaml.example saxbase.yaml
+cp .env.example .env
 ```
+
+Set your connection strings in `.env` (ignored by Git). The config maps target
+names to environment variables and defaults to `local`. Exported variables take
+precedence over `.env`; in CI, supply them through your secrets store.
+
+```sh
+./saxbase plan                 # Uses default_target from saxbase.yaml
+./saxbase -target acc plan     # Select another database
+./saxbase -target prod deploy
+```
+
+Commit `saxbase.yaml` alongside your SQL; keep passwords in `.env` or CI secrets.
+Without a config, `GOOSE_DBSTRING` still works. See [configuration details](docs/reference.md#configuration).
 
 Organize your SQL like this (see the [runnable example](examples/sqlserver/README.md)):
 

@@ -14,7 +14,7 @@ import (
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := cli.Run(ctx, os.Args[1:], os.Getenv, os.Stdout, migrations.Open); err != nil {
+	if err := cli.RunWithLookup(ctx, os.Args[1:], os.LookupEnv, os.Stdout, os.Stderr, migrations.Open); err != nil {
 		fmt.Fprintln(os.Stderr, "saxbase:", err)
 		os.Exit(1)
 	}

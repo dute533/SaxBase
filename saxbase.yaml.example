@@ -1,0 +1,11 @@
+default_target: local
+
+targets:
+  local:
+    connection_env: SAXBASE_LOCAL_DSN
+  dev:
+    connection_env: SAXBASE_DEV_DSN
+  acc:
+    connection_env: SAXBASE_ACC_DSN
+  prod:
+    connection_env: SAXBASE_PROD_DSN

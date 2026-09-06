@@ -10,3 +10,9 @@
 /coverage.out
 /coverage.html
 *.prof
+
+# Local connection secrets
+.env
+.*.env
+.env.*
+!.env.example

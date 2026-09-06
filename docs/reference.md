@@ -4,6 +4,49 @@ SaxBase is a Go database deployment CLI built around [Goose](https://github.com/
 Goose remains an external Go module and owns structural migrations. SaxBase owns
 deployment semantics through an internal migration engine interface.
 
+## Configuration
+
+Copy `saxbase.yaml.example` to `saxbase.yaml` and `.env.example` to `.env` in your
+working directory. Set connection strings in `.env`; keep that file out of Git.
+The YAML config contains only environment variable names:
+
+```yaml
+default_target: local
+targets:
+  local:
+    connection_env: SAXBASE_LOCAL_DSN
+  prod:
+    connection_env: SAXBASE_PROD_DSN
+```
+
+```sh
+./saxbase plan                       # Uses local
+./saxbase -target prod deploy
+./saxbase -config team.yaml -target prod plan
+```
+
+`-target` overrides `default_target`. Without either, a config requires an explicit
+target. Unknown targets, missing config files requested explicitly, and empty or
+missing target connection variables are errors; SaxBase never falls back to
+another connection. Target selection overrides `GOOSE_DBSTRING`. Positional
+connection strings cannot be combined with a target config. Without a config,
+the existing Goose environment and positional connection settings still work.
+
+SaxBase automatically reads `.env` from the current working directory, even when
+`-config` points elsewhere. Existing process environment variables take precedence,
+including explicitly empty values. Missing `.env` is allowed; malformed files
+fail. Values are read without modifying the process environment. Dotenv quoting,
+comments, and variable expansion follow the `godotenv` parser; quote connection
+strings and URL-encode special characters in URL usernames and passwords.
+`.acc.env` and `.prod.env` are not loaded automatically: put the named connection
+variables in `.env` or supply them through your CI secrets store.
+
+All database commands use the selected target. The CLI prints its name to stderr
+before database access, preserving stdout for command results and JSON. It does
+not print the connection string. Local `release create`, `release sync`, and
+`release validate` commands need no target credentials; help needs no config.
+Only SQL Server is supported; `GOOSE_DRIVER` defaults to `mssql`.
+
 ## Structural migrations
 
 Requires Go 1.26 or newer and SQL Server. Build with `go build -o saxbase .`,
