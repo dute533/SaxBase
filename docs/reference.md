@@ -17,6 +17,7 @@ targets:
     connection_env: SAXBASE_LOCAL_DSN
   prod:
     connection_env: SAXBASE_PROD_DSN
+    require_confirmation: true
 ```
 
 ```sh
@@ -24,6 +25,22 @@ targets:
 ./saxbase -target prod deploy
 ./saxbase -config team.yaml -target prod plan
 ```
+
+Set `require_confirmation: true` on any target to require confirmation for `up`,
+`down`, `deploy`, `objects apply`, and `release rollback`. The default is `false`.
+This applies equally to an explicitly selected target and the configured default.
+Before opening a database connection, SaxBase prompts on stderr with the command
+and target name. Enter `yes` followed by Enter to continue; other answers, EOF,
+and input errors cancel without database access. Ctrl-C cancels the prompt.
+Read-only commands and local manifest commands do not prompt.
+
+For unattended writes, pass `-yes` before the command:
+
+```sh
+./saxbase -target prod -yes deploy
+```
+
+`-yes` skips confirmation only; it does not bypass deployment validation.
 
 `-target` overrides `default_target`. Without either, a config requires an explicit
 target. Unknown targets, missing config files requested explicitly, and empty or

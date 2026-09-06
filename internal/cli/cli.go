@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"text/tabwriter"
 
 	"saxbase/internal/migrations"
@@ -56,6 +57,7 @@ Environment:
 Configuration:
   -config PATH   Target config (default saxbase.yaml)
   -target NAME   Database target (defaults to default_target in config)
+  -yes           Confirm database writes to targets requiring confirmation
   .env           Loaded from the working directory; environment takes precedence
 
 Options must precede the command or connection arguments.
@@ -70,12 +72,13 @@ func Run(ctx context.Context, args []string, getenv func(string) string, out io.
 type runEnvironment struct {
 	lookup      func(string) (string, bool)
 	diagnostics io.Writer
+	input       io.Reader
 }
 
 // RunWithLookup preserves explicitly empty environment variables when loading .env.
 func RunWithLookup(ctx context.Context, args []string, lookup func(string) (string, bool), out, diagnostics io.Writer, open OpenFunc) error {
 	getenv := func(key string) string { value, _ := lookup(key); return value }
-	return run(ctx, args, getenv, out, open, objects.Open, runEnvironment{lookup: lookup, diagnostics: diagnostics})
+	return run(ctx, args, getenv, out, open, objects.Open, runEnvironment{lookup: lookup, diagnostics: diagnostics, input: os.Stdin})
 }
 
 func run(ctx context.Context, args []string, getenv func(string) string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error), environment ...runEnvironment) (err error) {
@@ -86,6 +89,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	flags := flag.NewFlagSet("saxbase", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var dir, objectDir, manifestPath, configPath, target string
+	var yes bool
+	flags.BoolVar(&yes, "yes", false, "confirm writes to protected targets")
 	flags.StringVar(&dir, "dir", "", "migration directory")
 	flags.StringVar(&objectDir, "objects-dir", "", "full-state object directory")
 	flags.StringVar(&manifestPath, "manifest", "", "release manifest")
@@ -100,9 +105,13 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	var lookup []func(string) (string, bool)
 	targetOut := out
+	var input io.Reader
 	if len(environment) > 0 {
-		lookup = append(lookup, environment[0].lookup)
+		if environment[0].lookup != nil {
+			lookup = append(lookup, environment[0].lookup)
+		}
 		targetOut = environment[0].diagnostics
+		input = environment[0].input
 	}
 	getenv, err = loadDotEnv(getenv, lookup...)
 	if err != nil {
@@ -124,8 +133,16 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	if objectDir == "" {
 		objectDir = "database/objects"
 	}
-	resolveTarget := func(positional bool) error {
-		return selectTarget(configPath, target, positional, getenv, &cfg, targetOut)
+	resolveTarget := func(positional bool, command string) error {
+		return selectTarget(configPath, target, positional, getenv, &cfg, targetOut, func(name string) error {
+			switch command {
+			case "up", "down", "deploy", "objects apply", "release rollback":
+				if !yes {
+					return confirmWrite(ctx, name, command, input, targetOut)
+				}
+			}
+			return nil
+		})
 	}
 	pos := flags.Args()
 	if len(pos) > 0 && pos[0] == "release" {
@@ -133,7 +150,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 			if manifestPath != "" {
 				return errors.New("rollback uses database snapshots, not -manifest")
 			}
-			if err := resolveTarget(false); err != nil {
+			if err := resolveTarget(false, "release rollback"); err != nil {
 				return err
 			}
 			return runRollback(ctx, pos[2:], cfg, out, open, openObjects)
@@ -142,7 +159,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 			if manifestPath != "" {
 				return errors.New("-manifest does not apply to database release history")
 			}
-			if err := resolveTarget(false); err != nil {
+			if err := resolveTarget(false, "release "+pos[1]); err != nil {
 				return err
 			}
 			return runReleaseDatabase(ctx, pos[1:], cfg, out, openObjects)
@@ -173,7 +190,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	default:
 		return fmt.Errorf("unknown command %q; use -h for help", command)
 	}
-	if err := resolveTarget(len(pos) >= 3); err != nil {
+	if err := resolveTarget(len(pos) >= 3, command); err != nil {
 		return err
 	}
 	if cfg.Driver != "mssql" && cfg.Driver != "sqlserver" {

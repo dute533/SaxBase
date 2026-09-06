@@ -15,7 +15,8 @@ import (
 type targetConfig struct {
 	DefaultTarget string `yaml:"default_target"`
 	Targets       map[string]struct {
-		ConnectionEnv string `yaml:"connection_env"`
+		ConnectionEnv       string `yaml:"connection_env"`
+		RequireConfirmation bool   `yaml:"require_confirmation"`
 	} `yaml:"targets"`
 }
 
@@ -39,7 +40,7 @@ func loadDotEnv(getenv func(string) string, lookup ...func(string) (string, bool
 	}, nil
 }
 
-func selectTarget(filename, target string, positional bool, getenv func(string) string, cfg *migrations.Config, out io.Writer) error {
+func selectTarget(filename, target string, positional bool, getenv func(string) string, cfg *migrations.Config, out io.Writer, confirm func(string) error) error {
 	explicit := filename != ""
 	if filename == "" {
 		filename = "saxbase.yaml"
@@ -83,5 +84,11 @@ func selectTarget(filename, target string, positional bool, getenv func(string) 
 		return fmt.Errorf("target %q: environment variable %q is empty or missing", target, entry.ConnectionEnv)
 	}
 	_, err = fmt.Fprintf(out, "Target: %s\n", target)
-	return err
+	if err != nil {
+		return err
+	}
+	if entry.RequireConfirmation {
+		return confirm(target)
+	}
+	return nil
 }

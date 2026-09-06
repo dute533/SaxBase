@@ -23,6 +23,10 @@ precedence over `.env`; in CI, supply them through your secrets store.
 ./saxbase -target prod deploy
 ```
 
+Set `require_confirmation: true` on targets that need confirmation (enabled for
+`prod` in the example). Writes prompt for `yes`; CI can use
+`./saxbase -target prod -yes deploy`. Read-only commands never prompt.
+
 Commit `saxbase.yaml` alongside your SQL; keep passwords in `.env` or CI secrets.
 Without a config, `GOOSE_DBSTRING` still works. See [configuration details](docs/reference.md#configuration).
 

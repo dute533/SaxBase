@@ -9,3 +9,4 @@ targets:
     connection_env: SAXBASE_ACC_DSN
   prod:
     connection_env: SAXBASE_PROD_DSN
+    require_confirmation: true
