@@ -10,6 +10,7 @@ import (
 
 	"saxbase/internal/migrations"
 	"saxbase/internal/objects"
+	"saxbase/internal/releases"
 )
 
 const usage = `SaxBase
@@ -18,6 +19,8 @@ Usage:
   saxbase [-dir database/migrations] COMMAND
   saxbase [-dir database/migrations] mssql CONNECTION_STRING COMMAND
   saxbase [-objects-dir database/objects] objects apply|status
+  saxbase [-manifest database/release.json] release create VERSION
+  saxbase [-manifest database/release.json] release validate
 
 Commands:
   up       Apply all pending Goose migrations
@@ -26,6 +29,8 @@ Commands:
   version  Print the current Goose database version
   objects apply   Deploy changed full-state SQL objects
   objects status  Compare local objects with deployed checksums
+  release create VERSION  Write a new manifest from current object files
+  release validate        Check the manifest against current object files
 
 Environment:
   GOOSE_DRIVER    mssql (default) or sqlserver
@@ -62,6 +67,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		objectDir = "database/objects"
 	}
 	flags.StringVar(&objectDir, "objects-dir", objectDir, "full-state object directory")
+	var manifestPath string
+	flags.StringVar(&manifestPath, "manifest", "", "release manifest (release commands default to database/release.json)")
 	if parseErr := flags.Parse(args); parseErr != nil {
 		if errors.Is(parseErr, flag.ErrHelp) {
 			_, err = io.WriteString(out, usage)
@@ -70,6 +77,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		return parseErr
 	}
 	pos := flags.Args()
+	if len(pos) > 0 && pos[0] == "release" {
+		return runRelease(pos[1:], manifestPath, objectDir, out)
+	}
 	var command string
 	switch len(pos) {
 	case 1:
@@ -97,6 +107,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	if cfg.Driver != "mssql" && cfg.Driver != "sqlserver" {
 		return fmt.Errorf("unsupported driver %q: use mssql or sqlserver", cfg.Driver)
 	}
+	if manifestPath != "" && command != "objects apply" && command != "objects status" {
+		return errors.New("-manifest is supported only for release and objects commands")
+	}
 	if cfg.DSN == "" {
 		return errors.New("set GOOSE_DBSTRING or provide a connection string")
 	}
@@ -104,6 +117,20 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		files, scanErr := objects.Scan(objectDir)
 		if scanErr != nil {
 			return fmt.Errorf("scan objects: %w", scanErr)
+		}
+		if manifestPath != "" {
+			manifest, loadErr := releases.Load(manifestPath)
+			if loadErr != nil {
+				return loadErr
+			}
+			if validateErr := manifest.Validate(files); validateErr != nil {
+				return validateErr
+			}
+			if command == "objects apply" {
+				if checkErr := checkSchema(ctx, cfg, manifest, open); checkErr != nil {
+					return checkErr
+				}
+			}
 		}
 		engine, openErr := openObjects(cfg.DSN)
 		if openErr != nil {

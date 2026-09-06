@@ -157,11 +157,16 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT COUNT(*) FROM dbo.goose_db_version WHERE version_id IN (1, 2) AND is_applied = 1", 2)
 
 	// Object status is read-only, including before its metadata table exists.
+	run("release", "validate")
+	run("-manifest", "database/wrong-schema.json", "release", "create", "3")
+	if output, err := execute("-manifest", "database/wrong-schema.json", "objects", "apply"); err == nil {
+		t.Fatalf("schema mismatch accepted: %s", output)
+	}
 	if output := run("objects", "status"); strings.Count(output, "new") != 3 {
 		t.Fatalf("initial objects: %s", output)
 	}
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_objects')", 0)
-	if output := run("objects", "apply"); strings.Count(output, "applied") != 3 {
+	if output := run("-manifest", "database/release.json", "objects", "apply"); strings.Count(output, "applied") != 3 {
 		t.Fatalf("apply objects: %s", output)
 	}
 	assertCount("SELECT value FROM dbo.saxbase_value", 1)
@@ -187,10 +192,16 @@ func TestSQLServerMigration(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(objectDir, "views/value.sql"), updated, 0600); err != nil {
 		t.Fatal(err)
 	}
+	if output, err := execute("-manifest", "database/release.json", "objects", "apply"); err == nil {
+		t.Fatalf("stale manifest accepted: %s", output)
+	}
+	assertCount("SELECT value FROM dbo.saxbase_value", 1)
+	run("-manifest", "database/release-2.1.json", "release", "create", "2.1")
+	run("-manifest", "database/release-2.1.json", "release", "validate")
 	if output := run("objects", "status"); strings.Count(output, "changed") != 3 || strings.Count(output, "unchanged") != 2 {
 		t.Fatalf("changed status: %s", output)
 	}
-	if output := run("objects", "apply"); strings.Count(output, "applied") != 1 || strings.Count(output, "unchanged") != 2 {
+	if output := run("-manifest", "database/release-2.1.json", "objects", "apply"); strings.Count(output, "applied") != 1 || strings.Count(output, "unchanged") != 2 {
 		t.Fatalf("changed apply: %s", output)
 	}
 	assertCount("SELECT value FROM dbo.saxbase_value", 2)

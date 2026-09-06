@@ -6,6 +6,7 @@ SaxBase's default directories:
 ```text
 examples/sqlserver/
   database/
+    release.json
     migrations/
       00001_create_customers.sql
       00002_add_nickname.sql
@@ -46,7 +47,8 @@ unset GOOSE_MIGRATION_DIR SAXBASE_OBJECTS_DIR
 ../../saxbase up
 ../../saxbase version
 ../../saxbase objects status
-../../saxbase objects apply
+../../saxbase release validate
+../../saxbase -manifest database/release.json objects apply
 ../../saxbase objects status
 ```
 
@@ -78,6 +80,20 @@ function are `unchanged`. Run `../../saxbase objects apply` and query the view
 again: its value is now `2`. `../../saxbase version` remains `2` because this did
 not add a structural migration.
 
+To version this change as release `2.1`, generate a new manifest and deploy with it:
+
+```sh
+../../saxbase -manifest database/release-2.1.json release create 2.1
+../../saxbase -manifest database/release-2.1.json release validate
+../../saxbase -manifest database/release-2.1.json objects apply
+```
+
+The original `database/release.json` contains release `2` and intentionally stops
+matching after the view is edited. Applying with that old manifest now fails
+before executing object SQL. Manifest creation is offline and refuses to
+overwrite existing files. The manifest records intended contents; deployed
+release history and automatic rollback to old object definitions are future work.
+
 `../../saxbase down` rolls back the column migration, leaving the customers table
 and its row intact. A second `down` drops the table; full-state objects are not
 rolled back by Goose and would then reference a missing table. Use a disposable
@@ -97,4 +113,6 @@ to a temporary working directory. It invokes the built CLI with its default
 paths, verifies migrations and object results, exercises object updates and
 rollback on failure, checks that missing files do not drop objects, and cleans
 up the database. The checked-in example files are never modified by the test.
+It also validates the checked-in release manifest, rejects a wrong Goose version
+and stale checksums, and generates and applies an object revision manifest.
 See the root README for disposable Docker setup and connection configuration.

@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "version": "2",
+  "objects": [
+    {
+      "path": "functions/value.sql",
+      "sha256": "b0873ce5c1e65275fb87877179a8499379bf6f52f895a322b4381a9aa2ea9c6f"
+    },
+    {
+      "path": "procedures/value.sql",
+      "sha256": "175c7ba0cefe136b8d4366925c6aebf77ed0d6e25dd8110d8b52cbf3c9cf4f6d"
+    },
+    {
+      "path": "views/value.sql",
+      "sha256": "ee958b6ab93ff0ed83443e4f5a448300101431d6ad7bc5083e038d5bd82d8de7"
+    }
+  ]
+}

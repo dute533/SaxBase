@@ -110,6 +110,57 @@ definitions, so manual database edits are not detected. Release history, automat
 object removal, dependency resolution, and restoring prior object versions are
 not implemented yet.
 
+## Release manifests
+
+A JSON manifest names a release and records the exact set of object paths and
+SHA-256 checksums. The version is a string: `30` requires Goose version 30;
+`30.1` and `30.2` represent object revisions at that same structural version.
+Components are parsed as nonnegative 64-bit integers, never floating-point
+numbers. Use `30` for the initial revision, not `30.0`.
+
+Create a manifest from current object files without connecting to a database:
+
+```sh
+./saxbase release create 30
+./saxbase release validate
+```
+
+Both commands default to `database/release.json`. `release create` writes
+`format: 1`, a string `version`, and an `objects` array containing `path` and
+`sha256` for every scanned SQL file. It refuses to overwrite an existing file.
+See the [complete example manifest](examples/sqlserver/database/release.json).
+The schema component is supplied by you; creation does not inspect the database
+or certify that the corresponding migration exists.
+
+After editing objects, create a manifest at a new path for the next revision:
+
+```sh
+./saxbase -manifest database/release-30.1.json release create 30.1
+./saxbase -manifest database/release-30.1.json release validate
+./saxbase -manifest database/release-30.1.json objects apply
+```
+
+Validation rejects missing, extra, or changed local object files, duplicate paths,
+invalid checksums, and unsupported manifest formats. Paths are relative to the
+object directory, not the manifest file. `-objects-dir` still selects the object
+directory. An empty objects array represents an empty local object set.
+
+When `-manifest` is supplied to `objects apply`, SaxBase validates the files and
+requires the current Goose database version to equal the version's integer
+component before applying objects. It does not run structural migrations for
+you. The check uses Goose and requires the migrations directory. Supplying
+`-manifest` to `objects status` validates the local files before displaying object
+status; it does not check the database's Goose version.
+
+The manifest is opt-in for object commands; without `-manifest`, existing object
+deployment behavior is retained. Keep manifests and their matching SQL in Git.
+They record intended release contents, not a database release history, and do
+not embed old SQL definitions. A manifest is checked against the local file set;
+it does not assert that no other objects exist in the database. The Goose version
+check and object transaction are separate, so coordinate structural migrations
+with deployment. Restoring historical releases and enforcing immutable release
+identities in the database are future work.
+
 ## Development
 
 The [SQL Server example](examples/sqlserver/README.md) contains a complete
@@ -178,5 +229,6 @@ Future releases will pair a Goose structural version with an exact object state.
 Versions such as `30`, `30.1`, `30.2`, `31`, and `31.1` consist of an integer
 schema version and an optional object revision; they must never use floating-point
 representation. Release tracking, rollback to previous releases, planning, and
-eventual ArchiMate model generation are future work. Release manifests are not
-implemented in this milestone.
+eventual ArchiMate model generation are future work. File-based release manifests
+are available; deployed release history and historical SQL snapshots are not yet
+stored in the database.
