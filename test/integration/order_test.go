@@ -100,26 +100,3 @@ func TestSQLServerNoSnapshotTable(t *testing.T) {
 		t.Fatalf("release-state table: %d %v", count, err)
 	}
 }
-
-func TestSQLServerLegacyReleaseMetadata(t *testing.T) {
-	ctx, db, _, execute, run := integrationDatabase(t)
-	run("apply")
-	if _, err := db.ExecContext(ctx, "ALTER TABLE dbo.saxbase_releases DROP COLUMN fingerprint"); err != nil {
-		t.Fatal(err)
-	}
-	if out, err := execute("plan"); err == nil || !strings.Contains(out, "immutable") {
-		t.Fatalf("legacy plan: %v %s", err, out)
-	}
-	var absent int
-	if err := db.QueryRowContext(ctx, "SELECT CASE WHEN COL_LENGTH('dbo.saxbase_releases','fingerprint') IS NULL THEN 1 ELSE 0 END").Scan(&absent); err != nil || absent != 1 {
-		t.Fatalf("read modified legacy metadata: %d %v", absent, err)
-	}
-	run("-manifest", "database/new.json", "release", "create", "2.1")
-	run("-manifest", "database/new.json", "apply")
-	if out, err := execute("-manifest", "database/release.json", "-source-manifest", "database/new.json", "rollback", "2"); err == nil || !strings.Contains(out, "fingerprint") {
-		t.Fatalf("legacy rollback: %v %s", err, out)
-	}
-	if output := strings.Join(strings.Fields(run("status")), " "); !strings.Contains(output, "Release: 2.1") {
-		t.Fatalf("current release missing from status: %s", output)
-	}
-}

@@ -1,4 +1,4 @@
-// Package objects deploys complete SQL object definitions independently of Goose.
+// Package objects applies complete SQL object definitions alongside Goose migrations.
 package objects
 
 import (
@@ -22,8 +22,6 @@ type File struct {
 type Status struct{ Path, State, Checksum string }
 type Engine interface {
 	Deploy(context.Context, []File, int64, int64, migrations.Engine, func(context.Context) error) ([]Status, error)
-	Apply(context.Context, []File) ([]Status, error)
-	ApplyRelease(context.Context, []File, int64, int64) ([]Status, error)
 	History(context.Context) ([]Release, error)
 	Snapshot(context.Context, string) (Snapshot, error)
 	Rollback(context.Context, Snapshot, Snapshot, migrations.Engine) (Rollback, error)

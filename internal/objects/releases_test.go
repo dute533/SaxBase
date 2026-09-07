@@ -65,7 +65,7 @@ func TestReleaseCommitsFingerprintWithoutSQLSnapshot(t *testing.T) {
 	expectObjectApply(mock, files[0])
 	expectCurrent(mock, "30.1")
 	mock.ExpectCommit()
-	rows, err := s.ApplyRelease(context.Background(), files, 30, 1)
+	rows, err := s.apply(context.Background(), files, &Release{Version: "30.1", SchemaVersion: 30, Revision: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestReleaseRollsBackOnSQLOrChecksumFailure(t *testing.T) {
 			} else {
 				mock.ExpectRollback()
 			}
-			rows, err := s.ApplyRelease(context.Background(), []File{file}, 30, 0)
+			rows, err := s.apply(context.Background(), []File{file}, &Release{Version: "30", SchemaVersion: 30})
 			if !errors.Is(err, failure) || rows != nil {
 				t.Fatalf("result=%v error=%v", rows, err)
 			}
@@ -136,7 +136,7 @@ func TestReleaseIdentityAndOrdering(t *testing.T) {
 			} else {
 				mock.ExpectRollback()
 			}
-			rows, err := s.ApplyRelease(context.Background(), []File{file}, 30, 2)
+			rows, err := s.apply(context.Background(), []File{file}, &Release{Version: "30.2", SchemaVersion: 30, Revision: 2})
 			if scenario == "retry" {
 				if err != nil || rows[0].State != "unchanged" {
 					t.Fatalf("retry: %v %v", rows, err)
@@ -165,7 +165,7 @@ func TestReleaseRechecksGooseVersionAndLock(t *testing.T) {
 				mock.ExpectQuery(`SELECT MAX\(version_id\) FROM goose_db_version`).WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow(31))
 			}
 			mock.ExpectRollback()
-			if _, err := s.ApplyRelease(context.Background(), nil, 30, 1); err == nil {
+			if _, err := s.apply(context.Background(), nil, &Release{Version: "30.1", SchemaVersion: 30, Revision: 1}); err == nil {
 				t.Fatal("guard failed")
 			}
 		})
@@ -173,7 +173,7 @@ func TestReleaseRechecksGooseVersionAndLock(t *testing.T) {
 }
 
 func expectCurrent(mock sqlmock.Sqlmock, version string) {
-	mock.ExpectExec("IF COL_LENGTH").WithArgs(version).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE dbo.saxbase_releases").WithArgs(version).WillReturnResult(sqlmock.NewResult(0, 1))
 }
 
 func TestReleaseHistoryBeforeFirstDeployment(t *testing.T) {
@@ -208,14 +208,11 @@ func TestStoredReleaseMetadata(t *testing.T) {
 func TestInvalidReleaseInput(t *testing.T) {
 	s, _ := mockStore(t)
 	file := objectFile("a.sql", "SELECT 1;")
-	if _, err := s.ApplyRelease(context.Background(), []File{file, file}, 30, 1); err == nil {
+	if _, err := s.apply(context.Background(), []File{file, file}, &Release{Version: "30.1", SchemaVersion: 30, Revision: 1}); err == nil {
 		t.Fatal("duplicate accepted")
 	}
 	file.Checksum = "bad"
-	if _, err := s.ApplyRelease(context.Background(), []File{file}, 30, 1); err == nil {
+	if _, err := s.apply(context.Background(), []File{file}, &Release{Version: "30.1", SchemaVersion: 30, Revision: 1}); err == nil {
 		t.Fatal("incorrect checksum accepted")
-	}
-	if _, err := s.ApplyRelease(context.Background(), nil, -1, 0); err == nil {
-		t.Fatal("negative version accepted")
 	}
 }

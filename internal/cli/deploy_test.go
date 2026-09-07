@@ -40,7 +40,7 @@ func TestApplyCLI(t *testing.T) {
 			t.Fatal("engines were not closed")
 		}
 		if version == "29" {
-			if err == nil || !strings.Contains(err.Error(), "apply blocked") || db.command == "apply-release" {
+			if err == nil || !strings.Contains(err.Error(), "apply blocked") || db.command != "status" {
 				t.Fatalf("blocked deploy: %v %+v", err, db)
 			}
 		} else if err != nil || db.schema != 30 || db.revision != 2 || !strings.Contains(out.String(), "Applied release 30.2") {

@@ -8,9 +8,7 @@ import (
 )
 
 func setCurrent(ctx context.Context, db deploymentlock.Reader, version string) error {
-	_, err := db.ExecContext(ctx, `IF COL_LENGTH(N'dbo.saxbase_releases',N'is_current') IS NULL
- ALTER TABLE dbo.saxbase_releases ADD is_current bit NOT NULL CONSTRAINT DF_saxbase_releases_is_current DEFAULT 0;
- UPDATE dbo.saxbase_releases SET is_current=0;
+	_, err := db.ExecContext(ctx, `UPDATE dbo.saxbase_releases SET is_current=0;
  UPDATE dbo.saxbase_releases SET is_current=1 WHERE version=@version;`, sql.Named("version", version))
 	return err
 }
@@ -21,10 +19,7 @@ func currentVersion(ctx context.Context, db reader) (string, error) {
 		return "", err
 	}
 	var version sql.NullString
-	err = db.QueryRowContext(ctx, `IF COL_LENGTH(N'dbo.saxbase_releases',N'is_current') IS NULL
-   SELECT TOP (1) version FROM dbo.saxbase_releases ORDER BY schema_version DESC, revision DESC;
- ELSE
-   SELECT TOP (1) version FROM dbo.saxbase_releases WHERE is_current=1 ORDER BY schema_version DESC, revision DESC;`).Scan(&version)
+	err = db.QueryRowContext(ctx, "SELECT TOP (1) version FROM dbo.saxbase_releases WHERE is_current=1 ORDER BY schema_version DESC, revision DESC").Scan(&version)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}

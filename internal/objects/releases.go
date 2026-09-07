@@ -48,28 +48,24 @@ const releaseTables = `IF OBJECT_ID(N'dbo.saxbase_releases', N'U') IS NULL
  revision bigint NOT NULL,
  deployed_at datetime2 NOT NULL DEFAULT SYSUTCDATETIME(),
  object_count int NOT NULL,
- fingerprint char(64) NULL,
+ fingerprint char(64) NOT NULL,
  is_current bit NOT NULL CONSTRAINT DF_saxbase_releases_is_current DEFAULT 0,
  UNIQUE(schema_version,revision)
- );
- IF COL_LENGTH(N'dbo.saxbase_releases', N'fingerprint') IS NULL
- ALTER TABLE dbo.saxbase_releases ADD fingerprint char(64) NULL;
- IF COL_LENGTH(N'dbo.saxbase_releases', N'is_current') IS NULL
- ALTER TABLE dbo.saxbase_releases ADD is_current bit NOT NULL CONSTRAINT DF_saxbase_releases_is_current DEFAULT 0;`
+ );`
 
 func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, files []File) (int64, bool, error) {
 	if _, err := tx.ExecContext(ctx, releaseTables); err != nil {
 		return 0, false, fmt.Errorf("initialize release history: %w", err)
 	}
 	var id int64
-	var fingerprint sql.NullString
+	var fingerprint string
 	err := tx.QueryRowContext(ctx, "SELECT id, fingerprint FROM dbo.saxbase_releases WHERE version=@version", sql.Named("version", release.Version)).Scan(&id, &fingerprint)
 	exists := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return 0, false, err
 	}
-	if exists && (!fingerprint.Valid || fingerprint.String != Fingerprint(files)) {
-		return 0, false, fmt.Errorf("release %s is immutable or predates Git manifests; use a new release version", release.Version)
+	if exists && fingerprint != Fingerprint(files) {
+		return 0, false, fmt.Errorf("release %s is immutable; use a new release version", release.Version)
 	}
 
 	var schema, revision int64
@@ -138,16 +134,14 @@ func (s *store) Snapshot(ctx context.Context, version string) (Snapshot, error) 
 		return snapshot, fmt.Errorf("release %s not found", version)
 	}
 	var id int64
-	var fingerprint sql.NullString
-	err = s.db.QueryRowContext(ctx, `IF COL_LENGTH(N'dbo.saxbase_releases', N'fingerprint') IS NULL
- SELECT id, version, schema_version, revision, deployed_at, object_count, CAST(NULL AS char(64)) AS fingerprint FROM dbo.saxbase_releases WHERE version=@version;
- ELSE EXEC sys.sp_executesql N'SELECT id, version, schema_version, revision, deployed_at, object_count, fingerprint FROM dbo.saxbase_releases WHERE version=@version', N'@version varchar(39)', @version=@version;`, sql.Named("version", version)).Scan(&id, &snapshot.Version, &snapshot.SchemaVersion, &snapshot.Revision, &snapshot.DeployedAt, &snapshot.ObjectCount, &fingerprint)
+	var fingerprint string
+	err = s.db.QueryRowContext(ctx, "SELECT id, version, schema_version, revision, deployed_at, object_count, fingerprint FROM dbo.saxbase_releases WHERE version=@version", sql.Named("version", version)).Scan(&id, &snapshot.Version, &snapshot.SchemaVersion, &snapshot.Revision, &snapshot.DeployedAt, &snapshot.ObjectCount, &fingerprint)
 	if errors.Is(err, sql.ErrNoRows) {
 		return snapshot, fmt.Errorf("release %s not found", version)
 	}
 	if err != nil {
 		return snapshot, err
 	}
-	snapshot.Fingerprint = fingerprint.String
+	snapshot.Fingerprint = fingerprint
 	return snapshot, err
 }

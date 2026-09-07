@@ -16,11 +16,6 @@ type fakeObjects struct {
 	revision int64
 }
 
-func (f *fakeObjects) Apply(_ context.Context, files []objects.File) ([]objects.Status, error) {
-	f.command = "apply"
-	f.files = files
-	return []objects.Status{{Path: files[0].Path, State: "applied", Checksum: files[0].Checksum}}, f.err
-}
 func (f *fakeObjects) Status(_ context.Context, files []objects.File) ([]objects.Status, error) {
 	f.command = "status"
 	f.files = files
@@ -43,12 +38,6 @@ func (f *fakeObjects) Current(context.Context) (string, error) {
 	return "30.1", f.err
 }
 
-func (f *fakeObjects) ApplyRelease(ctx context.Context, files []objects.File, schema, revision int64) ([]objects.Status, error) {
-	f.schema, f.revision = schema, revision
-	rows, err := f.Apply(ctx, files)
-	f.command = "apply-release"
-	return rows, err
-}
 func (f *fakeObjects) History(context.Context) ([]objects.Release, error) {
 	f.command = "history"
 	return []objects.Release{{Version: "30.1", SchemaVersion: 30, Revision: 1, ObjectCount: 1}}, f.err
@@ -62,5 +51,8 @@ func (f *fakeObjects) Deploy(ctx context.Context, files []objects.File, schema, 
 	if err := preflight(ctx); err != nil {
 		return nil, err
 	}
-	return f.ApplyRelease(ctx, files, schema, revision)
+	f.command = "apply"
+	f.files = files
+	f.schema, f.revision = schema, revision
+	return []objects.Status{{Path: files[0].Path, State: "applied", Checksum: files[0].Checksum}}, f.err
 }

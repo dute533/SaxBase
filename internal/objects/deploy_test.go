@@ -32,7 +32,7 @@ func TestDeployReleasesLockOnPreflightOrMigrationFailure(t *testing.T) {
 			mock.ExpectQuery("DECLARE.*sp_getapplock").WillReturnRows(sqlmock.NewRows([]string{"code"}).AddRow(0))
 			mock.ExpectQuery("SELECT OBJECT_ID.*saxbase_rollbacks").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(nil))
 			if phase == "migration" {
-				mock.ExpectExec("IF OBJECT_ID.*saxbase_releases.*is_current").WillReturnResult(sqlmock.NewResult(0, 1))
+				mock.ExpectExec("UPDATE dbo.saxbase_releases").WillReturnResult(sqlmock.NewResult(0, 1))
 			}
 			mock.ExpectQuery("DECLARE.*sp_releaseapplock").WillReturnRows(sqlmock.NewRows([]string{"code"}).AddRow(0))
 			_, err := s.Deploy(context.Background(), nil, 3, 0, g, func(context.Context) error {

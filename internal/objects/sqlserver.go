@@ -59,23 +59,6 @@ func (s *store) Status(ctx context.Context, files []File) ([]Status, error) {
 	return compare(files, deployed), nil
 }
 
-// Apply serializes SaxBase object deployments and commits definitions and their
-// checksums together. Each file is a separate SQL batch within the transaction.
-func (s *store) Apply(ctx context.Context, files []File) ([]Status, error) {
-	return s.apply(ctx, files, nil)
-}
-
-func (s *store) ApplyRelease(ctx context.Context, files []File, schema, revision int64) ([]Status, error) {
-	if schema < 0 || revision < 0 {
-		return nil, errors.New("release components must be nonnegative")
-	}
-	version := fmt.Sprint(schema)
-	if revision > 0 {
-		version += fmt.Sprintf(".%d", revision)
-	}
-	return s.apply(ctx, files, &Release{Version: version, SchemaVersion: schema, Revision: revision})
-}
-
 type transactionStarter interface {
 	BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
 }
