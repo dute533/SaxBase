@@ -12,7 +12,7 @@ import (
 
 type SyncResult struct {
 	PreviousVersion, Version string
-	Added, Updated           []string
+	Added, Updated, Removed  []string
 }
 
 // Sync refreshes an existing local manifest without changing existing order.

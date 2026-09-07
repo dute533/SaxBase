@@ -346,25 +346,13 @@ func TestSQLServerMigration(t *testing.T) {
 		t.Fatalf("missing status: %s", output)
 	}
 	run("-manifest", "database/incomplete-2.2.json", "release", "create", "2.2")
-	if output, err := execute("-manifest", "database/incomplete-2.2.json", "objects", "apply"); err == nil || !strings.Contains(output, "omits tracked object") {
-		t.Fatalf("incomplete release accepted: %v %s", err, output)
+	if output, err := execute("-manifest", "database/incomplete-2.2.json", "objects", "apply"); err != nil {
+		t.Fatalf("delta release failed: %v %s", err, output)
 	}
 	run("objects", "apply")
 	assertCount("SELECT value FROM dbo.saxbase_value", 2)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_objects", 3)
-	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 2)
-
-	// Rollback uses stored SQL even when local definitions were edited or removed.
-	if _, err := db.ExecContext(ctx, "CREATE ROLE saxbase_reader; GRANT SELECT ON dbo.saxbase_value TO saxbase_reader;"); err != nil {
-		t.Fatal(err)
-	}
-	run("-manifest", "database/release.json", "-source-manifest", "database/release-2.1.json", "release", "rollback", "2")
-	assertCount("SELECT value FROM dbo.saxbase_value", 1)
-	assertCount("SELECT COUNT(*) FROM sys.database_permissions WHERE major_id=OBJECT_ID(N'dbo.saxbase_value') AND grantee_principal_id=DATABASE_PRINCIPAL_ID(N'saxbase_reader') AND permission_name='SELECT'", 1)
-	if got := run("release", "current"); got != "2" {
-		t.Fatalf("current release: %s", got)
-	}
-	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 2)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 3)
 
 	if err := os.WriteFile(filepath.Join(objectDir, "views/value.sql"), updated, 0600); err != nil {
 		t.Fatal(err)
@@ -373,17 +361,20 @@ func TestSQLServerMigration(t *testing.T) {
 	if err := os.WriteFile(extraPath, []byte("CREATE VIEW dbo.saxbase_later AS SELECT value FROM dbo.saxbase_value;"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	run("-manifest", "database/release-2.2.json", "release", "create", "2.2")
-	run("-manifest", "database/release-2.2.json", "objects", "apply")
+	run("-manifest", "database/release-2.3.json", "release", "create", "2.3")
+	run("-manifest", "database/release-2.3.json", "objects", "apply")
 	assertCount("SELECT value FROM dbo.saxbase_later", 2)
+	if _, err := db.ExecContext(ctx, "CREATE ROLE saxbase_reader; GRANT SELECT ON dbo.saxbase_value TO saxbase_reader;"); err != nil {
+		t.Fatal(err)
+	}
 	// A historical plain CREATE definition can be restored over an existing view.
-	run("-manifest", "database/release-2.2.json", "-source-manifest", "database/release-2.2.json", "release", "rollback", "2.2")
+	run("-manifest", "database/release-2.3.json", "-source-manifest", "database/release-2.3.json", "release", "rollback", "2.3")
 	assertCount("SELECT value FROM dbo.saxbase_later", 2)
-	run("-manifest", "database/release.json", "-source-manifest", "database/release-2.2.json", "release", "rollback", "2")
+	run("-manifest", "database/release.json", "-source-manifest", "database/release-2.3.json", "release", "rollback", "2")
 	assertCount("SELECT COUNT(*) FROM sys.views WHERE object_id=OBJECT_ID(N'dbo.saxbase_later')", 0)
 	assertCount("SELECT value FROM dbo.saxbase_value", 1)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_objects", 3)
-	run("-manifest", "database/release-2.2.json", "objects", "apply")
+	run("-manifest", "database/release-2.3.json", "objects", "apply")
 
 	// A newer structural release is rolled back through Goose, with a failed
 	// Down migration first to prove progress survives and retries can finish.
@@ -461,7 +452,7 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("EXEC dbo.saxbase_get_value", 1)
 	assertCount("SELECT dbo.saxbase_function()", 1)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_rollbacks WHERE status <> 'completed'", 0)
-	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 4)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 5)
 	if got := run("release", "current"); got != "2" {
 		t.Fatalf("current release: %s", got)
 	}

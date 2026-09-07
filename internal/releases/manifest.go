@@ -8,7 +8,9 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -42,9 +44,11 @@ func ParseVersion(value string) (Version, error) {
 type Object struct {
 	Path   string `json:"path"`
 	Commit string `json:"commit"`
+	Delete bool   `json:"delete,omitempty"`
 }
 type Manifest struct {
 	Version string   `json:"version"`
+	Parent  string   `json:"parent,omitempty"`
 	Objects []Object `json:"objects"`
 }
 
@@ -111,6 +115,9 @@ func (m Manifest) Validate(files []objects.File) error {
 	for _, file := range files {
 		sum, ok := expected[file.Path]
 		if !ok {
+			if m.Parent != "" {
+				continue
+			}
 			return fmt.Errorf("object not in manifest: %s", file.Path)
 		}
 		if sum != file.Commit {
@@ -143,6 +150,39 @@ func (m Manifest) Write(filename string) error {
 	return errors.Join(writeErr, file.Close())
 }
 
+// WriteReplace atomically replaces an existing manifest after validating it.
+func (m Manifest) WriteReplace(filename string) error {
+	if err := m.check(); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(filename)
+	if err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(filepath.Dir(filename), ".saxbase-manifest-*")
+	if err != nil {
+		return err
+	}
+	tempName := temp.Name()
+	defer os.Remove(tempName)
+	if err := temp.Chmod(info.Mode().Perm()); err != nil {
+		temp.Close()
+		return err
+	}
+	if _, err := temp.Write(append(data, '\n')); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tempName, filename)
+}
+
 // OrderedFiles validates the complete file set and returns manifest array order.
 func (m Manifest) OrderedFiles(files []objects.File) ([]objects.File, error) {
 	if err := m.Validate(files); err != nil {
@@ -157,4 +197,35 @@ func (m Manifest) OrderedFiles(files []objects.File) ([]objects.File, error) {
 		ordered = append(ordered, byPath[object.Path])
 	}
 	return ordered, nil
+}
+
+// NewDelta creates a manifest containing only objects whose committed
+// definitions differ from the parent state. Removed objects retain their last
+// commit so SaxBase can identify and drop the database object during apply.
+func NewDelta(version, parent string, current, previous []objects.File) (Manifest, error) {
+	old := make(map[string]objects.File, len(previous))
+	for _, file := range previous {
+		old[file.Path] = file
+	}
+	m := Manifest{Version: version, Parent: parent, Objects: make([]Object, 0)}
+	for _, file := range current {
+		before, ok := old[file.Path]
+		if !ok || before.Commit != file.Commit {
+			m.Objects = append(m.Objects, Object{Path: file.Path, Commit: file.Commit})
+		}
+		delete(old, file.Path)
+	}
+	removed := make([]string, 0, len(old))
+	for path := range old {
+		removed = append(removed, path)
+	}
+	sort.Strings(removed)
+	for _, path := range removed {
+		file := old[path]
+		m.Objects = append(m.Objects, Object{Path: path, Commit: file.Commit, Delete: true})
+	}
+	if err := m.check(); err != nil {
+		return Manifest{}, err
+	}
+	return m, nil
 }

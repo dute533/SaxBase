@@ -80,11 +80,7 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 		if err != nil {
 			return result, err
 		}
-		files, _, err := snapshotFiles(supplied)
-		if err != nil {
-			return result, err
-		}
-		if recorded.Fingerprint == "" || recorded.Fingerprint != Fingerprint(files) || recorded.ObjectCount != len(files) || recorded.SchemaVersion != supplied.SchemaVersion || recorded.Revision != supplied.Revision {
+		if recorded.Fingerprint == "" || recorded.Fingerprint != supplied.Fingerprint || recorded.SchemaVersion != supplied.SchemaVersion || recorded.Revision != supplied.Revision {
 			return result, fmt.Errorf("manifest for release %s does not match its recorded fingerprint", supplied.Version)
 		}
 	}

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -15,7 +17,7 @@ import (
 	"saxbase/internal/releases"
 )
 
-func runRelease(args []string, filename, dir string, out io.Writer) error {
+func runRelease(ctx context.Context, args []string, filename, dir, parentFilename string, out io.Writer) error {
 	if !((len(args) == 2 && args[0] == "create") || (len(args) == 1 && args[0] == "validate") || ((len(args) == 1 || len(args) == 2) && args[0] == "sync")) {
 		return errors.New("expected release create VERSION, release validate, or release sync [VERSION]")
 	}
@@ -31,10 +33,10 @@ func runRelease(args []string, filename, dir string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		_, err = fmt.Fprintf(out, "Release %s resolves %d committed object(s)\n", m.Version, len(files))
+		_, err = fmt.Fprintf(out, "Release %s resolves %d referenced object(s)\n", m.Version, len(files))
 		return err
 	}
-	files, err := releases.CommittedFiles(context.Background(), dir)
+	files, err := releases.CommittedFiles(ctx, dir)
 	if err != nil {
 		return err
 	}
@@ -44,7 +46,54 @@ func runRelease(args []string, filename, dir string, out io.Writer) error {
 		if len(args) == 2 {
 			version = args[1]
 		}
-		result, err := releases.Sync(filename, files, version)
+		var result releases.SyncResult
+		if parentFilename != "" {
+			current, err := releases.Load(filename)
+			if err != nil {
+				return err
+			}
+			previous, err := loadManifestState(ctx, parentFilename, dir)
+			if err != nil {
+				return fmt.Errorf("resolve parent manifest: %w", err)
+			}
+			if version == "" {
+				version = current.Version
+			}
+			delta, err := releases.NewDelta(version, current.Parent, files, previous)
+			if err != nil {
+				return err
+			}
+			positions := make(map[string]int, len(current.Objects))
+			for i, object := range current.Objects {
+				positions[object.Path] = i
+			}
+			sort.SliceStable(delta.Objects, func(i, j int) bool {
+				a, aok := positions[delta.Objects[i].Path]
+				b, bok := positions[delta.Objects[j].Path]
+				if aok != bok {
+					return aok
+				}
+				if aok {
+					return a < b
+				}
+				return delta.Objects[i].Path < delta.Objects[j].Path
+			})
+			result.PreviousVersion, result.Version = current.Version, delta.Version
+			for _, object := range delta.Objects {
+				if object.Delete {
+					result.Removed = append(result.Removed, object.Path)
+				} else if _, ok := positions[object.Path]; ok {
+					result.Updated = append(result.Updated, object.Path)
+				} else {
+					result.Added = append(result.Added, object.Path)
+				}
+			}
+			if err := delta.WriteReplace(filename); err != nil {
+				return err
+			}
+		} else {
+			result, err = releases.Sync(filename, files, version)
+		}
 		if err != nil {
 			return err
 		}
@@ -58,6 +107,9 @@ func runRelease(args []string, filename, dir string, out io.Writer) error {
 		for _, path := range result.Added {
 			fmt.Fprintf(&report, "Added: %s\n", path)
 		}
+		for _, path := range result.Removed {
+			fmt.Fprintf(&report, "Removed: %s\n", path)
+		}
 		if report.Len() == 0 {
 			fmt.Fprintf(&report, "Release %s is already synchronized: %s\n", result.Version, filename)
 		} else {
@@ -67,7 +119,23 @@ func runRelease(args []string, filename, dir string, out io.Writer) error {
 		return err
 	}
 	if args[0] == "create" {
-		m, err := releases.New(args[1], files)
+		var m releases.Manifest
+		if parentFilename != "" {
+			previous, err := loadManifestState(ctx, parentFilename, dir)
+			if err != nil {
+				return fmt.Errorf("resolve parent manifest: %w", err)
+			}
+			parentRef, err := filepath.Rel(filepath.Dir(filename), parentFilename)
+			if err != nil {
+				return err
+			}
+			m, err = releases.NewDelta(args[1], filepath.ToSlash(parentRef), files, previous)
+			if err != nil {
+				return err
+			}
+		} else {
+			m, err = releases.New(args[1], files)
+		}
 		if err != nil {
 			return err
 		}
@@ -138,7 +206,7 @@ func runReleaseDatabase(ctx context.Context, args []string, cfg migrations.Confi
 	return w.Flush()
 }
 
-func runRollback(ctx context.Context, args []string, cfg migrations.Config, manifestPath, sourceManifest string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {
+func runRollback(ctx context.Context, args []string, cfg migrations.Config, manifestPath, sourceManifest, objectDir string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {
 	if len(args) != 1 {
 		return errors.New("expected release rollback VERSION")
 	}
@@ -157,14 +225,14 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 	if sourceManifest == "" {
 		return errors.New("rollback requires -source-manifest for the active release and -manifest for the target release")
 	}
-	target, err := loadRollbackManifest(ctx, manifestPath)
+	target, err := loadRollbackManifest(ctx, manifestPath, objectDir)
 	if err != nil {
 		return err
 	}
 	if target.Version != args[0] {
 		return errors.New("target manifest version does not match rollback version")
 	}
-	source, err := loadRollbackManifest(ctx, sourceManifest)
+	source, err := loadRollbackManifest(ctx, sourceManifest, objectDir)
 	if err != nil {
 		return err
 	}
@@ -206,19 +274,86 @@ func checkSchema(ctx context.Context, cfg migrations.Config, m releases.Manifest
 	return nil
 }
 
-func loadRollbackManifest(ctx context.Context, filename string) (objects.Snapshot, error) {
+func loadRollbackManifest(ctx context.Context, filename, objectDir string) (objects.Snapshot, error) {
 	m, err := releases.Load(filename)
 	if err != nil {
 		return objects.Snapshot{}, err
 	}
-	files, err := m.Resolve(ctx, ".")
+	files, err := loadManifestState(ctx, filename, objectDir)
 	if err != nil {
 		return objects.Snapshot{}, err
 	}
 	v, _ := releases.ParseVersion(m.Version)
-	result := objects.Snapshot{Release: objects.Release{Version: m.Version, SchemaVersion: v.Schema, Revision: v.Revision, ObjectCount: len(files), Fingerprint: objects.Fingerprint(files)}}
+	delta, err := m.Resolve(ctx, ".")
+	if err != nil {
+		return objects.Snapshot{}, err
+	}
+	result := objects.Snapshot{Release: objects.Release{Version: m.Version, SchemaVersion: v.Schema, Revision: v.Revision, ObjectCount: len(files), Fingerprint: objects.Fingerprint(delta)}}
 	for _, file := range files {
 		result.Objects = append(result.Objects, objects.SnapshotObject{Path: file.Path, SQL: file.SQL, Checksum: file.Checksum})
 	}
 	return result, nil
+}
+
+func loadManifestState(ctx context.Context, filename, objectDir string) ([]objects.File, error) {
+	return loadManifestStateSeen(ctx, filename, objectDir, map[string]bool{})
+}
+
+func loadManifestStateSeen(ctx context.Context, filename, objectDir string, seen map[string]bool) ([]objects.File, error) {
+	absolute, err := filepath.Abs(filename)
+	if err != nil {
+		return nil, err
+	}
+	if seen[absolute] {
+		return nil, fmt.Errorf("manifest parent cycle includes %s", filename)
+	}
+	seen[absolute] = true
+	defer delete(seen, absolute)
+	m, err := releases.Load(filename)
+	if err != nil {
+		return nil, err
+	}
+	var state []objects.File
+	if m.Parent != "" {
+		parent := filepath.Join(filepath.Dir(filename), filepath.FromSlash(m.Parent))
+		state, err = loadManifestStateSeen(ctx, parent, objectDir, seen)
+		if err != nil {
+			return nil, err
+		}
+	}
+	delta, err := m.Resolve(ctx, ".")
+	if err != nil {
+		return nil, err
+	}
+	byPath := make(map[string]int, len(state))
+	for i, file := range state {
+		byPath[file.Path] = i
+	}
+	for _, file := range delta {
+		if i, ok := byPath[file.Path]; ok {
+			state = append(state[:i], state[i+1:]...)
+			for path, index := range byPath {
+				if index > i {
+					byPath[path] = index - 1
+				}
+			}
+			delete(byPath, file.Path)
+		}
+		if !file.Delete {
+			byPath[file.Path] = len(state)
+			state = append(state, file)
+		}
+	}
+	return state, nil
+}
+
+func manifestParentVersion(filename string, manifest releases.Manifest) (string, error) {
+	if manifest.Parent == "" {
+		return "", nil
+	}
+	parent, err := releases.Load(filepath.Join(filepath.Dir(filename), filepath.FromSlash(manifest.Parent)))
+	if err != nil {
+		return "", fmt.Errorf("load parent manifest: %w", err)
+	}
+	return parent.Version, nil
 }

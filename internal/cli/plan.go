@@ -20,6 +20,10 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 	if err != nil {
 		return err
 	}
+	parentVersion, err := manifestParentVersion(manifestPath, manifest)
+	if err != nil {
+		return err
+	}
 	files, err := manifest.Resolve(ctx, ".")
 	if err != nil {
 		return fmt.Errorf("scan objects: %w", err)
@@ -37,6 +41,9 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 	plan, err := releases.BuildPlan(ctx, manifest, files, goose, db)
 	if err != nil {
 		return err
+	}
+	if parentVersion != "" && plan.CurrentRelease != parentVersion {
+		plan.Blockers = append(plan.Blockers, fmt.Sprintf("release %s must follow current release %s", manifest.Version, parentVersion))
 	}
 	current := plan.CurrentRelease
 	if current == "" {

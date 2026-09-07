@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -148,16 +147,6 @@ func TestReleaseIdentityAndOrdering(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestReleaseRejectsMissingTrackedObjects(t *testing.T) {
-	s, mock := mockStore(t)
-	file := objectFile("missing.sql", "SELECT 1;")
-	expectReleaseStart(mock, 30, []File{file})
-	mock.ExpectRollback()
-	if _, err := s.ApplyRelease(context.Background(), nil, 30, 1); err == nil || !strings.Contains(err.Error(), "omits tracked object") {
-		t.Fatalf("error=%v", err)
 	}
 }
 

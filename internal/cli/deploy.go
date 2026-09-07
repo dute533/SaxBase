@@ -21,6 +21,10 @@ func runDeploy(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 	if err != nil {
 		return err
 	}
+	parentVersion, err := manifestParentVersion(manifestPath, manifest)
+	if err != nil {
+		return err
+	}
 	files, err := manifest.Resolve(ctx, ".")
 	if err != nil {
 		return fmt.Errorf("scan objects: %w", err)
@@ -50,6 +54,9 @@ func runDeploy(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 		}
 		if len(plan.Blockers) > 0 {
 			return fmt.Errorf("deploy blocked:\n- %s", strings.Join(plan.Blockers, "\n- "))
+		}
+		if parentVersion != "" && plan.CurrentRelease != parentVersion {
+			return fmt.Errorf("release %s must follow current release %s", manifest.Version, parentVersion)
 		}
 		return nil
 	})

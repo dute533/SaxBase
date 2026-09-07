@@ -133,18 +133,41 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files []File
 		return nil, err
 	}
 	result := compare(files, deployed)
-	if release != nil {
-		for _, row := range result {
-			if row.State == "missing" {
-				return nil, fmt.Errorf("release omits tracked object %s; object removal must be handled explicitly", row.Path)
+	if release != nil && len(result) > len(files) {
+		result = result[:len(files)]
+	}
+	for i, file := range files {
+		if file.Delete {
+			if _, ok := deployed[file.Path]; ok {
+				result[i].State = "deleted"
+			} else {
+				result[i].State = "missing"
 			}
 		}
+	}
+	if release != nil {
 		_, _, err = prepareRelease(ctx, tx, *release, files)
 		if err != nil {
 			return nil, err
 		}
 	}
 	for _, file := range files {
+		if file.Delete {
+			if _, ok := deployed[file.Path]; !ok {
+				return nil, fmt.Errorf("cannot remove untracked object %s", file.Path)
+			}
+			id, err := objectIdentity(file.SQL)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", file.Path, err)
+			}
+			if _, err := tx.ExecContext(ctx, id.drop()); err != nil {
+				return nil, fmt.Errorf("drop %s: %w", file.Path, err)
+			}
+			if _, err := tx.ExecContext(ctx, "DELETE FROM dbo.saxbase_objects WHERE path=@path", sql.Named("path", file.Path)); err != nil {
+				return nil, fmt.Errorf("untrack %s: %w", file.Path, err)
+			}
+			continue
+		}
 		if deployed[file.Path] == file.Checksum {
 			continue
 		}

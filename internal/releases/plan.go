@@ -59,6 +59,9 @@ func BuildPlan(ctx context.Context, manifest Manifest, files []objects.File, goo
 	if err != nil {
 		return p, fmt.Errorf("inspect objects: %w", err)
 	}
+	if manifest.Parent != "" && len(p.Objects) > len(files) {
+		p.Objects = p.Objects[:len(files)]
+	}
 	if version.Schema < schema.Version {
 		p.Blockers = append(p.Blockers, fmt.Sprintf("target Goose version %d is below current %d; use release rollback", version.Schema, schema.Version))
 	}
@@ -86,7 +89,7 @@ func BuildPlan(ctx context.Context, manifest Manifest, files []objects.File, goo
 		p.Blockers = append(p.Blockers, fmt.Sprintf("target Goose version %d has no migration file or applied record", version.Schema))
 	}
 	for _, row := range p.Objects {
-		if row.State == "missing" {
+		if row.State == "missing" && manifest.Parent == "" {
 			p.Blockers = append(p.Blockers, fmt.Sprintf("release omits tracked object %s; object removal must be handled explicitly", row.Path))
 		}
 	}

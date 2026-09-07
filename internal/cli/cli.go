@@ -48,7 +48,7 @@ Commands:
   release validate        Check the manifest against current object files
   release history         List successfully recorded database releases
   release show VERSION    Print recorded release metadata as JSON
-  release rollback VERSION Restore a release using Goose and Git-backed manifests
+  release rollback VERSION Restore a release using Goose and release manifests
   release rollbacks       Show rollback progress and failures as JSON
   release current         Print the last recorded active release
 
@@ -60,6 +60,7 @@ Environment:
 
 Configuration:
   -config PATH   Target config (default saxbase.yaml)
+  -parent-manifest PATH  Previous release manifest when creating a delta
   -source-manifest PATH  Active release manifest for rollback
   -target NAME   Database target (defaults to default_target in config)
   -yes           Confirm database writes to targets requiring confirmation
@@ -93,13 +94,14 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	flags := flag.NewFlagSet("saxbase", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var dir, objectDir, manifestPath, sourceManifest, configPath, target string
+	var dir, objectDir, manifestPath, sourceManifest, parentManifest, configPath, target string
 	var yes, showVersion bool
 	flags.BoolVar(&showVersion, "version", false, "print SaxBase CLI version")
 	flags.BoolVar(&yes, "yes", false, "confirm writes to protected targets")
 	flags.StringVar(&dir, "dir", "", "migration directory")
 	flags.StringVar(&objectDir, "objects-dir", "", "full-state object directory")
 	flags.StringVar(&sourceManifest, "source-manifest", "", "active release manifest for rollback")
+	flags.StringVar(&parentManifest, "parent-manifest", "", "previous release manifest when creating a delta")
 	flags.StringVar(&manifestPath, "manifest", "", "release manifest")
 	flags.StringVar(&configPath, "config", "", "target configuration file")
 	flags.StringVar(&target, "target", "", "database target")
@@ -159,6 +161,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		})
 	}
 	pos := flags.Args()
+	if parentManifest != "" && !(len(pos) > 1 && pos[0] == "release" && (pos[1] == "create" || pos[1] == "sync")) {
+		return errors.New("-parent-manifest only applies to release create or release sync")
+	}
 	if sourceManifest != "" && !(len(pos) > 1 && pos[0] == "release" && pos[1] == "rollback") {
 		return errors.New("-source-manifest only applies to release rollback")
 	}
@@ -167,7 +172,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 			if err := resolveTarget(false, "release rollback"); err != nil {
 				return err
 			}
-			return runRollback(ctx, pos[2:], cfg, manifestPath, sourceManifest, out, open, openObjects)
+			return runRollback(ctx, pos[2:], cfg, manifestPath, sourceManifest, objectDir, out, open, openObjects)
 		}
 		if len(pos) > 1 && (pos[1] == "history" || pos[1] == "show" || pos[1] == "rollbacks" || pos[1] == "current") {
 			if manifestPath != "" {
@@ -178,7 +183,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 			}
 			return runReleaseDatabase(ctx, pos[1:], cfg, out, openObjects)
 		}
-		return runRelease(pos[1:], manifestPath, objectDir, out)
+		return runRelease(ctx, pos[1:], manifestPath, objectDir, parentManifest, out)
 	}
 	var command string
 	switch len(pos) {
@@ -224,6 +229,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	if command == "objects apply" || command == "objects status" {
 		var releaseVersion *releases.Version
+		var parentVersion string
+		var manifest releases.Manifest
 		var files []objects.File
 		if manifestPath == "" {
 			var scanErr error
@@ -233,16 +240,22 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 			}
 		}
 		if manifestPath != "" {
-			manifest, loadErr := releases.Load(manifestPath)
+			loaded, loadErr := releases.Load(manifestPath)
 			if loadErr != nil {
 				return loadErr
 			}
+			manifest = loaded
 			var validateErr error
 			files, validateErr = manifest.Resolve(ctx, ".")
 			if validateErr != nil {
 				return validateErr
 			}
 			if command == "objects apply" {
+				var parentErr error
+				parentVersion, parentErr = manifestParentVersion(manifestPath, manifest)
+				if parentErr != nil {
+					return parentErr
+				}
 				if checkErr := checkSchema(ctx, cfg, manifest, open); checkErr != nil {
 					return checkErr
 				}
@@ -258,6 +271,15 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		var rows []objects.Status
 		if command == "objects apply" {
 			if releaseVersion != nil {
+				if parentVersion != "" {
+					current, currentErr := engine.Current(ctx)
+					if currentErr != nil {
+						return currentErr
+					}
+					if current != parentVersion {
+						return fmt.Errorf("release %s must follow current release %s", manifest.Version, parentVersion)
+					}
+				}
 				rows, err = engine.ApplyRelease(ctx, files, releaseVersion.Schema, releaseVersion.Revision)
 			} else {
 				rows, err = engine.Apply(ctx, files)
