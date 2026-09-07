@@ -92,7 +92,6 @@ func TestSQLServerNoSnapshotTable(t *testing.T) {
 	ctx, db, _, _, run := integrationDatabase(t)
 	run("apply")
 	run("plan")
-	run("release", "history")
 	var count int
 	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_release_objects'").Scan(&count); err != nil || count != 0 {
 		t.Fatalf("snapshot table: %d %v", count, err)
@@ -108,7 +107,6 @@ func TestSQLServerLegacyReleaseMetadata(t *testing.T) {
 	if _, err := db.ExecContext(ctx, "ALTER TABLE dbo.saxbase_releases DROP COLUMN fingerprint"); err != nil {
 		t.Fatal(err)
 	}
-	run("release", "show", "2")
 	if out, err := execute("plan"); err == nil || !strings.Contains(out, "immutable") {
 		t.Fatalf("legacy plan: %v %s", err, out)
 	}
@@ -121,7 +119,7 @@ func TestSQLServerLegacyReleaseMetadata(t *testing.T) {
 	if out, err := execute("-manifest", "database/release.json", "-source-manifest", "database/new.json", "rollback", "2"); err == nil || !strings.Contains(out, "fingerprint") {
 		t.Fatalf("legacy rollback: %v %s", err, out)
 	}
-	if got := run("release", "current"); got != "2.1" {
-		t.Fatal(got)
+	if output := run("status"); !strings.Contains(output, "Release:\t2.1\n") {
+		t.Fatalf("current release missing from status: %s", output)
 	}
 }

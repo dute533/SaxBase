@@ -3,13 +3,11 @@ package cli
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"strings"
 	"testing"
 
 	"saxbase/internal/migrations"
-	"saxbase/internal/objects"
 )
 
 func TestTargetsAndDotEnv(t *testing.T) {
@@ -114,43 +112,5 @@ func TestDotEnvLegacyAndLocalCommands(t *testing.T) {
 	}
 	if err := Run(context.Background(), []string{"-h"}, env(nil), &out, nil); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestTargetReleaseCommandsKeepOutputUsable(t *testing.T) {
-	for _, command := range [][]string{{"release", "history"}, {"release", "rollbacks"}} {
-		t.Run(strings.Join(command, " "), func(t *testing.T) {
-			t.Chdir(t.TempDir())
-			writeConfigFixture(t, "team.yaml", "default_target: local\ntargets: {local: {connection_env: LOCAL_DSN}}")
-			var out, diagnostics bytes.Buffer
-			opened := false
-			lookup := func(k string) (string, bool) { return "test-secret", k == "LOCAL_DSN" }
-			err := run(context.Background(), append([]string{"-config", "team.yaml"}, command...), env(map[string]string{"LOCAL_DSN": "test-secret"}), &out,
-				func(cfg migrations.Config) (migrations.Engine, error) {
-					if cfg.DSN != "test-secret" {
-						t.Fatal("wrong migration connection")
-					}
-					return &fakeEngine{}, nil
-				},
-				func(dsn string) (objects.Engine, error) {
-					opened = true
-					if dsn != "test-secret" {
-						t.Fatal("wrong object connection")
-					}
-					return &fakeObjects{}, nil
-				},
-				runEnvironment{lookup: lookup, diagnostics: &diagnostics})
-			if err != nil || !opened {
-				t.Fatalf("%v", err)
-			}
-			if diagnostics.String() != "Target: local\n" || strings.Contains(out.String(), "Target:") {
-				t.Fatal("target output mixed with command output")
-			}
-			if command[1] == "rollbacks" {
-				if !json.Valid(out.Bytes()) {
-					t.Fatal("invalid JSON output")
-				}
-			}
-		})
 	}
 }

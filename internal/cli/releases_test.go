@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"saxbase/internal/objects"
 )
 
 func TestReleaseCommandsOffline(t *testing.T) {
@@ -40,22 +38,5 @@ func TestReleaseCommandsOffline(t *testing.T) {
 	}
 	if err := run(context.Background(), append(args, "validate"), env(nil), &bytes.Buffer{}, nil, nil); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestReleaseDatabaseCommands(t *testing.T) {
-	for _, args := range [][]string{{"release", "history"}, {"release", "rollbacks"}} {
-		f := &fakeObjects{}
-		var out bytes.Buffer
-		err := run(context.Background(), args, env(map[string]string{"GOOSE_DBSTRING": "dsn", "GOOSE_MIGRATION_DIR": "missing", "SAXBASE_OBJECTS_DIR": "missing"}), &out, nil, func(string) (objects.Engine, error) { return f, nil })
-		if err != nil || !f.closed || (args[1] == "history" && !strings.Contains(out.String(), "30.1")) {
-			t.Fatalf("%v: %v, %s", args, err, out.String())
-		}
-	}
-	for _, args := range [][]string{{"release", "show"}, {"release", "show", "30.0"}, {"release", "current"}, {"release", "history", "extra"}, {"release", "history"}} {
-		err := run(context.Background(), args, env(nil), &bytes.Buffer{}, nil, func(string) (objects.Engine, error) { t.Fatal("opened database on invalid input"); return nil, nil })
-		if err == nil {
-			t.Fatalf("accepted %v", args)
-		}
 	}
 }

@@ -2,13 +2,10 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
-	"text/tabwriter"
-	"time"
 
 	"saxbase/internal/migrations"
 	"saxbase/internal/objects"
@@ -67,42 +64,6 @@ func runRelease(ctx context.Context, args []string, filename, dir, parentFilenam
 		return err
 	}
 	return errors.New("unsupported local release command")
-}
-
-func runReleaseDatabase(ctx context.Context, args []string, cfg migrations.Config, out io.Writer, open func(string) (objects.Engine, error)) (err error) {
-	if len(args) != 1 || (args[0] != "history" && args[0] != "rollbacks") {
-		return errors.New("expected release history or rollbacks")
-	}
-	if cfg.Driver != "mssql" && cfg.Driver != "sqlserver" {
-		return fmt.Errorf("unsupported driver %q: use mssql or sqlserver", cfg.Driver)
-	}
-	if cfg.DSN == "" {
-		return errors.New("set GOOSE_DBSTRING to inspect database releases")
-	}
-	engine, err := open(cfg.DSN)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, engine.Close()) }()
-	if args[0] == "rollbacks" {
-		rows, err := engine.Rollbacks(ctx)
-		if err != nil {
-			return err
-		}
-		encoder := json.NewEncoder(out)
-		encoder.SetIndent("", "  ")
-		return encoder.Encode(rows)
-	}
-	rows, err := engine.History(ctx)
-	if err != nil {
-		return err
-	}
-	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "RELEASE\tGOOSE\tOBJECTS\tFIRST DEPLOYED (UTC)")
-	for _, row := range rows {
-		fmt.Fprintf(w, "%s\t%d\t%d\t%s\n", row.Version, row.SchemaVersion, row.ObjectCount, row.DeployedAt.UTC().Format(time.RFC3339))
-	}
-	return w.Flush()
 }
 
 func runRollback(ctx context.Context, args []string, cfg migrations.Config, manifestPath, sourceManifest, objectDir string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {

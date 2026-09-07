@@ -23,8 +23,9 @@ Usage:
   saxbase rollback VERSION
   saxbase [-manifest database/release.json] release create VERSION
   saxbase [-manifest database/release.json] release validate
-  saxbase release history
-  saxbase release rollbacks
+
+Advanced usage:
+  saxbase migration up|down
 
 Commands:
   plan      Preview Goose migrations and objects without changing the database
@@ -33,11 +34,9 @@ Commands:
   rollback  Restore a recorded release using its manifest
   release create VERSION  Write a new manifest from current object files
   release validate        Check the manifest against current object files
-  release history         List successfully recorded database releases
-  release rollbacks       Show rollback progress and failures as JSON
 
 Advanced commands:
-  migration up|down                 Run Goose migration operations directly
+  migration up|down       Run Goose migration operations directly
 
 Environment:
   GOOSE_DRIVER    mssql (default) or sqlserver
@@ -164,15 +163,6 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		return runRollback(ctx, pos[1:], cfg, manifestPath, sourceManifest, objectDir, out, open, openObjects)
 	}
 	if len(pos) > 0 && pos[0] == "release" {
-		if len(pos) > 1 && (pos[1] == "history" || pos[1] == "rollbacks") {
-			if manifestPath != "" {
-				return errors.New("-manifest does not apply to database release history")
-			}
-			if err := resolveTarget(false, "release "+pos[1]); err != nil {
-				return err
-			}
-			return runReleaseDatabase(ctx, pos[1:], cfg, out, openObjects)
-		}
 		return runRelease(ctx, pos[1:], manifestPath, objectDir, parentManifest, out)
 	}
 	var command string

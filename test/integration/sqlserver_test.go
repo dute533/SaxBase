@@ -185,7 +185,6 @@ func TestSQLServerMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertVersion("0")
-	run("release", "history")
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_releases')", 0)
 	assertStatus("pending", "pending")
 	run("migration", "up")
@@ -273,9 +272,6 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_release_objects'", 0)
 	if output := run("-manifest", "database/release-2.1.json", "plan"); !strings.Contains(output, "Ready:") || strings.Count(output, "unchanged") != 3 {
 		t.Fatalf("unchanged plan: %s", output)
-	}
-	if output := run("release", "history"); !strings.Contains(output, "2.1") {
-		t.Fatalf("history: %s", output)
 	}
 	var retainedFingerprint string
 	if err := db.QueryRowContext(ctx, "SELECT fingerprint FROM dbo.saxbase_releases WHERE version='2'").Scan(&retainedFingerprint); err != nil {
@@ -415,9 +411,6 @@ func TestSQLServerMigration(t *testing.T) {
 		if output, err := execute(args...); err == nil || !strings.Contains(output, "incomplete") {
 			t.Fatalf("pending rollback did not block %v: %v %s", args, err, output)
 		}
-	}
-	if output := run("release", "rollbacks"); !strings.Contains(output, "failed") {
-		t.Fatalf("missing failure history: %s", output)
 	}
 	if err := os.WriteFile(migrationPath, noteMigration, 0600); err != nil {
 		t.Fatal(err)

@@ -174,13 +174,6 @@ manifests, so the manifests and commits must still be available. Fix any failed
 deployment before requesting a rollback; rollback is for returning from a
 recorded release to an earlier one.
 
-Inspect recorded releases with:
-
-```sh
-./saxbase release history
-./saxbase release rollbacks
-```
-
 SaxBase stores current object checksums and release history in its `dbo` metadata
 tables. Goose stores its migration version in `goose_db_version`.
 
