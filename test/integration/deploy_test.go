@@ -40,16 +40,16 @@ func TestSQLServerDeploy(t *testing.T) {
 		}
 		run("-manifest", "database/target.json", "release", "create", version)
 	}
-	deploy := func() string { return run("-manifest", "database/target.json", "deploy") }
+	deploy := func() string { return run("-manifest", "database/target.json", "apply") }
 	write("database/migrations/00003_next.sql", "-- +goose Up\nCREATE TABLE dbo.next_table(id INT);\n-- +goose Down\nDROP TABLE dbo.next_table;")
 	// Missing Git references must fail before even initializing Goose metadata.
 	write("database/objects/views/extra.sql", "CREATE OR ALTER VIEW dbo.extra AS SELECT 1 AS value;")
 	write("database/release.json", `{"version":"2","objects":[{"path":"database/objects/views/extra.sql","commit":"0000000000000000000000000000000000000000"}]}`)
-	fail("git", "deploy")
+	fail("git", "apply")
 	count("SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped=0", 0)
 	manifest("2")
 	deploy()
-	if got := run("version"); got != "2" {
+	if got := run("migration", "version"); got != "2" {
 		t.Fatal(got)
 	}
 	count("SELECT COUNT(*) FROM sys.tables WHERE name='next_table'", 0)
@@ -66,7 +66,7 @@ func TestSQLServerDeploy(t *testing.T) {
 	manifest("2.1")
 	results := make(chan error, 3)
 	for i := 0; i < 3; i++ {
-		go func() { _, err := execute("-manifest", "database/target.json", "deploy"); results <- err }()
+		go func() { _, err := execute("-manifest", "database/target.json", "apply"); results <- err }()
 	}
 	for i := 0; i < 3; i++ {
 		if err := <-results; err != nil {
@@ -79,16 +79,16 @@ func TestSQLServerDeploy(t *testing.T) {
 	// Conflicting immutable release and absent target both fail before Goose.
 	write("database/objects/views/extra.sql", "CREATE OR ALTER VIEW dbo.extra AS SELECT 3 AS value;")
 	manifest("2.1")
-	fail("immutable", "-manifest", "database/target.json", "deploy")
+	fail("immutable", "-manifest", "database/target.json", "apply")
 	manifest("9")
-	fail("no migration file", "-manifest", "database/target.json", "deploy")
+	fail("no migration file", "-manifest", "database/target.json", "apply")
 	count("SELECT value FROM dbo.extra", 2)
 	// Goose commits before objects. A failure rolls back all object changes,
 	// records no release, invalidates current, and can be retried at schema 3.
 	write("database/objects/zz_broken.sql", "THROW 51000, 'intentional deploy failure', 1;")
 	manifest("3")
-	fail("intentional deploy failure", "-manifest", "database/target.json", "deploy")
-	if got := run("version"); got != "3" {
+	fail("intentional deploy failure", "-manifest", "database/target.json", "apply")
+	if got := run("migration", "version"); got != "3" {
 		t.Fatal(got)
 	}
 	count("SELECT value FROM dbo.extra", 2)
@@ -106,12 +106,12 @@ func TestSQLServerDeploy(t *testing.T) {
 	// Structural failure leaves the old object state intact and releases the lock.
 	write("database/migrations/00004_failure.sql", "-- +goose Up\nTHROW 51000, 'intentional migration failure', 1;\n-- +goose Down\nSELECT 1;")
 	manifest("4")
-	fail("intentional migration failure", "-manifest", "database/target.json", "deploy")
+	fail("intentional migration failure", "-manifest", "database/target.json", "apply")
 	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='4'", 0)
 	count("SELECT value FROM dbo.extra", 3)
 	write("database/migrations/00004_failure.sql", "-- +goose Up\nCREATE TABLE dbo.recovered(id INT);\n-- +goose Down\nDROP TABLE dbo.recovered;")
 	deploy()
 	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='4'", 1)
 	manifest("3")
-	fail("rollback", "-manifest", "database/target.json", "deploy")
+	fail("rollback", "-manifest", "database/target.json", "apply")
 }

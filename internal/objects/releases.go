@@ -78,7 +78,7 @@ func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, files []Fi
 		return 0, false, err
 	}
 	if err == nil && (release.SchemaVersion < schema || (release.SchemaVersion == schema && release.Revision < revision)) {
-		return 0, false, fmt.Errorf("release %s is older than the latest recorded release; use release rollback %s", release.Version, release.Version)
+		return 0, false, fmt.Errorf("release %s is older than the latest recorded release; use rollback %s", release.Version, release.Version)
 	}
 	if exists {
 		return id, false, nil

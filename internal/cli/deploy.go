@@ -13,7 +13,7 @@ import (
 	"saxbase/internal/releases"
 )
 
-func runDeploy(ctx context.Context, cfg migrations.Config, manifestPath, objectDir string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {
+func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDir string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {
 	if manifestPath == "" {
 		manifestPath = "database/release.json"
 	}
@@ -53,7 +53,7 @@ func runDeploy(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 			return err
 		}
 		if len(plan.Blockers) > 0 {
-			return fmt.Errorf("deploy blocked:\n- %s", strings.Join(plan.Blockers, "\n- "))
+			return fmt.Errorf("apply blocked:\n- %s", strings.Join(plan.Blockers, "\n- "))
 		}
 		if parentVersion != "" && plan.CurrentRelease != parentVersion {
 			return fmt.Errorf("release %s must follow current release %s", manifest.Version, parentVersion)
@@ -64,7 +64,7 @@ func runDeploy(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 		return err
 	}
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(w, "Deployed release %s (Goose %d)\nSTATE\tFILE\tSHA256\n", manifest.Version, version.Schema)
+	fmt.Fprintf(w, "Applied release %s (Goose %d)\nSTATE\tFILE\tSHA256\n", manifest.Version, version.Schema)
 	for _, row := range rows {
 		fmt.Fprintf(w, "%s\t%s\t%s\n", row.State, row.Path, row.Checksum)
 	}

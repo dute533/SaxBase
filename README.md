@@ -26,12 +26,12 @@ precedence over `.env`; in CI, supply them through your secrets store.
 ```sh
 ./saxbase plan                 # Uses default_target from saxbase.yaml
 ./saxbase -target acc plan     # Select another database
-./saxbase -target prod deploy
+./saxbase -target prod apply
 ```
 
 Set `require_confirmation: true` on targets that need confirmation (enabled for
 `prod` in the example). Writes prompt for `yes`; CI can use
-`./saxbase -target prod -yes deploy`. Read-only commands never prompt.
+`./saxbase -target prod -yes apply`. Read-only commands never prompt.
 
 Commit `saxbase.yaml` alongside your SQL; keep passwords in `.env` or CI secrets.
 Without a config, `GOOSE_DBSTRING` still works. See [configuration details](docs/reference.md#configuration).
@@ -53,7 +53,7 @@ git commit -m "Update database objects"
 ./saxbase release create 30
 # Review release.json: put object dependencies before their consumers.
 ./saxbase plan                 # Preview changes without writing to the database
-./saxbase deploy               # Migrate to version 30, then apply changed objects
+./saxbase apply                # Migrate to version 30, then apply changed objects
 ```
 
 The manifest records object paths, their deployment order, and either full Git
@@ -73,7 +73,7 @@ After committing edited SQL, sync the manifest and deploy a new version:
 ```sh
 ./saxbase -parent-manifest database/release-30.json -manifest database/release-30.1.json release create 30.1
 ./saxbase plan
-./saxbase deploy
+./saxbase apply
 ```
 
 `30.1` is an object revision at schema version `30`; use `31` when targeting
@@ -89,22 +89,22 @@ missing files. Review dependencies when adding objects.
 | `release validate` | Resolve the manifest’s referenced SQL files |
 | `release current` / `release history` | Inspect deployed releases |
 | `release show VERSION` | Print release metadata and fingerprint |
-| `release rollback VERSION` | Restore from target and source manifests |
+| `rollback VERSION` | Restore from target and source manifests |
 | `release rollbacks` | Inspect rollback progress and failures |
-| `status` / `version` | Inspect Goose migrations |
-| `up` / `down` | Apply all pending migrations / undo one migration |
-| `objects status` / `objects apply` | Compare / apply objects without recording a release |
+| `status` | Inspect Goose, release, and object state |
+| `migration up/down/status/version` | Run direct Goose operations |
+| `objects status` / `objects apply` | Advanced object-only operations |
 
 Run `./saxbase -h` for help. Override default paths with `-dir`, `-objects-dir`,
 `-manifest`, or `-parent-manifest`, placed before the command:
 
 ```sh
-./saxbase -manifest database/release-30.1.json deploy
+./saxbase -manifest database/release-30.1.json apply
 ```
 
 ## Before deploying
 
-- `deploy` stops at the manifest's schema version; `up` applies all pending migrations.
+- `apply` stops at the manifest's schema version; `migration up` applies all pending migrations.
 - A release is not one transaction. If deployment fails, completed migrations
   remain; fix the cause, sync the manifest if SQL changed, and retry.
 - Rollback can drop newer objects and run Goose Down migrations that remove data.

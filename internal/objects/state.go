@@ -43,7 +43,7 @@ func (s *store) Current(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if version == "" {
-		return "", fmt.Errorf("current state is not associated with a release; deploy a manifest first")
+		return "", fmt.Errorf("current state is not associated with a release; apply a manifest first")
 	}
 	return version, nil
 }

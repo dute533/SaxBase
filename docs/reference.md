@@ -22,12 +22,13 @@ targets:
 
 ```sh
 ./saxbase plan                       # Uses local
-./saxbase -target prod deploy
+./saxbase -target prod apply
 ./saxbase -config team.yaml -target prod plan
 ```
 
-Set `require_confirmation: true` on any target to require confirmation for `up`,
-`down`, `deploy`, `objects apply`, and `release rollback`. The default is `false`.
+Set `require_confirmation: true` on any target to require confirmation for
+`apply`, `rollback`, `migration up`, `migration down`, and `objects apply`. The
+default is `false`.
 This applies equally to an explicitly selected target and the configured default.
 Before opening a database connection, SaxBase prompts on stderr with the command
 and target name. Enter `yes` followed by Enter to continue; other answers, EOF,
@@ -37,7 +38,7 @@ Read-only commands and local manifest commands do not prompt.
 For unattended writes, pass `-yes` before the command:
 
 ```sh
-./saxbase -target prod -yes deploy
+./saxbase -target prod -yes apply
 ```
 
 `-yes` skips confirmation only; it does not bypass deployment validation.
@@ -72,16 +73,22 @@ or substitute `go run .` for `./saxbase` below. Running without arguments prints
 ```sh
 export GOOSE_DRIVER=mssql
 export GOOSE_DBSTRING='sqlserver://USER:PASSWORD@localhost:1433?database=example'
-./saxbase up
-./saxbase status
-./saxbase version
-./saxbase down
+./saxbase migration up
+./saxbase migration status
+./saxbase migration version
+./saxbase migration down
 ```
 
-`up` applies all pending migrations; `down` rolls back exactly one migration.
-`status` lists migration versions, applied/pending states, and filenames.
-`version` prints the current Goose database version as an integer, not the CLI version.
+`migration up` applies all pending migrations; `migration down` rolls back exactly
+one migration. `migration status` lists migration versions, applied/pending states,
+and filenames. `migration version` prints the current Goose database version as an
+integer, not the CLI version.
 Goose manages its usual `goose_db_version` table, including initialization when needed.
+
+For the normal release workflow, use `plan`, `apply`, and `status`. The unified
+`status` command reports Goose migration state, the active SaxBase release, and
+object changes together. The `migration` and `objects` namespaces are advanced
+escape hatches for operating on one subsystem without recording a release.
 
 Goose-style positional connection arguments are also supported:
 
@@ -130,19 +137,19 @@ BEGIN
 END;
 ```
 
-Functions work the same way. Run structural migrations first, then deploy objects:
+Functions work the same way. Use the unified release workflow for structural
+migrations and objects:
 
 ```sh
-./saxbase up
-./saxbase objects status
-./saxbase objects apply
+./saxbase plan
+./saxbase apply
 ```
 
 These commands use the same connection settings as migrations. Set
 `SAXBASE_OBJECTS_DIR` or pass `-objects-dir PATH` before the command to override
 `database/objects`. Positional connections also work:
-`./saxbase mssql "$GOOSE_DBSTRING" objects apply`. Object commands do not require
-a migrations directory and do not change the Goose version.
+`./saxbase mssql "$GOOSE_DBSTRING" objects apply`. These advanced object-only
+commands do not require a migrations directory and do not change the Goose version.
 
 SaxBase hashes exact file bytes with SHA-256, including whitespace and line endings.
 The relative, case-sensitive file path identifies the tracked definition.
@@ -216,7 +223,7 @@ git commit -m "Update database objects"
 git add database/release.json
 git commit -m "Record release 30"
 ./saxbase plan
-./saxbase deploy
+./saxbase apply
 ```
 
 Creation scans `-objects-dir` (default `database/objects`) and pins each SQL file
@@ -240,7 +247,7 @@ git add database/objects
 git commit -m "Revise database objects"
 ./saxbase release sync 30.1
 ./saxbase release validate
-./saxbase deploy
+./saxbase apply
 ```
 
 Manifest entries accept full 40- or 64-character lowercase Git commit IDs or the
@@ -256,12 +263,14 @@ entries ignore working-tree edits; `latest` entries read them directly. `release
 validate` checks that references can be resolved; it does not validate SQL syntax on
 a server. Each object is one batch without `GO`.
 
-`objects apply` and `objects status` use working SQL unless `-manifest` is supplied.
+`objects apply` and `objects status` are advanced object-only commands. They use
+working SQL unless `-manifest` is supplied.
 Inside Git, their tracked paths are repository-relative too. Outside Git, these
 unversioned commands retain object-directory-relative paths. Manifest-backed apply
-requires the current Goose version to match the manifest; `deploy` also applies
-pending migrations through the requested schema version. Structural migrations
-still come from `-dir`, not the manifest's object commits.
+requires the current Goose version to match the manifest; `apply` also applies
+pending migrations through the requested schema version. The normal `apply` command
+always ties these migration and object phases together. Structural migrations still
+come from `-dir`, not the manifest's object commits.
 
 ### Database release history
 
@@ -312,12 +321,12 @@ Existing `dbo.saxbase_release_state` tables are also not dropped automatically; 
 verifying the active marker on `dbo.saxbase_releases`, remove that obsolete table as
 part of the same database upgrade.
 
-## Release rollback
+## Rollback
 
 Supply the target manifest and the manifest for the active source release:
 
 ```sh
-./saxbase -manifest releases/30.1.json -source-manifest releases/30.2.json release rollback 30.1
+./saxbase -manifest releases/30.1.json -source-manifest releases/30.2.json rollback 30.1
 ./saxbase release current
 ./saxbase release rollbacks
 ```
@@ -389,21 +398,21 @@ It does not validate SQL syntax, permissions, dependencies, or live object drift
 It reads current metadata without reserving the database against later changes.
 Malformed files, directory errors, or query failures return errors immediately.
 
-The plan is bounded by the manifest's structural version. `saxbase up` still
+The plan is bounded by the manifest's structural version. `saxbase migration up` still
 applies **all** pending migrations, including those marked `deferred` by a plan;
 do not use it blindly when the directory contains versions above your target.
-Use `deploy` to honor the manifest target.
+Use `apply` to honor the manifest target.
 
-## Release deployment
+## Unified release application
 
 ```sh
 ./saxbase plan
-./saxbase deploy
+./saxbase apply
 # Or select another manifest:
-./saxbase -manifest database/release-30.1.json deploy
+./saxbase -manifest database/release-30.1.json apply
 ```
 
-`deploy` defaults to `database/release.json` and accepts the same connection,
+`apply` defaults to `database/release.json` and accepts the same connection,
 `-dir`, and `-objects-dir` settings as `plan`. It validates the local manifest,
 acquires the database deployment lock, and repeats the planning checks under
 that lock before changing the database. Blocked deployments exit nonzero.
@@ -423,14 +432,14 @@ Before attempting structural changes, SaxBase clears the active release marker,
 so a partially migrated database does not claim the previous release is current.
 If object execution fails, its transaction rolls back while successful structural
 migrations remain. Correct the SQL, regenerate the manifest if its files changed,
-and retry `deploy`. SQL errors, dependencies, and permissions can still cause
+and retry `apply`. SQL errors, dependencies, and permissions can still cause
 failure after a successful plan. A lost connection during commit can leave the
 outcome uncertain; inspect the database and retry the same manifest.
 
-Deployment never automatically runs Down migrations after a failure. Use
-`release rollback VERSION` for an intentional rollback from a recorded current
-release. After a failed structural deployment, finish or repair that deployment
-before requesting release rollback.
+Application never automatically runs Down migrations after a failure. Use
+`rollback VERSION` for an intentional rollback from a recorded current release.
+After a failed structural application, finish or repair that application before
+requesting a rollback.
 
 ## Development
 
@@ -455,9 +464,10 @@ GitHub Actions runs unit tests and a SQL Server 2022 integration test on pushes,
 pull requests, and manual runs. The integration test builds the actual CLI,
 waits for SQL Server, creates a uniquely named database, and runs two fixture
 migrations: creating a customers table with a row, then adding a nullable
-`NVARCHAR(100)` nickname column. It checks the schema, data, Goose history,
-`status`, and `version`; verifies a second `up` does not rerun migrations; and
-checks each `down` removes only its corresponding change. Cleanup drops the
+`NVARCHAR(100)` nickname column. It checks the schema, data, and Goose history,
+verifies unified status and migration status, verifies a second `migration up`
+does not rerun migrations, and checks each `migration down` removes only its
+corresponding change. Cleanup drops the
 test database even after assertion failures.
 The same pipeline deploys and queries a view, procedure, and function, verifies
 unchanged objects are skipped, updates a view, checks its stored SHA-256, verifies
@@ -517,7 +527,7 @@ Releases pair a Goose structural version with an exact object state.
 Versions such as `30`, `30.1`, `30.2`, `31`, and `31.1` consist of an integer
 schema version and an optional object revision; they must never use floating-point
 representation. Release manifests, database release history, and historical SQL
-Git manifests, explicit release rollback, and read-only release planning are implemented.
+Git manifests, explicit rollback, and read-only release planning are implemented.
 Unified deployment is also implemented; ArchiMate model generation remains future work.
 
 ## CLI version
@@ -525,7 +535,7 @@ Unified deployment is also implemented; ArchiMate model generation remains futur
 Run `saxbase --version` (or `-version`) to print the CLI version without loading
 configuration or connecting to a database. Source builds report `saxbase dev`;
 packaged builds report their release tag or snapshot label. The existing
-`saxbase version` command reports the Goose database migration version.
+`saxbase migration version` reports the Goose database migration version.
 
 ## Binary distribution
 

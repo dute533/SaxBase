@@ -63,7 +63,7 @@ func BuildPlan(ctx context.Context, manifest Manifest, files []objects.File, goo
 		p.Objects = p.Objects[:len(files)]
 	}
 	if version.Schema < schema.Version {
-		p.Blockers = append(p.Blockers, fmt.Sprintf("target Goose version %d is below current %d; use release rollback", version.Schema, schema.Version))
+		p.Blockers = append(p.Blockers, fmt.Sprintf("target Goose version %d is below current %d; use rollback", version.Schema, schema.Version))
 	}
 	targetKnown := version.Schema == 0
 	for _, migration := range schema.Migrations {
@@ -95,12 +95,12 @@ func BuildPlan(ctx context.Context, manifest Manifest, files []objects.File, goo
 	}
 	for _, rollback := range state.Rollbacks {
 		if rollback.Status != "completed" {
-			p.Blockers = append(p.Blockers, fmt.Sprintf("rollback to %s is incomplete; retry release rollback %s", rollback.TargetVersion, rollback.TargetVersion))
+			p.Blockers = append(p.Blockers, fmt.Sprintf("rollback to %s is incomplete; retry rollback %s", rollback.TargetVersion, rollback.TargetVersion))
 		}
 	}
 	for _, record := range state.History {
 		if record.SchemaVersion > version.Schema || (record.SchemaVersion == version.Schema && record.Revision > version.Revision) {
-			p.Blockers = append(p.Blockers, fmt.Sprintf("release %s is older than recorded release %s; use release rollback", manifest.Version, record.Version))
+			p.Blockers = append(p.Blockers, fmt.Sprintf("release %s is older than recorded release %s; use rollback", manifest.Version, record.Version))
 			break
 		}
 	}

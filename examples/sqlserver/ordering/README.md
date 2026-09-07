@@ -21,7 +21,7 @@ deployment order; no additional order property is needed.
 
 ```sh
 ../../saxbase -manifest database/ordered-release.json plan
-../../saxbase -manifest database/ordered-release.json deploy
+../../saxbase -manifest database/ordered-release.json apply
 ../../saxbase release show 2
 ```
 

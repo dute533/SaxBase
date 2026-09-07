@@ -21,36 +21,32 @@ const usage = `SaxBase
 
 Usage:
   saxbase --version
-  saxbase [-dir database/migrations] COMMAND
-  saxbase [-dir database/migrations] mssql CONNECTION_STRING COMMAND
-  saxbase [-objects-dir database/objects] objects apply|status
+  saxbase [-manifest database/release.json] plan|apply|status
+  saxbase rollback VERSION
   saxbase [-manifest database/release.json] release create VERSION
   saxbase [-manifest database/release.json] release sync [VERSION]
   saxbase [-manifest database/release.json] release validate
   saxbase release history
   saxbase release show VERSION
-  saxbase release rollback VERSION
   saxbase release rollbacks
   saxbase release current
-  saxbase [-manifest database/release.json] plan|deploy
 
 Commands:
-  up       Apply all pending Goose migrations
-  down     Roll back one Goose migration
-  status   List applied and pending migrations
-  version  Print the current Goose database version
-  deploy   Migrate to the manifest schema, apply objects, and record the release
-  plan     Preview a manifest release without changing the database
-  objects apply   Deploy changed full-state SQL objects
-  objects status  Compare local objects with deployed checksums
+  plan      Preview Goose migrations and objects without changing the database
+  apply     Migrate to the manifest schema, apply objects, and record the release
+  status    Show Goose, release, and object state together
+  rollback  Restore a recorded release using its manifest
   release create VERSION  Write a new manifest from current object files
   release sync [VERSION]  Refresh a local manifest, preserving object order
   release validate        Check the manifest against current object files
   release history         List successfully recorded database releases
   release show VERSION    Print recorded release metadata as JSON
-  release rollback VERSION Restore a release using Goose and release manifests
   release rollbacks       Show rollback progress and failures as JSON
   release current         Print the last recorded active release
+
+Advanced commands:
+  migration up|down|status|version  Run Goose migration operations directly
+  objects apply|status              Manage objects without a release
 
 Environment:
   GOOSE_DRIVER    mssql (default) or sqlserver
@@ -60,6 +56,9 @@ Environment:
 
 Configuration:
   -config PATH   Target config (default saxbase.yaml)
+  -dir PATH      Migration directory (default database/migrations)
+  -objects-dir PATH  Object directory (default database/objects)
+  -manifest PATH Release manifest (default database/release.json)
   -parent-manifest PATH  Previous release manifest when creating a delta
   -source-manifest PATH  Active release manifest for rollback
   -target NAME   Database target (defaults to default_target in config)
@@ -152,7 +151,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	resolveTarget := func(positional bool, command string) error {
 		return selectTarget(configPath, target, positional, getenv, &cfg, targetOut, func(name string) error {
 			switch command {
-			case "up", "down", "deploy", "objects apply", "release rollback":
+			case "apply", "migration up", "migration down", "objects apply", "rollback":
 				if !yes {
 					return confirmWrite(ctx, name, command, input, targetOut)
 				}
@@ -164,16 +163,16 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	if parentManifest != "" && !(len(pos) > 1 && pos[0] == "release" && (pos[1] == "create" || pos[1] == "sync")) {
 		return errors.New("-parent-manifest only applies to release create or release sync")
 	}
-	if sourceManifest != "" && !(len(pos) > 1 && pos[0] == "release" && pos[1] == "rollback") {
-		return errors.New("-source-manifest only applies to release rollback")
+	if sourceManifest != "" && !(len(pos) > 0 && pos[0] == "rollback") {
+		return errors.New("-source-manifest only applies to rollback")
+	}
+	if len(pos) > 0 && pos[0] == "rollback" {
+		if err := resolveTarget(false, "rollback"); err != nil {
+			return err
+		}
+		return runRollback(ctx, pos[1:], cfg, manifestPath, sourceManifest, objectDir, out, open, openObjects)
 	}
 	if len(pos) > 0 && pos[0] == "release" {
-		if len(pos) > 1 && pos[1] == "rollback" {
-			if err := resolveTarget(false, "release rollback"); err != nil {
-				return err
-			}
-			return runRollback(ctx, pos[2:], cfg, manifestPath, sourceManifest, objectDir, out, open, openObjects)
-		}
 		if len(pos) > 1 && (pos[1] == "history" || pos[1] == "show" || pos[1] == "rollbacks" || pos[1] == "current") {
 			if manifestPath != "" {
 				return errors.New("-manifest does not apply to database release history")
@@ -190,22 +189,25 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	case 1:
 		command = pos[0]
 	case 2:
-		if pos[0] != "objects" {
-			return errors.New("expected objects apply or objects status")
+		if pos[0] != "migration" && pos[0] != "objects" {
+			return errors.New("expected migration up|down|status|version or objects apply|status")
 		}
 		command = "objects " + pos[1]
+		if pos[0] == "migration" {
+			command = "migration " + pos[1]
+		}
 	case 3:
 		cfg.Driver, cfg.DSN, command = pos[0], pos[1], pos[2]
 	case 4:
-		if pos[2] != "objects" {
-			return errors.New("expected DRIVER CONNECTION_STRING objects apply|status")
+		if pos[2] != "objects" && pos[2] != "migration" {
+			return errors.New("expected DRIVER CONNECTION_STRING migration ... or objects apply|status")
 		}
-		cfg.Driver, cfg.DSN, command = pos[0], pos[1], "objects "+pos[3]
+		cfg.Driver, cfg.DSN, command = pos[0], pos[1], pos[2]+" "+pos[3]
 	default:
 		return errors.New("expected COMMAND or DRIVER CONNECTION_STRING COMMAND; use -h for help")
 	}
 	switch command {
-	case "up", "down", "status", "version", "objects apply", "objects status", "plan", "deploy":
+	case "apply", "status", "plan", "migration up", "migration down", "migration status", "migration version", "objects apply", "objects status":
 	default:
 		return fmt.Errorf("unknown command %q; use -h for help", command)
 	}
@@ -215,17 +217,20 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	if cfg.Driver != "mssql" && cfg.Driver != "sqlserver" {
 		return fmt.Errorf("unsupported driver %q: use mssql or sqlserver", cfg.Driver)
 	}
-	if manifestPath != "" && command != "objects apply" && command != "objects status" && command != "plan" && command != "deploy" {
-		return errors.New("-manifest is supported only for plan, deploy, release, and objects commands")
+	if manifestPath != "" && command != "objects apply" && command != "objects status" && command != "plan" && command != "apply" && command != "status" {
+		return errors.New("-manifest is supported only for plan, apply, status, release, and objects commands")
 	}
 	if cfg.DSN == "" {
 		return errors.New("set GOOSE_DBSTRING or provide a connection string")
 	}
-	if command == "deploy" {
-		return runDeploy(ctx, cfg, manifestPath, objectDir, out, open, openObjects)
+	if command == "apply" {
+		return runApply(ctx, cfg, manifestPath, objectDir, out, open, openObjects)
 	}
 	if command == "plan" {
 		return runPlan(ctx, cfg, manifestPath, objectDir, out, open, openObjects)
+	}
+	if command == "status" {
+		return runStatus(ctx, cfg, manifestPath, objectDir, out, open, openObjects)
 	}
 	if command == "objects apply" || command == "objects status" {
 		var releaseVersion *releases.Version
@@ -303,17 +308,17 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	defer func() { err = errors.Join(err, engine.Close()) }()
 	switch command {
-	case "up":
+	case "migration up":
 		err = engine.Up(ctx)
-	case "down":
+	case "migration down":
 		err = engine.Down(ctx)
-	case "version":
+	case "migration version":
 		var version int64
 		version, err = engine.Version(ctx)
 		if err == nil {
 			_, err = fmt.Fprintln(out, version)
 		}
-	case "status":
+	case "migration status":
 		var rows []migrations.Status
 		rows, err = engine.Status(ctx)
 		if err == nil {

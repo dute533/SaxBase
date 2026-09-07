@@ -67,7 +67,7 @@ func CheckPending(ctx context.Context, db Reader) error {
 	if err != nil {
 		return err
 	}
-	return fmt.Errorf("rollback to %s is incomplete; retry release rollback %s before other deployments", target, target)
+	return fmt.Errorf("rollback to %s is incomplete; retry rollback %s before other applications", target, target)
 }
 
 func Invalidate(ctx context.Context, db Reader) error {

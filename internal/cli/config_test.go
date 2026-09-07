@@ -19,14 +19,14 @@ func TestTargetsAndDotEnv(t *testing.T) {
 		values        map[string]string
 		want, failure string
 	}{
-		{name: "default", args: []string{"version"}, want: "local-secret"},
-		{name: "explicit", args: []string{"-target", "prod", "version"}, want: "prod-secret"},
-		{name: "environment wins", args: []string{"version"}, values: map[string]string{"LOCAL_DSN": "override"}, want: "override"},
-		{name: "empty environment blocks fallback", args: []string{"version"}, values: map[string]string{"LOCAL_DSN": ""}, failure: "empty or missing"},
-		{name: "unknown", args: []string{"-target", "typo", "up"}, failure: "unknown database target"},
-		{name: "missing secret", args: []string{"-target", "acc", "up"}, values: map[string]string{"GOOSE_DBSTRING": "wrong-db"}, failure: "empty or missing"},
-		{name: "positional conflict", args: []string{"mssql", "other-secret", "up"}, failure: "cannot combine"},
-		{name: "missing config", args: []string{"-config", "missing.yaml", "up"}, failure: "open target config"},
+		{name: "default", args: []string{"migration", "version"}, want: "local-secret"},
+		{name: "explicit", args: []string{"-target", "prod", "migration", "version"}, want: "prod-secret"},
+		{name: "environment wins", args: []string{"migration", "version"}, values: map[string]string{"LOCAL_DSN": "override"}, want: "override"},
+		{name: "empty environment blocks fallback", args: []string{"migration", "version"}, values: map[string]string{"LOCAL_DSN": ""}, failure: "empty or missing"},
+		{name: "unknown", args: []string{"-target", "typo", "migration", "up"}, failure: "unknown database target"},
+		{name: "missing secret", args: []string{"-target", "acc", "migration", "up"}, values: map[string]string{"GOOSE_DBSTRING": "wrong-db"}, failure: "empty or missing"},
+		{name: "positional conflict", args: []string{"mssql", "other-secret", "migration", "up"}, failure: "cannot combine"},
+		{name: "missing config", args: []string{"-config", "missing.yaml", "migration", "up"}, failure: "open target config"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Chdir(t.TempDir())
@@ -76,7 +76,7 @@ func TestConfigValidation(t *testing.T) {
 		t.Run(content, func(t *testing.T) {
 			t.Chdir(t.TempDir())
 			writeConfigFixture(t, "saxbase.yaml", content)
-			err := Run(context.Background(), []string{"up"}, env(nil), &bytes.Buffer{}, func(migrations.Config) (migrations.Engine, error) { t.Fatal("opened database"); return nil, nil })
+			err := Run(context.Background(), []string{"migration", "up"}, env(nil), &bytes.Buffer{}, func(migrations.Config) (migrations.Engine, error) { t.Fatal("opened database"); return nil, nil })
 			if err == nil {
 				t.Fatal("accepted invalid config")
 			}
@@ -88,7 +88,7 @@ func TestDotEnvLegacyAndLocalCommands(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeConfigFixture(t, ".env", "GOOSE_DBSTRING='legacy-secret'\n")
 	var out bytes.Buffer
-	if err := Run(context.Background(), []string{"version"}, env(nil), &out, func(cfg migrations.Config) (migrations.Engine, error) {
+	if err := Run(context.Background(), []string{"migration", "version"}, env(nil), &out, func(cfg migrations.Config) (migrations.Engine, error) {
 		if cfg.DSN != "legacy-secret" {
 			t.Fatal("dotenv not loaded")
 		}
@@ -108,7 +108,7 @@ func TestDotEnvLegacyAndLocalCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeConfigFixture(t, ".env", "PASSWORD='do-not-print\n")
-	err := Run(context.Background(), []string{"up"}, env(nil), &out, nil)
+	err := Run(context.Background(), []string{"migration", "up"}, env(nil), &out, nil)
 	if err == nil || strings.Contains(err.Error(), "do-not-print") {
 		t.Fatalf("unsafe dotenv error: %v", err)
 	}

@@ -44,10 +44,9 @@ export GOOSE_DBSTRING='sqlserver://USER:PASSWORD@localhost:1433?database=SaxBase
 unset GOOSE_MIGRATION_DIR SAXBASE_OBJECTS_DIR
 
 ../../saxbase plan
-../../saxbase deploy
+../../saxbase apply
 ../../saxbase status
-../../saxbase version
-../../saxbase objects status
+../../saxbase migration version
 ../../saxbase release history
 ../../saxbase release show 2
 ```
@@ -67,7 +66,7 @@ SELECT dbo.saxbase_function();               -- 1
 SELECT path, checksum, deployed_at FROM dbo.saxbase_objects;
 ```
 
-Run `../../saxbase deploy` again: it leaves
+Run `../../saxbase apply` again: it leaves
 the deployed state unchanged, and release `2` has only one history record.
 
 ## Change an object
@@ -79,9 +78,9 @@ CREATE OR ALTER VIEW dbo.saxbase_value AS
 SELECT id + 1 AS value FROM dbo.customers;
 ```
 
-Run `../../saxbase objects status`: the view is `changed`, while the procedure and
-function are `unchanged`. Run `../../saxbase objects apply` and query the view
-again: its value is now `2`. `../../saxbase version` remains `2` because this did
+Run `../../saxbase status`: the view is `changed`, while the procedure and
+function are `unchanged`. Run `../../saxbase apply` and query the view
+again: its value is now `2`. `../../saxbase migration version` remains `2` because this did
 not add a structural migration.
 
 To version this change as release `2.1`, generate a new manifest and deploy with it:
@@ -92,7 +91,7 @@ git commit -m "Update example objects"
 ../../saxbase -parent-manifest database/release.json -manifest database/release-2.1.json release create 2.1
 ../../saxbase -manifest database/release-2.1.json release validate
 ../../saxbase -manifest database/release-2.1.json plan
-../../saxbase -manifest database/release-2.1.json objects apply
+../../saxbase -manifest database/release-2.1.json apply
 ../../saxbase release history
 ../../saxbase release show 2.1
 ```
@@ -108,7 +107,7 @@ After deploying `2.1`, restore the recorded release `2`:
 
 ```sh
 ../../saxbase release current
-../../saxbase -manifest database/release.json -source-manifest database/release-2.1.json release rollback 2
+../../saxbase -manifest database/release.json -source-manifest database/release-2.1.json rollback 2
 ../../saxbase release current
 ../../saxbase release rollbacks
 ```
@@ -122,13 +121,13 @@ to its initial checked-in contents, then add the supplied third migration:
 
 ```sh
 cp rollback/00003_add_customer_note.sql database/migrations/
-../../saxbase up
+../../saxbase migration up
 git add database
 git commit -m "Prepare release 3 SQL"
 ../../saxbase -parent-manifest database/release-2.1.json -manifest database/release-3.json release create 3
-../../saxbase -manifest database/release-3.json objects apply
-../../saxbase -manifest database/release.json -source-manifest database/release-3.json release rollback 2
-../../saxbase version
+../../saxbase -manifest database/release-3.json apply
+../../saxbase -manifest database/release.json -source-manifest database/release-3.json rollback 2
+../../saxbase migration version
 ```
 
 Goose now returns to `2`, removes `rollback_note`, and SaxBase restores the release
@@ -138,8 +137,8 @@ migrations. If a Down migration or object restore fails, inspect
 writes are blocked while that rollback is incomplete. The integration test uses
 this third migration and deliberately injects failures to verify recovery.
 
-`../../saxbase down` rolls back the column migration, leaving the customers table
-and its row intact. A second `down` drops the table; full-state objects are not
+`../../saxbase migration down` rolls back the column migration, leaving the customers table
+and its row intact. A second `migration down` drops the table; full-state objects are not
 rolled back by Goose and would then reference a missing table. Use a disposable
 database for this walkthrough and drop it from `master` when finished.
 

@@ -38,7 +38,7 @@ func TestPendingRollbackBlocksWrites(t *testing.T) {
 	defer db.Close()
 	mock.ExpectQuery("SELECT OBJECT_ID").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	mock.ExpectQuery("SELECT TOP").WillReturnRows(sqlmock.NewRows([]string{"target"}).AddRow("30.1"))
-	if err := CheckPending(context.Background(), db); err == nil || !strings.Contains(err.Error(), "retry release rollback 30.1") {
+	if err := CheckPending(context.Background(), db); err == nil || !strings.Contains(err.Error(), "retry rollback 30.1") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

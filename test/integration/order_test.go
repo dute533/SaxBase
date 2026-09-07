@@ -64,9 +64,9 @@ func TestSQLServerManifestOrder(t *testing.T) {
 	if strings.Index(plan, "views/z_base.sql") > strings.Index(plan, "views/a_dependent.sql") {
 		t.Fatal(plan)
 	}
-	run("-manifest", "ordered.json", "deploy")
+	run("-manifest", "ordered.json", "apply")
 	manifest("2", "reordered.json", true)
-	for _, command := range [][]string{{"plan"}, {"deploy"}, {"objects", "apply"}} {
+	for _, command := range [][]string{{"plan"}, {"apply"}, {"objects", "apply"}} {
 		args := append([]string{"-manifest", "reordered.json"}, command...)
 		out, err := execute(args...)
 		if err == nil || !strings.Contains(out, "immutable") {
@@ -82,7 +82,7 @@ func TestSQLServerManifestOrder(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "SELECT replacement_value FROM dbo.ordered_dependent").Scan(&value); err != nil || value != 2 {
 		t.Fatalf("value=%d err=%v", value, err)
 	}
-	run("-manifest", "ordered.json", "-source-manifest", "updated.json", "release", "rollback", "2")
+	run("-manifest", "ordered.json", "-source-manifest", "updated.json", "rollback", "2")
 	if err := db.QueryRowContext(ctx, "SELECT original_value FROM dbo.ordered_dependent").Scan(&value); err != nil || value != 1 {
 		t.Fatalf("value=%d err=%v", value, err)
 	}
@@ -90,7 +90,7 @@ func TestSQLServerManifestOrder(t *testing.T) {
 
 func TestSQLServerNoSnapshotTable(t *testing.T) {
 	ctx, db, _, _, run := integrationDatabase(t)
-	run("deploy")
+	run("apply")
 	run("plan")
 	run("release", "show", "2")
 	var count int
@@ -104,7 +104,7 @@ func TestSQLServerNoSnapshotTable(t *testing.T) {
 
 func TestSQLServerLegacyReleaseMetadata(t *testing.T) {
 	ctx, db, _, execute, run := integrationDatabase(t)
-	run("deploy")
+	run("apply")
 	if _, err := db.ExecContext(ctx, "ALTER TABLE dbo.saxbase_releases DROP COLUMN fingerprint"); err != nil {
 		t.Fatal(err)
 	}
@@ -117,8 +117,8 @@ func TestSQLServerLegacyReleaseMetadata(t *testing.T) {
 		t.Fatalf("read modified legacy metadata: %d %v", absent, err)
 	}
 	run("-manifest", "database/new.json", "release", "create", "2.1")
-	run("-manifest", "database/new.json", "deploy")
-	if out, err := execute("-manifest", "database/release.json", "-source-manifest", "database/new.json", "release", "rollback", "2"); err == nil || !strings.Contains(out, "fingerprint") {
+	run("-manifest", "database/new.json", "apply")
+	if out, err := execute("-manifest", "database/release.json", "-source-manifest", "database/new.json", "rollback", "2"); err == nil || !strings.Contains(out, "fingerprint") {
 		t.Fatalf("legacy rollback: %v %s", err, out)
 	}
 	if got := run("release", "current"); got != "2.1" {

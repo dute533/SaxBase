@@ -13,7 +13,7 @@ import (
 	"saxbase/internal/releases"
 )
 
-func TestDeployCLI(t *testing.T) {
+func TestApplyCLI(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 1;"), 0600); err != nil {
 		t.Fatal(err)
@@ -33,17 +33,17 @@ func TestDeployCLI(t *testing.T) {
 		}
 		goose, db := &fakeEngine{}, &fakeObjects{}
 		var out bytes.Buffer
-		err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "mssql", "dsn", "deploy"}, env(nil), &out,
+		err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "mssql", "dsn", "apply"}, env(nil), &out,
 			func(migrations.Config) (migrations.Engine, error) { return goose, nil },
 			func(string) (objects.Engine, error) { return db, nil })
 		if !goose.closed || !db.closed {
 			t.Fatal("engines were not closed")
 		}
 		if version == "29" {
-			if err == nil || !strings.Contains(err.Error(), "deploy blocked") || db.command == "apply-release" {
+			if err == nil || !strings.Contains(err.Error(), "apply blocked") || db.command == "apply-release" {
 				t.Fatalf("blocked deploy: %v %+v", err, db)
 			}
-		} else if err != nil || db.schema != 30 || db.revision != 2 || !strings.Contains(out.String(), "Deployed release 30.2") {
+		} else if err != nil || db.schema != 30 || db.revision != 2 || !strings.Contains(out.String(), "Applied release 30.2") {
 			t.Fatalf("deploy: %v %+v %s", err, db, out.String())
 		}
 	}

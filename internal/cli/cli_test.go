@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"saxbase/internal/migrations"
+	"saxbase/internal/objects"
 )
 
 type fakeEngine struct {
@@ -43,7 +46,7 @@ func env(values map[string]string) func(string) string {
 }
 
 func TestCommands(t *testing.T) {
-	for _, command := range []string{"up", "down", "status", "version"} {
+	for _, command := range []string{"migration up", "migration down", "migration status", "migration version"} {
 		t.Run(command, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -59,13 +62,13 @@ func TestCommands(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if f.command != command || f.ctx != ctx || !f.closed {
+			if f.command != strings.TrimPrefix(command, "migration ") || f.ctx != ctx || !f.closed {
 				t.Fatalf("incorrect dispatch or cleanup: %+v", f)
 			}
-			if command == "version" && out.String() != "20260905123456\n" {
+			if command == "migration version" && out.String() != "20260905123456\n" {
 				t.Fatalf("version: %q", out.String())
 			}
-			if command == "status" {
+			if command == "migration status" {
 				want := strings.Fields("VERSION STATE FILE 30 applied 00030_schema.sql 31 pending 00031_next.sql")
 				if !reflect.DeepEqual(strings.Fields(out.String()), want) {
 					t.Fatalf("status: %q", out.String())
@@ -75,14 +78,34 @@ func TestCommands(t *testing.T) {
 	}
 }
 
+func TestUnifiedStatus(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 1;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	goose, db := &fakeEngine{}, &fakeObjects{}
+	var out bytes.Buffer
+	err := run(context.Background(), []string{"-objects-dir", dir, "status"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
+		func(migrations.Config) (migrations.Engine, error) { return goose, nil },
+		func(string) (objects.Engine, error) { return db, nil })
+	if err != nil || !goose.closed || !db.closed || db.command != "status" {
+		t.Fatalf("status: %v goose=%+v db=%+v", err, goose, db)
+	}
+	for _, value := range []string{"Goose version:", "Release:", "MIGRATION", "OBJECT", "view.sql"} {
+		if !strings.Contains(out.String(), value) {
+			t.Fatalf("status output missing %q: %s", value, out.String())
+		}
+	}
+}
+
 func TestConfigurationPrecedence(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		args []string
 		want migrations.Config
 	}{
-		{"environment", []string{"up"}, migrations.Config{Driver: "sqlserver", DSN: "env-dsn", Dir: "env-dir"}},
-		{"arguments", []string{"-dir", "custom", "mssql", "arg-dsn", "up"}, migrations.Config{Driver: "mssql", DSN: "arg-dsn", Dir: "custom"}},
+		{"environment", []string{"migration", "up"}, migrations.Config{Driver: "sqlserver", DSN: "env-dsn", Dir: "env-dir"}},
+		{"arguments", []string{"-dir", "custom", "mssql", "arg-dsn", "migration", "up"}, migrations.Config{Driver: "mssql", DSN: "arg-dsn", Dir: "custom"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := Run(context.Background(), tc.args, env(map[string]string{"GOOSE_DRIVER": "sqlserver", "GOOSE_DBSTRING": "env-dsn", "GOOSE_MIGRATION_DIR": "env-dir"}), &bytes.Buffer{}, func(cfg migrations.Config) (migrations.Engine, error) {
@@ -99,7 +122,7 @@ func TestConfigurationPrecedence(t *testing.T) {
 }
 
 func TestValidationBeforeOpeningDatabase(t *testing.T) {
-	for _, args := range [][]string{{"deploy"}, {"up"}, {"-unknown"}, {"-dir"}, {"up", "extra"}, {"postgres", "dsn", "up"}, {"up", "-dir", "custom"}} {
+	for _, args := range [][]string{{"deploy"}, {"migration", "up"}, {"-unknown"}, {"-dir"}, {"migration", "up", "extra"}, {"postgres", "dsn", "migration", "up"}, {"migration", "up", "-dir", "custom"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			err := Run(context.Background(), args, env(nil), &bytes.Buffer{}, func(migrations.Config) (migrations.Engine, error) {
 				t.Fatal("opened database for invalid input")
@@ -128,7 +151,7 @@ func TestHelpWithoutDatabase(t *testing.T) {
 func TestErrorsAndCleanup(t *testing.T) {
 	failure := errors.New("migration failed")
 	closeFailure := errors.New("close failed")
-	for _, command := range []string{"up", "down", "status", "version"} {
+	for _, command := range []string{"migration up", "migration down", "migration status", "migration version"} {
 		f := &fakeEngine{err: failure, closeErr: closeFailure}
 		var out bytes.Buffer
 		err := Run(context.Background(), []string{command}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out, func(migrations.Config) (migrations.Engine, error) { return f, nil })
@@ -139,7 +162,7 @@ func TestErrorsAndCleanup(t *testing.T) {
 			t.Fatalf("output after failure: %q", out.String())
 		}
 	}
-	err := Run(context.Background(), []string{"up"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &bytes.Buffer{}, func(migrations.Config) (migrations.Engine, error) { return nil, failure })
+	err := Run(context.Background(), []string{"migration", "up"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &bytes.Buffer{}, func(migrations.Config) (migrations.Engine, error) { return nil, failure })
 	if !errors.Is(err, failure) {
 		t.Fatalf("open error: %v", err)
 	}

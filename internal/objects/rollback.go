@@ -102,7 +102,7 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 			return result, err
 		}
 		if sourceVersion == "" {
-			return result, errors.New("current state is unversioned; deploy a manifest before rolling back")
+			return result, errors.New("current state is unversioned; apply a manifest before rolling back")
 		}
 	}
 	if source.Version != sourceVersion {
@@ -136,7 +136,7 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 			return result, err
 		}
 		if len(deployed) != len(sourceFiles) {
-			return result, errors.New("tracked object set differs from current release; deploy a manifest first")
+			return result, errors.New("tracked object set differs from current release; apply a manifest first")
 		}
 		for _, file := range sourceFiles {
 			if deployed[file.Path] != file.Checksum {
@@ -201,7 +201,7 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 		}
 		if current > target.SchemaVersion {
 			if err := goose.DownTo(ctx, target.SchemaVersion); err != nil {
-				return result, fmt.Errorf("Goose rollback may be partially applied; repair the migration and retry release rollback %s: %w", version, err)
+				return result, fmt.Errorf("Goose rollback may be partially applied; repair the migration and retry rollback %s: %w", version, err)
 			}
 		}
 		if _, err := conn.ExecContext(ctx, "UPDATE dbo.saxbase_rollbacks SET phase='schema_rolled_back',status='running',last_error=NULL WHERE id=@id", sql.Named("id", result.ID)); err != nil {
@@ -237,7 +237,7 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 		return err
 	})
 	if err != nil {
-		return result, fmt.Errorf("restore failed; schema may already be at %d; retry release rollback %s after resolving the error: %w", target.SchemaVersion, version, err)
+		return result, fmt.Errorf("restore failed; schema may already be at %d; retry rollback %s after resolving the error: %w", target.SchemaVersion, version, err)
 	}
 	result.Phase = "restored"
 	result.Status = "completed"

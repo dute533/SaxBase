@@ -21,7 +21,7 @@ func TestCLIVersionIsOffline(t *testing.T) {
 			t.Fatalf("%q %v", out.String(), err)
 		}
 	}
-	if err := Run(context.Background(), []string{"--version", "deploy"}, nil, &bytes.Buffer{}, nil); err == nil {
+	if err := Run(context.Background(), []string{"--version", "apply"}, nil, &bytes.Buffer{}, nil); err == nil {
 		t.Fatal("accepted mixed command")
 	}
 	failure := errors.New("write failed")

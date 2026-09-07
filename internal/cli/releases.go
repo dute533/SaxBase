@@ -208,7 +208,7 @@ func runReleaseDatabase(ctx context.Context, args []string, cfg migrations.Confi
 
 func runRollback(ctx context.Context, args []string, cfg migrations.Config, manifestPath, sourceManifest, objectDir string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {
 	if len(args) != 1 {
-		return errors.New("expected release rollback VERSION")
+		return errors.New("expected rollback VERSION")
 	}
 	if _, err := releases.ParseVersion(args[0]); err != nil {
 		return err

@@ -43,7 +43,7 @@ func TestGitResolutionFailsBeforeDatabaseOpen(t *testing.T) {
 	if err := m.Write(path); err != nil {
 		t.Fatal(err)
 	}
-	for _, command := range [][]string{{"deploy"}, {"plan"}, {"objects", "apply"}, {"objects", "status"}, {"release", "rollback", "30"}} {
+	for _, command := range [][]string{{"apply"}, {"plan"}, {"objects", "apply"}, {"objects", "status"}, {"rollback", "30"}} {
 		prefix := []string{"-manifest", path}
 		if command[0] == "release" {
 			prefix = append(prefix, "-source-manifest", path)

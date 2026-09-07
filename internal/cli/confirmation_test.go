@@ -13,7 +13,7 @@ import (
 )
 
 func TestProtectedWritesRejectBeforeDatabaseAccess(t *testing.T) {
-	for _, command := range [][]string{{"up"}, {"down"}, {"deploy"}, {"objects", "apply"}, {"release", "rollback", "30"}} {
+	for _, command := range [][]string{{"migration", "up"}, {"migration", "down"}, {"apply"}, {"objects", "apply"}, {"rollback", "30"}} {
 		for _, answer := range []string{"no\n", "\n", "", "yes"} {
 			t.Run(strings.Join(command, " ")+"/"+answer, func(t *testing.T) {
 				t.Chdir(t.TempDir())
@@ -45,11 +45,11 @@ func TestConfirmationSelectionAndBypass(t *testing.T) {
 		protected bool
 		prompt    bool
 	}{
-		{"accept", []string{"up"}, "yes\n", true, true},
-		{"explicit target", []string{"-target", "prod", "up"}, "YES\n", true, true},
-		{"ci", []string{"-yes", "up"}, "", true, false},
-		{"read only", []string{"version"}, "", true, false},
-		{"unprotected", []string{"up"}, "", false, false},
+		{"accept", []string{"migration", "up"}, "yes\n", true, true},
+		{"explicit target", []string{"-target", "prod", "migration", "up"}, "YES\n", true, true},
+		{"ci", []string{"-yes", "migration", "up"}, "", true, false},
+		{"read only", []string{"migration", "version"}, "", true, false},
+		{"unprotected", []string{"migration", "up"}, "", false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Chdir(t.TempDir())
