@@ -33,17 +33,13 @@ func TestObjectIdentity(t *testing.T) {
 
 func TestSnapshotValidationForRollback(t *testing.T) {
 	file := objectFile("view.sql", "CREATE VIEW dbo.v AS SELECT 1 AS n;")
-	snapshot := Snapshot{Release: Release{Version: "1", ObjectCount: 1}, Objects: []SnapshotObject{{Path: file.Path, SQL: file.SQL, Checksum: file.Checksum}}}
+	snapshot := Snapshot{Release: Release{Version: "1"}, Objects: []SnapshotObject{{Path: file.Path, SQL: file.SQL, Checksum: file.Checksum}}}
 	if _, _, err := snapshotFiles(snapshot); err != nil {
 		t.Fatal(err)
 	}
 	snapshot.Objects[0].Checksum = strings.Repeat("0", 64)
 	if _, _, err := snapshotFiles(snapshot); err == nil {
 		t.Fatal("corrupt snapshot accepted")
-	}
-	snapshot.ObjectCount = 2
-	if _, _, err := snapshotFiles(snapshot); err == nil {
-		t.Fatal("incomplete snapshot accepted")
 	}
 }
 

@@ -136,5 +136,5 @@ func BuildPlan(ctx context.Context, manifest Manifest, files []objects.File, goo
 }
 
 func matchesSnapshot(snapshot objects.Snapshot, files []objects.File) bool {
-	return snapshot.ObjectCount == len(files) && snapshot.Fingerprint == objects.Fingerprint(files)
+	return snapshot.Fingerprint == objects.Fingerprint(files)
 }

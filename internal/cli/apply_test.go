@@ -33,7 +33,7 @@ func TestApplyCLI(t *testing.T) {
 		}
 		goose, db := &fakeEngine{}, &fakeObjects{}
 		var out bytes.Buffer
-		err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "mssql", "dsn", "apply"}, env(nil), &out,
+		err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
 			func(migrations.Config) (migrations.Engine, error) { return goose, nil },
 			func(string) (objects.Engine, error) { return db, nil })
 		if !goose.closed || !db.closed {
@@ -41,10 +41,10 @@ func TestApplyCLI(t *testing.T) {
 		}
 		if version == "29" {
 			if err == nil || !strings.Contains(err.Error(), "apply blocked") || db.command != "status" {
-				t.Fatalf("blocked deploy: %v %+v", err, db)
+				t.Fatalf("blocked apply: %v %+v", err, db)
 			}
 		} else if err != nil || db.schema != 30 || db.revision != 2 || !strings.Contains(out.String(), "Applied release 30.2") {
-			t.Fatalf("deploy: %v %+v %s", err, db, out.String())
+			t.Fatalf("apply: %v %+v %s", err, db, out.String())
 		}
 	}
 }

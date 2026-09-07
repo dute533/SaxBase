@@ -46,8 +46,6 @@ const releaseTables = `IF OBJECT_ID(N'dbo.saxbase_releases', N'U') IS NULL
  version varchar(39) NOT NULL UNIQUE,
  schema_version bigint NOT NULL,
  revision bigint NOT NULL,
- deployed_at datetime2 NOT NULL DEFAULT SYSUTCDATETIME(),
- object_count int NOT NULL,
  fingerprint char(64) NOT NULL,
  is_current bit NOT NULL CONSTRAINT DF_saxbase_releases_is_current DEFAULT 0,
  UNIQUE(schema_version,revision)
@@ -79,8 +77,8 @@ func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, files []Fi
 	if exists {
 		return id, false, nil
 	}
-	err = tx.QueryRowContext(ctx, `INSERT INTO dbo.saxbase_releases(version,schema_version,revision,object_count,fingerprint)
- OUTPUT INSERTED.id VALUES(@version,@schema,@revision,@count,@fingerprint);`, sql.Named("version", release.Version), sql.Named("schema", release.SchemaVersion), sql.Named("revision", release.Revision), sql.Named("count", len(files)), sql.Named("fingerprint", Fingerprint(files))).Scan(&id)
+	err = tx.QueryRowContext(ctx, `INSERT INTO dbo.saxbase_releases(version,schema_version,revision,fingerprint)
+ OUTPUT INSERTED.id VALUES(@version,@schema,@revision,@fingerprint);`, sql.Named("version", release.Version), sql.Named("schema", release.SchemaVersion), sql.Named("revision", release.Revision), sql.Named("fingerprint", Fingerprint(files))).Scan(&id)
 	if err != nil {
 		return 0, false, fmt.Errorf("record release: %w", err)
 	}
@@ -109,14 +107,14 @@ func (s *store) History(ctx context.Context) ([]Release, error) {
 	if err != nil || !exists {
 		return result, err
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT version, schema_version, revision, deployed_at, object_count FROM dbo.saxbase_releases ORDER BY schema_version DESC, revision DESC")
+	rows, err := s.db.QueryContext(ctx, "SELECT version, schema_version, revision FROM dbo.saxbase_releases ORDER BY schema_version DESC, revision DESC")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var release Release
-		if err := rows.Scan(&release.Version, &release.SchemaVersion, &release.Revision, &release.DeployedAt, &release.ObjectCount); err != nil {
+		if err := rows.Scan(&release.Version, &release.SchemaVersion, &release.Revision); err != nil {
 			return nil, err
 		}
 		result = append(result, release)
@@ -135,7 +133,7 @@ func (s *store) Snapshot(ctx context.Context, version string) (Snapshot, error) 
 	}
 	var id int64
 	var fingerprint string
-	err = s.db.QueryRowContext(ctx, "SELECT id, version, schema_version, revision, deployed_at, object_count, fingerprint FROM dbo.saxbase_releases WHERE version=@version", sql.Named("version", version)).Scan(&id, &snapshot.Version, &snapshot.SchemaVersion, &snapshot.Revision, &snapshot.DeployedAt, &snapshot.ObjectCount, &fingerprint)
+	err = s.db.QueryRowContext(ctx, "SELECT id, version, schema_version, revision, fingerprint FROM dbo.saxbase_releases WHERE version=@version", sql.Named("version", version)).Scan(&id, &snapshot.Version, &snapshot.SchemaVersion, &snapshot.Revision, &fingerprint)
 	if errors.Is(err, sql.ErrNoRows) {
 		return snapshot, fmt.Errorf("release %s not found", version)
 	}

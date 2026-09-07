@@ -62,7 +62,7 @@ func TestPlanBlockers(t *testing.T) {
 		{name: "missing object", want: "omits tracked", schema: base, files: []objects.File{file}, db: planObjects{rows: []objects.Status{{Path: "old.sql", State: "missing"}}}},
 		{name: "rollback", want: "rollback to 2 is incomplete", schema: base, files: []objects.File{file}, db: planObjects{state: objects.Inspection{Rollbacks: []objects.Rollback{{TargetVersion: "2", Status: "failed"}}}}},
 		{name: "older revision", want: "older than recorded", schema: base, files: []objects.File{file}, db: planObjects{state: objects.Inspection{History: []objects.Release{{Version: "2.10", SchemaVersion: 2, Revision: 10}}}}},
-		{name: "immutable", want: "immutable", schema: base, files: []objects.File{file}, db: planObjects{state: objects.Inspection{History: []objects.Release{{Version: "2.1", SchemaVersion: 2, Revision: 1}}}, snapshot: objects.Snapshot{Release: objects.Release{ObjectCount: 1}, Objects: []objects.SnapshotObject{{Path: file.Path, Checksum: file.Checksum, SQL: "different SQL"}}}}},
+		{name: "immutable", want: "immutable", schema: base, files: []objects.File{file}, db: planObjects{state: objects.Inspection{History: []objects.Release{{Version: "2.1", SchemaVersion: 2, Revision: 1}}}, snapshot: objects.Snapshot{Objects: []objects.SnapshotObject{{Path: file.Path, Checksum: file.Checksum, SQL: "different SQL"}}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p, err := BuildPlan(context.Background(), manifest, tc.files, planSchema{state: tc.schema}, tc.db)
@@ -85,7 +85,7 @@ func TestPlanUnchangedAndNumericRevision(t *testing.T) {
 		t.Fatalf("%+v %v", p, err)
 	}
 	db.state.History = []objects.Release{{Version: "2.10", SchemaVersion: 2, Revision: 10}}
-	db.snapshot = objects.Snapshot{Release: objects.Release{ObjectCount: 0, Fingerprint: objects.Fingerprint(nil)}, Objects: []objects.SnapshotObject{}}
+	db.snapshot = objects.Snapshot{Release: objects.Release{Fingerprint: objects.Fingerprint(nil)}, Objects: []objects.SnapshotObject{}}
 	p, err = BuildPlan(context.Background(), m, nil, schema, db)
 	if err != nil || len(p.Blockers) != 0 || p.Migrations[0].Action != "applied" {
 		t.Fatalf("%+v %v", p, err)

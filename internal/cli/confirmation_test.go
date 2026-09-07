@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -13,7 +14,7 @@ import (
 )
 
 func TestProtectedWritesRejectBeforeDatabaseAccess(t *testing.T) {
-	for _, command := range [][]string{{"migration", "up"}, {"migration", "down"}, {"apply"}, {"rollback", "30"}} {
+	for _, command := range [][]string{{"apply"}, {"rollback", "30"}} {
 		for _, answer := range []string{"no\n", "\n", "", "yes"} {
 			t.Run(strings.Join(command, " ")+"/"+answer, func(t *testing.T) {
 				t.Chdir(t.TempDir())
@@ -45,13 +46,19 @@ func TestConfirmationSelectionAndBypass(t *testing.T) {
 		protected bool
 		prompt    bool
 	}{
-		{"accept", []string{"migration", "up"}, "yes\n", true, true},
-		{"explicit target", []string{"-target", "prod", "migration", "up"}, "YES\n", true, true},
-		{"ci", []string{"-yes", "migration", "up"}, "", true, false},
-		{"unprotected", []string{"migration", "up"}, "", false, false},
+		{"accept", []string{"apply"}, "yes\n", true, true},
+		{"explicit target", []string{"-target", "prod", "apply"}, "YES\n", true, true},
+		{"ci", []string{"-yes", "apply"}, "", true, false},
+		{"unprotected", []string{"apply"}, "", false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Chdir(t.TempDir())
+			if err := os.MkdirAll("database/objects", 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile("database/release.json", []byte(`{"version":"0","objects":[]}`), 0600); err != nil {
+				t.Fatal(err)
+			}
 			flag := "false"
 			if tc.protected {
 				flag = "true"
@@ -60,9 +67,9 @@ func TestConfirmationSelectionAndBypass(t *testing.T) {
 			var out, diagnostics bytes.Buffer
 			opened := false
 			err := run(context.Background(), tc.args, env(map[string]string{"DSN": "secret"}), &out,
-				func(migrations.Config) (migrations.Engine, error) { opened = true; return &fakeEngine{}, nil }, nil,
+				func(migrations.Config) (migrations.Engine, error) { opened = true; return &fakeEngine{}, nil }, func(string) (objects.Engine, error) { return &fakeObjects{}, nil },
 				runEnvironment{diagnostics: &diagnostics, input: strings.NewReader(tc.answer)})
-			if err != nil || !opened {
+			if !opened || (err == nil && tc.prompt) {
 				t.Fatalf("%v", err)
 			}
 			if strings.Contains(diagnostics.String(), "Type yes") != tc.prompt {

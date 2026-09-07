@@ -21,7 +21,7 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 	if err != nil {
 		return err
 	}
-	parentVersion, err := manifestParentVersion(manifestPath, manifest)
+	parentVersion, err := releases.ParentVersion(manifestPath, manifest)
 	if err != nil {
 		return err
 	}
@@ -47,7 +47,7 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 		return err
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
-	rows, err := db.Deploy(ctx, files, version.Schema, version.Revision, goose, func(ctx context.Context) error {
+	rows, err := db.Apply(ctx, files, version.Schema, version.Revision, goose, func(ctx context.Context) error {
 		plan, err := releases.BuildPlan(ctx, manifest, files, goose, db)
 		if err != nil {
 			return err

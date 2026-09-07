@@ -44,8 +44,8 @@ with `require_confirmation: true` asks for `yes` before a database write. Use
 need a target.
 
 SaxBase loads `.env` from the current working directory. Existing environment
-variables take precedence. Without a target config, the `GOOSE_DBSTRING`
-environment variable or a positional connection string can be used.
+variables take precedence. Without a target config, use the `GOOSE_DBSTRING`
+environment variable.
 
 Only SQL Server is supported. The default driver is `mssql`.
 
@@ -61,16 +61,6 @@ Only SQL Server is supported. The default driver is `mssql`.
 manifest's object entries from top to bottom. It records the release after a
 successful deployment. Run `plan` again after changing a migration or object.
 
-For direct migration maintenance, the advanced commands are available:
-
-```sh
-./saxbase migration up
-./saxbase migration down
-```
-
-These commands operate on migrations without recording a release. Prefer the
-top-level commands for normal deployments.
-
 ## Structural migrations
 
 Create Goose migrations in `database/migrations`, for example:
@@ -83,8 +73,9 @@ CREATE TABLE dbo.customers (id INT NOT NULL PRIMARY KEY);
 DROP TABLE dbo.customers;
 ```
 
-`migration up` applies pending migrations. `migration down` rolls back one
-migration. Use `status` to inspect migration state and the current Goose version.
+`apply` advances Goose to the schema version declared by the release manifest.
+`rollback` runs the required Goose down migrations for the target release. Use
+`status` to inspect migration state and the current Goose version.
 
 Use Goose annotations and transaction rules. Do not include SQL Server `GO` batch
 separators in migration files.

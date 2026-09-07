@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
@@ -44,11 +43,11 @@ func expectReleaseStart(mock sqlmock.Sqlmock, schema int64, deployed []File) {
 	mock.ExpectQuery("SELECT path, checksum FROM dbo.saxbase_objects").WillReturnRows(rows)
 }
 
-func expectNewRelease(mock sqlmock.Sqlmock, version string, schema, revision int64, count int) {
+func expectNewRelease(mock sqlmock.Sqlmock, version string, schema, revision int64, _ int) {
 	mock.ExpectExec("IF OBJECT_ID.*saxbase_releases").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("SELECT id, fingerprint FROM dbo.saxbase_releases").WithArgs(version).WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	mock.ExpectQuery("SELECT TOP.*schema_version, revision").WillReturnRows(sqlmock.NewRows([]string{"schema", "revision"}))
-	mock.ExpectQuery("INSERT INTO dbo.saxbase_releases").WithArgs(version, schema, revision, count, sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(7))
+	mock.ExpectQuery("INSERT INTO dbo.saxbase_releases").WithArgs(version, schema, revision, sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(7))
 }
 
 func expectObjectApply(mock sqlmock.Sqlmock, file File) {
@@ -191,16 +190,15 @@ func TestReleaseHistoryBeforeFirstDeployment(t *testing.T) {
 
 func TestStoredReleaseMetadata(t *testing.T) {
 	s, mock := mockStore(t)
-	when := time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC)
 	file := objectFile("a.sql", "SELECT N'Grüße';\r\n")
 	mock.ExpectQuery("SELECT OBJECT_ID.*saxbase_releases").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-	mock.ExpectQuery("SELECT id, version, schema_version").WithArgs("30.1").WillReturnRows(sqlmock.NewRows([]string{"id", "version", "schema", "revision", "time", "count", "fingerprint"}).AddRow(7, "30.1", 30, 1, when, 1, Fingerprint([]File{file})))
+	mock.ExpectQuery("SELECT id, version, schema_version").WithArgs("30.1").WillReturnRows(sqlmock.NewRows([]string{"id", "version", "schema", "revision", "fingerprint"}).AddRow(7, "30.1", 30, 1, Fingerprint([]File{file})))
 
 	snapshot, err := s.Snapshot(context.Background(), "30.1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Version != "30.1" || snapshot.ObjectCount != 1 || snapshot.Fingerprint != Fingerprint([]File{file}) || len(snapshot.Objects) != 0 {
+	if snapshot.Version != "30.1" || snapshot.Fingerprint != Fingerprint([]File{file}) || len(snapshot.Objects) != 0 {
 		t.Fatalf("snapshot=%+v", snapshot)
 	}
 }

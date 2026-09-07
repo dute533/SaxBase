@@ -19,6 +19,9 @@ type fakeObjects struct {
 func (f *fakeObjects) Status(_ context.Context, files []objects.File) ([]objects.Status, error) {
 	f.command = "status"
 	f.files = files
+	if len(files) == 0 {
+		return nil, f.err
+	}
 	return []objects.Status{{Path: files[0].Path, State: "new", Checksum: files[0].Checksum}}, f.err
 }
 func (f *fakeObjects) Close() error { f.closed = true; return nil }
@@ -40,14 +43,14 @@ func (f *fakeObjects) Current(context.Context) (string, error) {
 
 func (f *fakeObjects) History(context.Context) ([]objects.Release, error) {
 	f.command = "history"
-	return []objects.Release{{Version: "30.1", SchemaVersion: 30, Revision: 1, ObjectCount: 1}}, f.err
+	return []objects.Release{{Version: "30.1", SchemaVersion: 30, Revision: 1}}, f.err
 }
 func (f *fakeObjects) Snapshot(_ context.Context, version string) (objects.Snapshot, error) {
 	f.command = "show"
 	return objects.Snapshot{Release: objects.Release{Version: version}, Objects: []objects.SnapshotObject{{Path: "view.sql", SQL: "SELECT 1;"}}}, f.err
 }
 
-func (f *fakeObjects) Deploy(ctx context.Context, files []objects.File, schema, revision int64, goose migrations.Engine, preflight func(context.Context) error) ([]objects.Status, error) {
+func (f *fakeObjects) Apply(ctx context.Context, files []objects.File, schema, revision int64, goose migrations.Engine, preflight func(context.Context) error) ([]objects.Status, error) {
 	if err := preflight(ctx); err != nil {
 		return nil, err
 	}

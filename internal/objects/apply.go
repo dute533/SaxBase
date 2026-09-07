@@ -9,9 +9,9 @@ import (
 	"saxbase/internal/migrations"
 )
 
-// Deploy holds one session lock across preflight, Goose, and the object
+// Apply holds one session lock across preflight, Goose, and the object
 // transaction. Preflight must inspect the intended release without writing.
-func (s *store) Deploy(ctx context.Context, files []File, schema, revision int64, goose migrations.Engine, preflight func(context.Context) error) (rows []Status, err error) {
+func (s *store) Apply(ctx context.Context, files []File, schema, revision int64, goose migrations.Engine, preflight func(context.Context) error) (rows []Status, err error) {
 	if schema < 0 || revision < 0 || preflight == nil {
 		return nil, errors.New("apply requires a valid release and preflight")
 	}

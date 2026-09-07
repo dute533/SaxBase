@@ -40,7 +40,7 @@ func loadDotEnv(getenv func(string) string, lookup ...func(string) (string, bool
 	}, nil
 }
 
-func selectTarget(filename, target string, positional bool, getenv func(string) string, cfg *migrations.Config, out io.Writer, confirm func(string) error) error {
+func selectTarget(filename, target string, getenv func(string) string, cfg *migrations.Config, out io.Writer, confirm func(string) error) error {
 	explicit := filename != ""
 	if filename == "" {
 		filename = "saxbase.yaml"
@@ -62,9 +62,6 @@ func selectTarget(filename, target string, positional bool, getenv func(string) 
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return errors.New("target config must contain exactly one document")
-	}
-	if positional {
-		return errors.New("cannot combine target configuration with a positional connection string")
 	}
 	if target == "" {
 		target = config.DefaultTarget

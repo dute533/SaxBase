@@ -162,9 +162,6 @@ func (l *headerLexer) next() (string, bool, error) {
 }
 
 func snapshotFiles(snapshot Snapshot) ([]File, []identity, error) {
-	if snapshot.ObjectCount != len(snapshot.Objects) {
-		return nil, nil, fmt.Errorf("release %s has an incomplete file set", snapshot.Version)
-	}
 	files := make([]File, 0, len(snapshot.Objects))
 	ids := make([]identity, 0, len(snapshot.Objects))
 	seen := map[string]bool{}

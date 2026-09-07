@@ -9,33 +9,33 @@ import (
 	"saxbase/internal/migrations"
 )
 
-type deployGoose struct {
+type applyGoose struct {
 	migrations.Engine
 	target  int64
 	failure error
 }
 
-func (g *deployGoose) Inspect(context.Context) (migrations.Inspection, error) {
+func (g *applyGoose) Inspect(context.Context) (migrations.Inspection, error) {
 	return migrations.Inspection{Version: 2}, nil
 }
-func (g *deployGoose) UpTo(_ context.Context, target int64) error {
+func (g *applyGoose) UpTo(_ context.Context, target int64) error {
 	g.target = target
 	return g.failure
 }
 
-func TestDeployReleasesLockOnPreflightOrMigrationFailure(t *testing.T) {
+func TestApplyReleasesLockOnPreflightOrMigrationFailure(t *testing.T) {
 	for _, phase := range []string{"preflight", "migration"} {
 		t.Run(phase, func(t *testing.T) {
 			s, mock := mockStore(t)
 			failure := errors.New("injected failure")
-			g := &deployGoose{failure: failure}
+			g := &applyGoose{failure: failure}
 			mock.ExpectQuery("DECLARE.*sp_getapplock").WillReturnRows(sqlmock.NewRows([]string{"code"}).AddRow(0))
 			mock.ExpectQuery("SELECT OBJECT_ID.*saxbase_rollbacks").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(nil))
 			if phase == "migration" {
 				mock.ExpectExec("UPDATE dbo.saxbase_releases").WillReturnResult(sqlmock.NewResult(0, 1))
 			}
 			mock.ExpectQuery("DECLARE.*sp_releaseapplock").WillReturnRows(sqlmock.NewRows([]string{"code"}).AddRow(0))
-			_, err := s.Deploy(context.Background(), nil, 3, 0, g, func(context.Context) error {
+			_, err := s.Apply(context.Background(), nil, 3, 0, g, func(context.Context) error {
 				if phase == "preflight" {
 					return failure
 				}

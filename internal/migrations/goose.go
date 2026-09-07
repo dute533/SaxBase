@@ -3,10 +3,8 @@ package migrations
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"os"
-	"saxbase/internal/deploymentlock"
 
 	_ "github.com/microsoft/go-mssqldb"
 	"github.com/pressly/goose/v3"
@@ -42,17 +40,9 @@ func Open(cfg Config) (Engine, error) {
 	return &gooseEngine{db: db, provider: p}, nil
 }
 
-func (g *gooseEngine) Up(ctx context.Context) error {
-	return g.change(ctx, func() error { _, err := g.provider.Up(ctx); return err })
-}
-
 func (g *gooseEngine) UpTo(ctx context.Context, version int64) error {
 	_, err := g.provider.UpTo(ctx, version)
 	return err
-}
-
-func (g *gooseEngine) Down(ctx context.Context) error {
-	return g.change(ctx, func() error { _, err := g.provider.Down(ctx); return err })
 }
 
 func (g *gooseEngine) DownTo(ctx context.Context, version int64) error {
@@ -99,27 +89,6 @@ func (g *gooseEngine) ValidateDownTo(ctx context.Context, target int64) error {
 		return fmt.Errorf("target Goose version %d is not applied", target)
 	}
 	return nil
-}
-
-func (g *gooseEngine) change(ctx context.Context, fn func() error) (err error) {
-	conn, release, err := deploymentlock.Acquire(ctx, g.db)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, release()) }()
-	if err := deploymentlock.CheckPending(ctx, conn); err != nil {
-		return err
-	}
-	before, err := g.provider.GetDBVersion(ctx)
-	if err != nil {
-		return err
-	}
-	operationErr := fn()
-	after, versionErr := g.provider.GetDBVersion(ctx)
-	if versionErr != nil || after != before {
-		err = deploymentlock.Invalidate(ctx, conn)
-	}
-	return errors.Join(operationErr, versionErr, err)
 }
 
 func (g *gooseEngine) Status(ctx context.Context) ([]Status, error) {

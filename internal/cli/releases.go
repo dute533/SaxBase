@@ -39,7 +39,7 @@ func runRelease(ctx context.Context, args []string, filename, dir, parentFilenam
 	if args[0] == "create" {
 		var m releases.Manifest
 		if parentFilename != "" {
-			previous, err := loadManifestState(ctx, parentFilename, dir)
+			previous, err := releases.ResolveState(ctx, parentFilename, dir)
 			if err != nil {
 				return fmt.Errorf("resolve parent manifest: %w", err)
 			}
@@ -139,7 +139,7 @@ func loadRollbackManifest(ctx context.Context, filename, objectDir string) (obje
 	if err != nil {
 		return objects.Snapshot{}, err
 	}
-	files, err := loadManifestState(ctx, filename, objectDir)
+	files, err := releases.ResolveState(ctx, filename, objectDir)
 	if err != nil {
 		return objects.Snapshot{}, err
 	}
@@ -148,72 +148,9 @@ func loadRollbackManifest(ctx context.Context, filename, objectDir string) (obje
 	if err != nil {
 		return objects.Snapshot{}, err
 	}
-	result := objects.Snapshot{Release: objects.Release{Version: m.Version, SchemaVersion: v.Schema, Revision: v.Revision, ObjectCount: len(files), Fingerprint: objects.Fingerprint(delta)}}
+	result := objects.Snapshot{Release: objects.Release{Version: m.Version, SchemaVersion: v.Schema, Revision: v.Revision, Fingerprint: objects.Fingerprint(delta)}}
 	for _, file := range files {
 		result.Objects = append(result.Objects, objects.SnapshotObject{Path: file.Path, SQL: file.SQL, Checksum: file.Checksum})
 	}
 	return result, nil
-}
-
-func loadManifestState(ctx context.Context, filename, objectDir string) ([]objects.File, error) {
-	return loadManifestStateSeen(ctx, filename, objectDir, map[string]bool{})
-}
-
-func loadManifestStateSeen(ctx context.Context, filename, objectDir string, seen map[string]bool) ([]objects.File, error) {
-	absolute, err := filepath.Abs(filename)
-	if err != nil {
-		return nil, err
-	}
-	if seen[absolute] {
-		return nil, fmt.Errorf("manifest parent cycle includes %s", filename)
-	}
-	seen[absolute] = true
-	defer delete(seen, absolute)
-	m, err := releases.Load(filename)
-	if err != nil {
-		return nil, err
-	}
-	var state []objects.File
-	if m.Parent != "" {
-		parent := filepath.Join(filepath.Dir(filename), filepath.FromSlash(m.Parent))
-		state, err = loadManifestStateSeen(ctx, parent, objectDir, seen)
-		if err != nil {
-			return nil, err
-		}
-	}
-	delta, err := m.Resolve(ctx, objectDir)
-	if err != nil {
-		return nil, err
-	}
-	byPath := make(map[string]int, len(state))
-	for i, file := range state {
-		byPath[file.Path] = i
-	}
-	for _, file := range delta {
-		if i, ok := byPath[file.Path]; ok {
-			state = append(state[:i], state[i+1:]...)
-			for path, index := range byPath {
-				if index > i {
-					byPath[path] = index - 1
-				}
-			}
-			delete(byPath, file.Path)
-		}
-		if !file.Delete {
-			byPath[file.Path] = len(state)
-			state = append(state, file)
-		}
-	}
-	return state, nil
-}
-
-func manifestParentVersion(filename string, manifest releases.Manifest) (string, error) {
-	if manifest.Parent == "" {
-		return "", nil
-	}
-	parent, err := releases.Load(filepath.Join(filepath.Dir(filename), filepath.FromSlash(manifest.Parent)))
-	if err != nil {
-		return "", fmt.Errorf("load parent manifest: %w", err)
-	}
-	return parent.Version, nil
 }

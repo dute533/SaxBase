@@ -40,7 +40,7 @@ func TestPlanCLI(t *testing.T) {
 		goose := &fakeEngine{}
 		db := &fakeObjects{}
 		var out bytes.Buffer
-		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "mssql", "dsn", "plan"}, env(nil), &out, func(migrations.Config) (migrations.Engine, error) { return goose, nil }, func(string) (objects.Engine, error) { return db, nil })
+		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "plan"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out, func(migrations.Config) (migrations.Engine, error) { return goose, nil }, func(string) (objects.Engine, error) { return db, nil })
 		if err != nil || !goose.closed || !db.closed {
 			t.Fatalf("error=%v goose=%+v db=%+v", err, goose, db)
 		}

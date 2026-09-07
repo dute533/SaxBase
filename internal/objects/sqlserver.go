@@ -67,7 +67,7 @@ func (s *store) apply(ctx context.Context, files []File, release *Release) ([]St
 	return s.applyOn(ctx, s.db, files, release, true)
 }
 
-// Deploy uses its locked connection for the object transaction to avoid taking
+// Apply uses its locked connection for the object transaction to avoid taking
 // the same application lock on a second session.
 func (s *store) applyOn(ctx context.Context, db transactionStarter, files []File, release *Release, acquireLock bool) ([]Status, error) {
 	if err := validateFiles(files); err != nil {
@@ -105,8 +105,7 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files []File
 	_, err = tx.ExecContext(ctx, `IF OBJECT_ID(N'dbo.saxbase_objects', N'U') IS NULL
  CREATE TABLE dbo.saxbase_objects (
  path nvarchar(450) COLLATE Latin1_General_100_BIN2 NOT NULL PRIMARY KEY,
- checksum char(64) NOT NULL,
- deployed_at datetime2 NOT NULL DEFAULT SYSUTCDATETIME()
+ checksum char(64) NOT NULL
  );`)
 	if err != nil {
 		return nil, err
@@ -157,7 +156,7 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files []File
 		if _, err := tx.ExecContext(ctx, file.SQL); err != nil {
 			return nil, fmt.Errorf("apply %s: %w", file.Path, err)
 		}
-		_, err = tx.ExecContext(ctx, `UPDATE dbo.saxbase_objects SET checksum=@checksum, deployed_at=SYSUTCDATETIME() WHERE path=@path;
+		_, err = tx.ExecContext(ctx, `UPDATE dbo.saxbase_objects SET checksum=@checksum WHERE path=@path;
  IF @@ROWCOUNT=0 INSERT INTO dbo.saxbase_objects(path,checksum) VALUES(@path,@checksum);`, sql.Named("path", file.Path), sql.Named("checksum", file.Checksum))
 		if err != nil {
 			return nil, fmt.Errorf("track %s: %w", file.Path, err)

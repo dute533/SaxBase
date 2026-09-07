@@ -26,7 +26,7 @@ func TestManifestOrder(t *testing.T) {
 // Keep the snapshot identity order-sensitive even when definitions match.
 func TestSnapshotOrderIdentity(t *testing.T) {
 	files := []objects.File{{Path: "z.sql", SQL: "z", Checksum: "z"}, {Path: "a.sql", SQL: "a", Checksum: "a"}}
-	s := objects.Snapshot{Release: objects.Release{ObjectCount: 2, Fingerprint: objects.Fingerprint(files)}, Objects: []objects.SnapshotObject{{Path: "z.sql", SQL: "z", Checksum: "z"}, {Path: "a.sql", SQL: "a", Checksum: "a"}}}
+	s := objects.Snapshot{Release: objects.Release{Fingerprint: objects.Fingerprint(files)}, Objects: []objects.SnapshotObject{{Path: "z.sql", SQL: "z", Checksum: "z"}, {Path: "a.sql", SQL: "a", Checksum: "a"}}}
 	if !matchesSnapshot(s, files) {
 		t.Fatal("identical ordered snapshot rejected")
 	}

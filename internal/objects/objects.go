@@ -11,7 +11,6 @@ import (
 	"saxbase/internal/migrations"
 	"sort"
 	"strings"
-	"time"
 	"unicode/utf16"
 )
 
@@ -21,7 +20,7 @@ type File struct {
 }
 type Status struct{ Path, State, Checksum string }
 type Engine interface {
-	Deploy(context.Context, []File, int64, int64, migrations.Engine, func(context.Context) error) ([]Status, error)
+	Apply(context.Context, []File, int64, int64, migrations.Engine, func(context.Context) error) ([]Status, error)
 	History(context.Context) ([]Release, error)
 	Snapshot(context.Context, string) (Snapshot, error)
 	Rollback(context.Context, Snapshot, Snapshot, migrations.Engine) (Rollback, error)
@@ -39,12 +38,10 @@ type Inspection struct {
 }
 
 type Release struct {
-	Version       string    `json:"version"`
-	SchemaVersion int64     `json:"schema_version"`
-	Revision      int64     `json:"revision"`
-	DeployedAt    time.Time `json:"deployed_at"`
-	ObjectCount   int       `json:"object_count"`
-	Fingerprint   string    `json:"fingerprint"`
+	Version       string `json:"version"`
+	SchemaVersion int64  `json:"schema_version"`
+	Revision      int64  `json:"revision"`
+	Fingerprint   string `json:"fingerprint"`
 }
 
 type SnapshotObject struct {

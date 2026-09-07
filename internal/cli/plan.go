@@ -20,7 +20,7 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 	if err != nil {
 		return err
 	}
-	parentVersion, err := manifestParentVersion(manifestPath, manifest)
+	parentVersion, err := releases.ParentVersion(manifestPath, manifest)
 	if err != nil {
 		return err
 	}

@@ -24,9 +24,6 @@ Usage:
   saxbase [-manifest database/release.json] release create VERSION
   saxbase [-manifest database/release.json] release validate
 
-Advanced usage:
-  saxbase migration up|down
-
 Commands:
   plan      Preview Goose migrations and objects without changing the database
   apply     Migrate to the manifest schema, apply objects, and record the release
@@ -34,9 +31,6 @@ Commands:
   rollback  Restore a recorded release using its manifest
   release create VERSION  Write a new manifest from current object files
   release validate        Check the manifest against current object files
-
-Advanced commands:
-  migration up|down       Run Goose migration operations directly
 
 Environment:
   GOOSE_DRIVER    mssql (default) or sqlserver
@@ -55,7 +49,7 @@ Configuration:
   -yes           Confirm database writes to targets requiring confirmation
   .env           Loaded from the working directory; environment takes precedence
 
-Options must precede the command or connection arguments.
+Options must precede the command.
 `
 
 type OpenFunc func(migrations.Config) (migrations.Engine, error)
@@ -138,10 +132,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	if objectDir == "" {
 		objectDir = "database/objects"
 	}
-	resolveTarget := func(positional bool, command string) error {
-		return selectTarget(configPath, target, positional, getenv, &cfg, targetOut, func(name string) error {
+	resolveTarget := func(command string) error {
+		return selectTarget(configPath, target, getenv, &cfg, targetOut, func(name string) error {
 			switch command {
-			case "apply", "migration up", "migration down", "rollback":
+			case "apply", "rollback":
 				if !yes {
 					return confirmWrite(ctx, name, command, input, targetOut)
 				}
@@ -157,7 +151,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		return errors.New("-source-manifest only applies to rollback")
 	}
 	if len(pos) > 0 && pos[0] == "rollback" {
-		if err := resolveTarget(false, "rollback"); err != nil {
+		if err := resolveTarget("rollback"); err != nil {
 			return err
 		}
 		return runRollback(ctx, pos[1:], cfg, manifestPath, sourceManifest, objectDir, out, open, openObjects)
@@ -166,33 +160,16 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		return runRelease(ctx, pos[1:], manifestPath, objectDir, parentManifest, out)
 	}
 	var command string
-	switch len(pos) {
-	case 1:
-		command = pos[0]
-	case 2:
-		if pos[0] != "migration" && pos[0] != "objects" {
-			return errors.New("expected migration up or migration down")
-		}
-		command = "objects " + pos[1]
-		if pos[0] == "migration" {
-			command = "migration " + pos[1]
-		}
-	case 3:
-		cfg.Driver, cfg.DSN, command = pos[0], pos[1], pos[2]
-	case 4:
-		if pos[2] != "objects" && pos[2] != "migration" {
-			return errors.New("expected DRIVER CONNECTION_STRING migration up|down")
-		}
-		cfg.Driver, cfg.DSN, command = pos[0], pos[1], pos[2]+" "+pos[3]
-	default:
-		return errors.New("expected COMMAND or DRIVER CONNECTION_STRING COMMAND; use -h for help")
+	if len(pos) != 1 {
+		return errors.New("expected COMMAND; use -h for help")
 	}
+	command = pos[0]
 	switch command {
-	case "apply", "status", "plan", "migration up", "migration down":
+	case "apply", "status", "plan":
 	default:
 		return fmt.Errorf("unknown command %q; use -h for help", command)
 	}
-	if err := resolveTarget(len(pos) >= 3, command); err != nil {
+	if err := resolveTarget(command); err != nil {
 		return err
 	}
 	if cfg.Driver != "mssql" && cfg.Driver != "sqlserver" {
@@ -213,19 +190,5 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	if command == "status" {
 		return runStatus(ctx, cfg, manifestPath, objectDir, out, open, openObjects)
 	}
-	engine, err := open(cfg)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, engine.Close()) }()
-	switch command {
-	case "migration up":
-		err = engine.Up(ctx)
-	case "migration down":
-		err = engine.Down(ctx)
-	}
-	if err != nil {
-		return fmt.Errorf("%s: %w", command, err)
-	}
-	return nil
+	return fmt.Errorf("unknown command %q; use -h for help", command)
 }

@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestSQLServerDeploy(t *testing.T) {
+func TestSQLServerApply(t *testing.T) {
 	ctx, db, workDir, execute, run := integrationDatabase(t)
 	write := func(path, contents string) {
 		t.Helper()
@@ -40,7 +40,7 @@ func TestSQLServerDeploy(t *testing.T) {
 		}
 		run("-manifest", "database/target.json", "release", "create", version)
 	}
-	deploy := func() string { return run("-manifest", "database/target.json", "apply") }
+	apply := func() string { return run("-manifest", "database/target.json", "apply") }
 	assertVersion := func(want string) {
 		t.Helper()
 		output := strings.Join(strings.Fields(run("-manifest", "database/target.json", "status")), " ")
@@ -55,14 +55,14 @@ func TestSQLServerDeploy(t *testing.T) {
 	fail("git", "apply")
 	count("SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped=0", 0)
 	manifest("2")
-	deploy()
+	apply()
 	assertVersion("2")
 	count("SELECT COUNT(*) FROM sys.tables WHERE name='next_table'", 0)
 	count("SELECT COUNT(*) FROM dbo.customers WHERE name='Ada' AND nickname IS NULL", 1)
 	if output := strings.Join(strings.Fields(run("-manifest", "database/target.json", "status")), " "); !strings.Contains(output, "Release: 2") {
 		t.Fatalf("current release missing from status: %s", output)
 	}
-	if out := deploy(); strings.Count(out, "unchanged") != 4 {
+	if out := apply(); strings.Count(out, "unchanged") != 4 {
 		t.Fatal(out)
 	}
 	count("SELECT COUNT(*) FROM dbo.saxbase_releases", 1)
@@ -90,9 +90,9 @@ func TestSQLServerDeploy(t *testing.T) {
 	count("SELECT value FROM dbo.extra", 2)
 	// Goose commits before objects. A failure rolls back all object changes,
 	// records no release, invalidates current, and can be retried at schema 3.
-	write("database/objects/zz_broken.sql", "THROW 51000, 'intentional deploy failure', 1;")
+	write("database/objects/zz_broken.sql", "THROW 51000, 'intentional apply failure', 1;")
 	manifest("3")
-	fail("intentional deploy failure", "-manifest", "database/target.json", "apply")
+	fail("intentional apply failure", "-manifest", "database/target.json", "apply")
 	assertVersion("3")
 	count("SELECT value FROM dbo.extra", 2)
 	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='3'", 0)
@@ -101,7 +101,7 @@ func TestSQLServerDeploy(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest("3")
-	deploy()
+	apply()
 	if output := strings.Join(strings.Fields(run("-manifest", "database/target.json", "status")), " "); !strings.Contains(output, "Release: 3") {
 		t.Fatalf("current release missing from status: %s", output)
 	}
@@ -113,7 +113,7 @@ func TestSQLServerDeploy(t *testing.T) {
 	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='4'", 0)
 	count("SELECT value FROM dbo.extra", 3)
 	write("database/migrations/00004_failure.sql", "-- +goose Up\nCREATE TABLE dbo.recovered(id INT);\n-- +goose Down\nDROP TABLE dbo.recovered;")
-	deploy()
+	apply()
 	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='4'", 1)
 	manifest("3")
 	fail("rollback", "-manifest", "database/target.json", "apply")
