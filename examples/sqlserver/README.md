@@ -1,168 +1,95 @@
 # SQL Server example
 
-This is the example used by the SQL Server integration pipeline. Its layout uses
-SaxBase's default directories:
+This example uses SaxBase’s default layout:
 
 ```text
-examples/sqlserver/
-  database/
-    release.json
-    migrations/
-      00001_create_customers.sql
-      00002_add_nickname.sql
-    objects/
-      functions/value.sql
-      procedures/value.sql
-      views/value.sql
+database/
+  migrations/
+    00001_create_customers.sql
+    00002_add_nickname.sql
+  objects/
+    views/value.sql
+    procedures/value.sql
+    functions/value.sql
+  release.json
 ```
 
-The first migration creates `dbo.customers` and inserts Ada. The second adds a
-nullable `nickname` column. The full-state objects read that table: the view
-returns customer IDs, the procedure lists IDs, and the function counts customers.
-Each object uses `CREATE OR ALTER` and can be edited in place.
+The migrations create `dbo.customers`; the objects define a view, procedure, and
+function that use that table. Each object is a complete `CREATE OR ALTER` definition.
 
-## Run against a test database
+## Run it
 
-From the repository root, build SaxBase and move into this example:
+From the repository root:
 
 ```sh
 go build -o saxbase .
 cd examples/sqlserver
+export GOOSE_DRIVER=mssql
+export GOOSE_DBSTRING='sqlserver://USER:PASSWORD@localhost:1433?database=SaxBaseExample'
 ```
 
-On your SQL Server test instance, create a database using your SQL client:
+Create the database, then preview and apply the checked-in release:
 
 ```sql
 CREATE DATABASE SaxBaseExample;
 ```
 
-Configure the connection and apply the example:
-
 ```sh
-export GOOSE_DRIVER=mssql
-export GOOSE_DBSTRING='sqlserver://USER:PASSWORD@localhost:1433?database=SaxBaseExample'
-unset GOOSE_MIGRATION_DIR SAXBASE_OBJECTS_DIR
-
 ../../saxbase plan
 ../../saxbase apply
 ../../saxbase status
-../../saxbase migration version
-../../saxbase release history
-../../saxbase release show 2
 ```
 
-The initial plan previews migrations 1 and 2 and three new objects without
-creating any tables. A later plan of an already deployed release reports applied
-migrations and unchanged objects. Blocked plans explain the issue and exit nonzero.
-
-The structural version is now `2`; all three objects should report `unchanged`
-after apply. Query the database to check the result:
+Check the result:
 
 ```sql
-SELECT id, name, nickname FROM dbo.customers; -- 1, Ada, NULL
-SELECT value FROM dbo.saxbase_value;         -- 1
-EXEC dbo.saxbase_get_value;                  -- 1
-SELECT dbo.saxbase_function();               -- 1
-SELECT path, checksum, deployed_at FROM dbo.saxbase_objects;
+SELECT id, name, nickname FROM dbo.customers;
+SELECT value FROM dbo.saxbase_value;
+EXEC dbo.saxbase_get_value;
+SELECT dbo.saxbase_function();
 ```
-
-Run `../../saxbase apply` again: it leaves
-the deployed state unchanged, and release `2` has only one history record.
 
 ## Change an object
 
-Edit `database/objects/views/value.sql` to contain:
+Edit `database/objects/views/value.sql`, then inspect the change:
 
-```sql
-CREATE OR ALTER VIEW dbo.saxbase_value AS
-SELECT id + 1 AS value FROM dbo.customers;
+```sh
+../../saxbase status
+../../saxbase apply
 ```
 
-Run `../../saxbase status`: the view is `changed`, while the procedure and
-function are `unchanged`. Run `../../saxbase apply` and query the view
-again: its value is now `2`. `../../saxbase migration version` remains `2` because this did
-not add a structural migration.
-
-To version this change as release `2.1`, generate a new manifest and deploy with it:
+To record the change as release `2.1`, commit the SQL and create a delta manifest:
 
 ```sh
 git add database/objects
 git commit -m "Update example objects"
-../../saxbase -parent-manifest database/release.json -manifest database/release-2.1.json release create 2.1
-../../saxbase -manifest database/release-2.1.json release validate
+../../saxbase -parent-manifest database/release.json \
+  -manifest database/release-2.1.json release create 2.1
 ../../saxbase -manifest database/release-2.1.json plan
 ../../saxbase -manifest database/release-2.1.json apply
-../../saxbase release history
-../../saxbase release show 2.1
 ```
 
-The original manifest continues to resolve release `2` from Git even after working
-SQL changes. Commit SQL before creating each revision manifest. Deployment stores
-release metadata and a fingerprint, with no SQL snapshots. `release show` displays
-that metadata. Reusing a version with changed SQL, paths, or order fails.
+## Roll back
 
-## Roll back a release
-
-After deploying `2.1`, restore the recorded release `2`:
+Restore release `2` using both manifests:
 
 ```sh
-../../saxbase release current
-../../saxbase -manifest database/release.json -source-manifest database/release-2.1.json rollback 2
-../../saxbase release current
-../../saxbase release rollbacks
+../../saxbase -manifest database/release.json \
+  -source-manifest database/release-2.1.json rollback 2
 ```
 
-The view returns `1` again even though its local SQL file still contains `id + 1`.
-Goose remains at version `2`, and both release records remain in history.
-The object restore, checksum changes, and rollback completion commit together.
+Rollback resolves the target objects from their historical Git commits. Keep the
+manifests and referenced commits available.
 
-To try rollback across structural versions, first restore the local view file
-to its initial checked-in contents, then add the supplied third migration:
+## Verify locally
 
-```sh
-cp rollback/00003_add_customer_note.sql database/migrations/
-../../saxbase migration up
-git add database
-git commit -m "Prepare release 3 SQL"
-../../saxbase -parent-manifest database/release-2.1.json -manifest database/release-3.json release create 3
-../../saxbase -manifest database/release-3.json apply
-../../saxbase -manifest database/release.json -source-manifest database/release-3.json rollback 2
-../../saxbase migration version
-```
-
-Goose now returns to `2`, removes `rollback_note`, and SaxBase restores the release
-`2` objects. Structural rollback runs in phases because Goose commits its own
-migrations. If a Down migration or object restore fails, inspect
-`release rollbacks`, fix the issue, and retry the same target. Other SaxBase
-writes are blocked while that rollback is incomplete. The integration test uses
-this third migration and deliberately injects failures to verify recovery.
-
-`../../saxbase migration down` rolls back the column migration, leaving the customers table
-and its row intact. A second `migration down` drops the table; full-state objects are not
-rolled back by Goose and would then reference a missing table. Use a disposable
-database for this walkthrough and drop it from `master` when finished.
-
-## Automated verification
-
-From the repository root, with Go and Docker available, run:
+From the repository root, run the disposable SQL Server integration test:
 
 ```sh
 bash scripts/test-integration.sh
 ```
 
-The script starts SQL Server and removes the container after the test, including
-on failure. The test creates its own database and copies this entire `database/` directory
-to a temporary working directory. It invokes the built CLI with its default
-paths, verifies migrations and object results, exercises object updates and
-rollback on failure, checks that missing files do not drop objects, and cleans
-up the database. The checked-in example files are never modified by the test.
-It also validates the checked-in release manifest, rejects a wrong Goose version
-and unavailable Git commits, and generates and applies an object revision manifest.
-It verifies Git-backed releases, immutable versions, concurrent retries,
-and that failed deployments leave no release rows behind.
-Rollback tests restore old views independently of local files, remove an object
-introduced later, retain permissions, and recover from failures in both Goose
-Down and object restoration.
-Deployment tests also use this layout to verify bounded migrations, object-only
-revisions, concurrent retries, and recovery from migration and object failures.
-See the root README for disposable Docker setup and connection configuration.
+The test uses a temporary database and does not modify these example files.
+
+See the [manifest ordering example](ordering/README.md) and the
+[full reference](../../docs/reference.md).

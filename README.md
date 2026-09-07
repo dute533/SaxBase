@@ -1,127 +1,97 @@
 # SaxBase
 
-A SQL Server deployment CLI that combines [Goose](https://github.com/pressly/goose)
-schema migrations with versioned views, procedures, and functions.
-
-**Work in progress — no stable release yet.** Requires SQL Server.
-
-Download Linux, macOS, and Windows binaries (amd64/arm64) from
-[GitHub Releases](https://github.com/dute533/SaxBase/releases) once published.
-Extract the archive and use `saxbase` (`saxbase.exe` on Windows); Go is only needed
-to build from source. Preview builds are available as `saxbase-binaries` artifacts
-in the [Binaries workflow](https://github.com/dute533/SaxBase/actions/workflows/binaries.yml).
+SaxBase deploys SQL Server schema migrations and versioned views, procedures, and
+functions from one release manifest. Goose manages structural migrations; SaxBase
+applies object definitions in the manifest’s order.
 
 ## Quick start
 
 ```sh
-go build -o saxbase .          # Source builds require Go 1.26+
+go build -o saxbase .
 cp saxbase.yaml.example saxbase.yaml
 cp .env.example .env
 ```
 
-Set your connection strings in `.env` (ignored by Git). The config maps target
-names to environment variables and defaults to `local`. Exported variables take
-precedence over `.env`; in CI, supply them through your secrets store.
-
-```sh
-./saxbase plan                 # Uses default_target from saxbase.yaml
-./saxbase -target acc plan     # Select another database
-./saxbase -target prod apply
-```
-
-Set `require_confirmation: true` on targets that need confirmation (enabled for
-`prod` in the example). Writes prompt for `yes`; CI can use
-`./saxbase -target prod -yes apply`. Read-only commands never prompt.
-
-Commit `saxbase.yaml` alongside your SQL; keep passwords in `.env` or CI secrets.
-Without a config, `GOOSE_DBSTRING` still works. See [configuration details](docs/reference.md#configuration).
-
-Organize your SQL like this (see the [runnable example](examples/sqlserver/README.md)):
+Put connection variables in `.env` (or export `GOOSE_DBSTRING`). Defaults are:
 
 ```text
-database/
-  migrations/       # Goose SQL files with Up and Down sections
-  objects/          # One CREATE OR ALTER view, procedure, or function per SQL file
-  release.json      # Generated release manifest
+database/migrations/
+database/objects/
+database/release.json
 ```
 
-Create and deploy a release, using your target Goose migration version:
+Preview and apply the release:
+
+```sh
+./saxbase plan
+./saxbase apply
+./saxbase status
+```
+
+`apply` migrates Goose to the manifest’s schema version, applies changed objects
+in manifest order, and records the release. Use `-target NAME` for a configured
+target and `-yes` for unattended protected deployments.
+
+## Create a release
+
+Commit object SQL, create a manifest, review its order, then apply it:
 
 ```sh
 git add database/objects
 git commit -m "Update database objects"
 ./saxbase release create 30
-# Review release.json: put object dependencies before their consumers.
-./saxbase plan                 # Preview changes without writing to the database
-./saxbase apply                # Migrate to version 30, then apply changed objects
-```
-
-The manifest records object paths, their deployment order, and either full Git
-commit hashes or `"latest"`. The first manifest is a complete state; later
-manifests can contain only changes by naming the previous manifest as their parent.
-Full hashes make deployments reproducible. `latest` reads the current working-tree
-file and is useful for tests or projects that do not use Git. Object files must each
-contain a single SQL batch without `GO`.
-
-Git must be installed when a manifest uses commit hashes. No SQL snapshots are
-stored in the database.
-
-## Update a release
-
-After committing edited SQL, sync the manifest and deploy a new version:
-
-```sh
-./saxbase -parent-manifest database/release-30.json -manifest database/release-30.1.json release create 30.1
 ./saxbase plan
 ./saxbase apply
 ```
 
-`30.1` is an object revision at schema version `30`; use `31` when targeting
-migration `31`. Deployed versions are immutable, so changes need a new version.
-Sync preserves existing order, appends new files alphabetically, and rejects
-missing files. Review dependencies when adding objects.
+Each object entry contains a path and either a full Git commit hash or `latest`.
+Full hashes make releases reproducible. `latest` reads the working tree and is useful
+for tests or projects without Git.
 
-## Useful commands
-
-| Command | Purpose |
-| --- | --- |
-| `--version` | Show the SaxBase CLI version |
-| `release validate` | Resolve the manifest’s referenced SQL files |
-| `release current` / `release history` | Inspect deployed releases |
-| `release show VERSION` | Print release metadata and fingerprint |
-| `rollback VERSION` | Restore from target and source manifests |
-| `release rollbacks` | Inspect rollback progress and failures |
-| `status` | Inspect Goose, release, and object state |
-| `migration up/down/status/version` | Run direct Goose operations |
-| `objects status` / `objects apply` | Advanced object-only operations |
-
-Run `./saxbase -h` for help. Override default paths with `-dir`, `-objects-dir`,
-`-manifest`, or `-parent-manifest`, placed before the command:
+For a later object revision, create a delta from its parent:
 
 ```sh
+./saxbase -parent-manifest database/release-30.json \
+  -manifest database/release-30.1.json release create 30.1
+./saxbase -manifest database/release-30.1.json plan
 ./saxbase -manifest database/release-30.1.json apply
 ```
 
-## Before deploying
+Move entries in the manifest to put dependencies before their consumers. A release
+version is immutable; use a new revision when SQL, paths, or order changes.
 
-- `apply` stops at the manifest's schema version; `migration up` applies all pending migrations.
-- A release is not one transaction. If deployment fails, completed migrations
-  remain; fix the cause, sync the manifest if SQL changed, and retry.
-- Rollback can drop newer objects and run Goose Down migrations that remove data.
-  Supply `-manifest` for the target and `-source-manifest` for the active release.
-  Keep both manifests, their Git commits, and migration files available. After a
-  failed rollback, fix the cause and retry the same command to resume.
-- Normal deployment never drops missing objects. Dependencies are ordered by you;
-  checksums do not detect manual database edits.
+## Rollback
+
+Keep the target and active manifests available:
+
+```sh
+./saxbase -manifest database/release-30.json \
+  -source-manifest database/release-30.1.json rollback 30
+```
+
+Rollback restores historical objects and runs the required Goose Down migrations.
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `plan` | Preview migrations and objects |
+| `apply` | Apply a manifest release |
+| `status` | Show migration, release, and object state |
+| `rollback VERSION` | Restore a recorded release |
+| `release create/sync/validate` | Manage manifests |
+| `release history/show/current` | Inspect release history |
+
+For direct subsystem maintenance, use the advanced `migration` and `objects`
+namespaces. Run `./saxbase -h` for details.
+
+See the [SQL Server example](examples/sqlserver/README.md) and the
+[full reference](docs/reference.md).
 
 ## Development
 
 ```sh
 go test ./...
 go vet ./...
-bash scripts/test-integration.sh  # Requires Docker; runs disposable SQL Server
+bash scripts/test-integration.sh
 ```
-
-See the [full reference](docs/reference.md) for configuration, transaction and
-rollback behavior, and testing details, or the
-[dependency ordering example](examples/sqlserver/ordering/README.md).
