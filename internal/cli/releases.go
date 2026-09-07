@@ -114,26 +114,6 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 	return err
 }
 
-func checkSchema(ctx context.Context, cfg migrations.Config, m releases.Manifest, open OpenFunc) (err error) {
-	version, err := releases.ParseVersion(m.Version)
-	if err != nil {
-		return err
-	}
-	engine, err := open(cfg)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, engine.Close()) }()
-	current, err := engine.Version(ctx)
-	if err != nil {
-		return err
-	}
-	if current != version.Schema {
-		return fmt.Errorf("release %s requires Goose version %d; database is at %d", m.Version, version.Schema, current)
-	}
-	return nil
-}
-
 func loadRollbackManifest(ctx context.Context, filename, objectDir string) (objects.Snapshot, error) {
 	m, err := releases.Load(filename)
 	if err != nil {
