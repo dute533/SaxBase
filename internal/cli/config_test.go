@@ -118,7 +118,7 @@ func TestDotEnvLegacyAndLocalCommands(t *testing.T) {
 }
 
 func TestTargetReleaseCommandsKeepOutputUsable(t *testing.T) {
-	for _, command := range [][]string{{"release", "history"}, {"release", "show", "30"}, {"release", "current"}, {"release", "rollbacks"}} {
+	for _, command := range [][]string{{"release", "history"}, {"release", "rollbacks"}} {
 		t.Run(strings.Join(command, " "), func(t *testing.T) {
 			t.Chdir(t.TempDir())
 			writeConfigFixture(t, "team.yaml", "default_target: local\ntargets: {local: {connection_env: LOCAL_DSN}}")
@@ -146,7 +146,7 @@ func TestTargetReleaseCommandsKeepOutputUsable(t *testing.T) {
 			if diagnostics.String() != "Target: local\n" || strings.Contains(out.String(), "Target:") {
 				t.Fatal("target output mixed with command output")
 			}
-			if command[1] == "show" || command[1] == "rollbacks" {
+			if command[1] == "rollbacks" {
 				if !json.Valid(out.Bytes()) {
 					t.Fatal("invalid JSON output")
 				}

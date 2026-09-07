@@ -183,8 +183,6 @@ Inspect recorded releases with:
 
 ```sh
 ./saxbase release history
-./saxbase release show 30.1
-./saxbase release current
 ./saxbase release rollbacks
 ```
 

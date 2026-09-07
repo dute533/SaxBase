@@ -70,13 +70,8 @@ func runRelease(ctx context.Context, args []string, filename, dir, parentFilenam
 }
 
 func runReleaseDatabase(ctx context.Context, args []string, cfg migrations.Config, out io.Writer, open func(string) (objects.Engine, error)) (err error) {
-	if !((len(args) == 1 && (args[0] == "history" || args[0] == "rollbacks" || args[0] == "current")) || (len(args) == 2 && args[0] == "show")) {
-		return errors.New("expected release history, current, rollbacks, or show VERSION")
-	}
-	if args[0] == "show" {
-		if _, err := releases.ParseVersion(args[1]); err != nil {
-			return err
-		}
+	if len(args) != 1 || (args[0] != "history" && args[0] != "rollbacks") {
+		return errors.New("expected release history or rollbacks")
 	}
 	if cfg.Driver != "mssql" && cfg.Driver != "sqlserver" {
 		return fmt.Errorf("unsupported driver %q: use mssql or sqlserver", cfg.Driver)
@@ -89,14 +84,6 @@ func runReleaseDatabase(ctx context.Context, args []string, cfg migrations.Confi
 		return err
 	}
 	defer func() { err = errors.Join(err, engine.Close()) }()
-	if args[0] == "current" {
-		version, err := engine.Current(ctx)
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Fprintln(out, version)
-		return err
-	}
 	if args[0] == "rollbacks" {
 		rows, err := engine.Rollbacks(ctx)
 		if err != nil {
@@ -105,15 +92,6 @@ func runReleaseDatabase(ctx context.Context, args []string, cfg migrations.Confi
 		encoder := json.NewEncoder(out)
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(rows)
-	}
-	if args[0] == "show" {
-		snapshot, err := engine.Snapshot(ctx, args[1])
-		if err != nil {
-			return err
-		}
-		encoder := json.NewEncoder(out)
-		encoder.SetIndent("", "  ")
-		return encoder.Encode(snapshot)
 	}
 	rows, err := engine.History(ctx)
 	if err != nil {

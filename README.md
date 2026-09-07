@@ -80,7 +80,7 @@ Rollback restores historical objects and runs the required Goose Down migrations
 | `status` | Show migration, release, and object state |
 | `rollback VERSION` | Restore a recorded release |
 | `release create/validate` | Manage manifests |
-| `release history/show/current` | Inspect release history |
+| `release history` | Inspect release history |
 
 For direct subsystem maintenance, use the advanced `migration` and `objects`
 namespaces. Run `./saxbase -h` for details.
