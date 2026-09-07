@@ -151,7 +151,7 @@ func CommittedFiles(ctx context.Context, dir string) ([]objects.File, error) {
 	}
 	m, err := New("0", files)
 	if err != nil {
-		return nil, fmt.Errorf("commit SQL files before creating or syncing a release: %w", err)
+		return nil, fmt.Errorf("commit SQL files before creating a release: %w", err)
 	}
 	committed, err := m.Resolve(ctx, root)
 	if err != nil {
@@ -159,7 +159,7 @@ func CommittedFiles(ctx context.Context, dir string) ([]objects.File, error) {
 	}
 	for i := range files {
 		if files[i].SQL != committed[i].SQL {
-			return nil, fmt.Errorf("%s has uncommitted changes; commit SQL before creating or syncing a release", files[i].Path)
+			return nil, fmt.Errorf("%s has uncommitted changes; commit SQL before creating a release", files[i].Path)
 		}
 	}
 	return files, nil

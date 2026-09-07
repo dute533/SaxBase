@@ -79,7 +79,7 @@ Rollback restores historical objects and runs the required Goose Down migrations
 | `apply` | Apply a manifest release |
 | `status` | Show migration, release, and object state |
 | `rollback VERSION` | Restore a recorded release |
-| `release create/sync/validate` | Manage manifests |
+| `release create/validate` | Manage manifests |
 | `release history/show/current` | Inspect release history |
 
 For direct subsystem maintenance, use the advanced `migration` and `objects`

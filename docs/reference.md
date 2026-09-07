@@ -162,9 +162,7 @@ To create a delta containing only changes from a previous release:
   -manifest database/release-30.1.json release create 30.1
 ```
 
-Pass `-parent-manifest` when creating or syncing a delta. `release sync [VERSION]`
-refreshes commit references while preserving the manifest's order. Keep manifests
-and their referenced Git commits available for rollback.
+Keep manifests and their referenced Git commits available for rollback.
 
 ## Rollback
 

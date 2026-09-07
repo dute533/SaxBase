@@ -24,7 +24,6 @@ Usage:
   saxbase [-manifest database/release.json] plan|apply|status
   saxbase rollback VERSION
   saxbase [-manifest database/release.json] release create VERSION
-  saxbase [-manifest database/release.json] release sync [VERSION]
   saxbase [-manifest database/release.json] release validate
   saxbase release history
   saxbase release show VERSION
@@ -37,7 +36,6 @@ Commands:
   status    Show Goose, release, and object state together
   rollback  Restore a recorded release using its manifest
   release create VERSION  Write a new manifest from current object files
-  release sync [VERSION]  Refresh a local manifest, preserving object order
   release validate        Check the manifest against current object files
   release history         List successfully recorded database releases
   release show VERSION    Print recorded release metadata as JSON
@@ -160,8 +158,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		})
 	}
 	pos := flags.Args()
-	if parentManifest != "" && !(len(pos) > 1 && pos[0] == "release" && (pos[1] == "create" || pos[1] == "sync")) {
-		return errors.New("-parent-manifest only applies to release create or release sync")
+	if parentManifest != "" && !(len(pos) > 1 && pos[0] == "release" && pos[1] == "create") {
+		return errors.New("-parent-manifest only applies to release create")
 	}
 	if sourceManifest != "" && !(len(pos) > 0 && pos[0] == "rollback") {
 		return errors.New("-source-manifest only applies to rollback")

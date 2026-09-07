@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"sort"
-	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -18,8 +16,8 @@ import (
 )
 
 func runRelease(ctx context.Context, args []string, filename, dir, parentFilename string, out io.Writer) error {
-	if !((len(args) == 2 && args[0] == "create") || (len(args) == 1 && args[0] == "validate") || ((len(args) == 1 || len(args) == 2) && args[0] == "sync")) {
-		return errors.New("expected release create VERSION, release validate, or release sync [VERSION]")
+	if !((len(args) == 2 && args[0] == "create") || (len(args) == 1 && args[0] == "validate")) {
+		return errors.New("expected release create VERSION or release validate")
 	}
 	if filename == "" {
 		filename = "database/release.json"
@@ -41,83 +39,6 @@ func runRelease(ctx context.Context, args []string, filename, dir, parentFilenam
 		return err
 	}
 
-	if args[0] == "sync" {
-		version := ""
-		if len(args) == 2 {
-			version = args[1]
-		}
-		var result releases.SyncResult
-		if parentFilename != "" {
-			current, err := releases.Load(filename)
-			if err != nil {
-				return err
-			}
-			previous, err := loadManifestState(ctx, parentFilename, dir)
-			if err != nil {
-				return fmt.Errorf("resolve parent manifest: %w", err)
-			}
-			if version == "" {
-				version = current.Version
-			}
-			delta, err := releases.NewDelta(version, current.Parent, files, previous)
-			if err != nil {
-				return err
-			}
-			positions := make(map[string]int, len(current.Objects))
-			for i, object := range current.Objects {
-				positions[object.Path] = i
-			}
-			sort.SliceStable(delta.Objects, func(i, j int) bool {
-				a, aok := positions[delta.Objects[i].Path]
-				b, bok := positions[delta.Objects[j].Path]
-				if aok != bok {
-					return aok
-				}
-				if aok {
-					return a < b
-				}
-				return delta.Objects[i].Path < delta.Objects[j].Path
-			})
-			result.PreviousVersion, result.Version = current.Version, delta.Version
-			for _, object := range delta.Objects {
-				if object.Delete {
-					result.Removed = append(result.Removed, object.Path)
-				} else if _, ok := positions[object.Path]; ok {
-					result.Updated = append(result.Updated, object.Path)
-				} else {
-					result.Added = append(result.Added, object.Path)
-				}
-			}
-			if err := delta.WriteReplace(filename); err != nil {
-				return err
-			}
-		} else {
-			result, err = releases.Sync(filename, files, version)
-		}
-		if err != nil {
-			return err
-		}
-		var report strings.Builder
-		if result.Version != result.PreviousVersion {
-			fmt.Fprintf(&report, "Version: %s -> %s\n", result.PreviousVersion, result.Version)
-		}
-		for _, path := range result.Updated {
-			fmt.Fprintf(&report, "Updated: %s\n", path)
-		}
-		for _, path := range result.Added {
-			fmt.Fprintf(&report, "Added: %s\n", path)
-		}
-		for _, path := range result.Removed {
-			fmt.Fprintf(&report, "Removed: %s\n", path)
-		}
-		if report.Len() == 0 {
-			fmt.Fprintf(&report, "Release %s is already synchronized: %s\n", result.Version, filename)
-		} else {
-			fmt.Fprintf(&report, "Synced release %s: %s\n", result.Version, filename)
-		}
-		_, err = io.WriteString(out, report.String())
-		return err
-	}
 	if args[0] == "create" {
 		var m releases.Manifest
 		if parentFilename != "" {
