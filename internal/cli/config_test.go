@@ -19,10 +19,10 @@ func TestTargetsAndDotEnv(t *testing.T) {
 		values        map[string]string
 		want, failure string
 	}{
-		{name: "default", args: []string{"migration", "version"}, want: "local-secret"},
-		{name: "explicit", args: []string{"-target", "prod", "migration", "version"}, want: "prod-secret"},
-		{name: "environment wins", args: []string{"migration", "version"}, values: map[string]string{"LOCAL_DSN": "override"}, want: "override"},
-		{name: "empty environment blocks fallback", args: []string{"migration", "version"}, values: map[string]string{"LOCAL_DSN": ""}, failure: "empty or missing"},
+		{name: "default", args: []string{"migration", "up"}, want: "local-secret"},
+		{name: "explicit", args: []string{"-target", "prod", "migration", "up"}, want: "prod-secret"},
+		{name: "environment wins", args: []string{"migration", "up"}, values: map[string]string{"LOCAL_DSN": "override"}, want: "override"},
+		{name: "empty environment blocks fallback", args: []string{"migration", "up"}, values: map[string]string{"LOCAL_DSN": ""}, failure: "empty or missing"},
 		{name: "unknown", args: []string{"-target", "typo", "migration", "up"}, failure: "unknown database target"},
 		{name: "missing secret", args: []string{"-target", "acc", "migration", "up"}, values: map[string]string{"GOOSE_DBSTRING": "wrong-db"}, failure: "empty or missing"},
 		{name: "positional conflict", args: []string{"mssql", "other-secret", "migration", "up"}, failure: "cannot combine"},
@@ -88,7 +88,7 @@ func TestDotEnvLegacyAndLocalCommands(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeConfigFixture(t, ".env", "GOOSE_DBSTRING='legacy-secret'\n")
 	var out bytes.Buffer
-	if err := Run(context.Background(), []string{"migration", "version"}, env(nil), &out, func(cfg migrations.Config) (migrations.Engine, error) {
+	if err := Run(context.Background(), []string{"migration", "up"}, env(nil), &out, func(cfg migrations.Config) (migrations.Engine, error) {
 		if cfg.DSN != "legacy-secret" {
 			t.Fatal("dotenv not loaded")
 		}

@@ -41,6 +41,12 @@ func TestSQLServerDeploy(t *testing.T) {
 		run("-manifest", "database/target.json", "release", "create", version)
 	}
 	deploy := func() string { return run("-manifest", "database/target.json", "apply") }
+	assertVersion := func(want string) {
+		t.Helper()
+		if output := run("status"); !strings.Contains(output, "Goose version:\t"+want+"\n") {
+			t.Fatalf("status did not report Goose version %q: %s", want, output)
+		}
+	}
 	write("database/migrations/00003_next.sql", "-- +goose Up\nCREATE TABLE dbo.next_table(id INT);\n-- +goose Down\nDROP TABLE dbo.next_table;")
 	// Missing Git references must fail before even initializing Goose metadata.
 	write("database/objects/views/extra.sql", "CREATE OR ALTER VIEW dbo.extra AS SELECT 1 AS value;")
@@ -49,13 +55,11 @@ func TestSQLServerDeploy(t *testing.T) {
 	count("SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped=0", 0)
 	manifest("2")
 	deploy()
-	if got := run("migration", "version"); got != "2" {
-		t.Fatal(got)
-	}
+	assertVersion("2")
 	count("SELECT COUNT(*) FROM sys.tables WHERE name='next_table'", 0)
 	count("SELECT COUNT(*) FROM dbo.customers WHERE name='Ada' AND nickname IS NULL", 1)
-	if got := run("release", "current"); got != "2" {
-		t.Fatal(got)
+	if output := run("status"); !strings.Contains(output, "Release:\t2\n") {
+		t.Fatalf("current release missing from status: %s", output)
 	}
 	if out := deploy(); strings.Count(out, "unchanged") != 4 {
 		t.Fatal(out)
@@ -88,9 +92,7 @@ func TestSQLServerDeploy(t *testing.T) {
 	write("database/objects/zz_broken.sql", "THROW 51000, 'intentional deploy failure', 1;")
 	manifest("3")
 	fail("intentional deploy failure", "-manifest", "database/target.json", "apply")
-	if got := run("migration", "version"); got != "3" {
-		t.Fatal(got)
-	}
+	assertVersion("3")
 	count("SELECT value FROM dbo.extra", 2)
 	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='3'", 0)
 	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE is_current=1", 0)
@@ -99,8 +101,8 @@ func TestSQLServerDeploy(t *testing.T) {
 	}
 	manifest("3")
 	deploy()
-	if got := run("release", "current"); got != "3" {
-		t.Fatal(got)
+	if output := run("status"); !strings.Contains(output, "Release:\t3\n") {
+		t.Fatalf("current release missing from status: %s", output)
 	}
 	count("SELECT value FROM dbo.extra", 3)
 	// Structural failure leaves the old object state intact and releases the lock.

@@ -7,11 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"text/tabwriter"
 
 	"saxbase/internal/migrations"
 	"saxbase/internal/objects"
-	"saxbase/internal/releases"
 )
 
 // Version is set by the release build; local source builds report dev.
@@ -39,8 +37,7 @@ Commands:
   release rollbacks       Show rollback progress and failures as JSON
 
 Advanced commands:
-  migration up|down|status|version  Run Goose migration operations directly
-  objects apply|status              Manage objects without a release
+  migration up|down                 Run Goose migration operations directly
 
 Environment:
   GOOSE_DRIVER    mssql (default) or sqlserver
@@ -145,7 +142,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	resolveTarget := func(positional bool, command string) error {
 		return selectTarget(configPath, target, positional, getenv, &cfg, targetOut, func(name string) error {
 			switch command {
-			case "apply", "migration up", "migration down", "objects apply", "rollback":
+			case "apply", "migration up", "migration down", "rollback":
 				if !yes {
 					return confirmWrite(ctx, name, command, input, targetOut)
 				}
@@ -184,7 +181,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		command = pos[0]
 	case 2:
 		if pos[0] != "migration" && pos[0] != "objects" {
-			return errors.New("expected migration up|down|status|version or objects apply|status")
+			return errors.New("expected migration up or migration down")
 		}
 		command = "objects " + pos[1]
 		if pos[0] == "migration" {
@@ -194,14 +191,14 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		cfg.Driver, cfg.DSN, command = pos[0], pos[1], pos[2]
 	case 4:
 		if pos[2] != "objects" && pos[2] != "migration" {
-			return errors.New("expected DRIVER CONNECTION_STRING migration ... or objects apply|status")
+			return errors.New("expected DRIVER CONNECTION_STRING migration up|down")
 		}
 		cfg.Driver, cfg.DSN, command = pos[0], pos[1], pos[2]+" "+pos[3]
 	default:
 		return errors.New("expected COMMAND or DRIVER CONNECTION_STRING COMMAND; use -h for help")
 	}
 	switch command {
-	case "apply", "status", "plan", "migration up", "migration down", "migration status", "migration version", "objects apply", "objects status":
+	case "apply", "status", "plan", "migration up", "migration down":
 	default:
 		return fmt.Errorf("unknown command %q; use -h for help", command)
 	}
@@ -211,8 +208,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	if cfg.Driver != "mssql" && cfg.Driver != "sqlserver" {
 		return fmt.Errorf("unsupported driver %q: use mssql or sqlserver", cfg.Driver)
 	}
-	if manifestPath != "" && command != "objects apply" && command != "objects status" && command != "plan" && command != "apply" && command != "status" {
-		return errors.New("-manifest is supported only for plan, apply, status, release, and objects commands")
+	if manifestPath != "" && command != "plan" && command != "apply" && command != "status" {
+		return errors.New("-manifest is supported only for plan, apply, status, and release commands")
 	}
 	if cfg.DSN == "" {
 		return errors.New("set GOOSE_DBSTRING or provide a connection string")
@@ -226,76 +223,6 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	if command == "status" {
 		return runStatus(ctx, cfg, manifestPath, objectDir, out, open, openObjects)
 	}
-	if command == "objects apply" || command == "objects status" {
-		var releaseVersion *releases.Version
-		var parentVersion string
-		var manifest releases.Manifest
-		var files []objects.File
-		if manifestPath == "" {
-			var scanErr error
-			files, scanErr = releases.WorkingFiles(ctx, objectDir)
-			if scanErr != nil {
-				return fmt.Errorf("scan objects: %w", scanErr)
-			}
-		}
-		if manifestPath != "" {
-			loaded, loadErr := releases.Load(manifestPath)
-			if loadErr != nil {
-				return loadErr
-			}
-			manifest = loaded
-			var validateErr error
-			files, validateErr = manifest.Resolve(ctx, objectDir)
-			if validateErr != nil {
-				return validateErr
-			}
-			if command == "objects apply" {
-				var parentErr error
-				parentVersion, parentErr = manifestParentVersion(manifestPath, manifest)
-				if parentErr != nil {
-					return parentErr
-				}
-				if checkErr := checkSchema(ctx, cfg, manifest, open); checkErr != nil {
-					return checkErr
-				}
-				version, _ := releases.ParseVersion(manifest.Version)
-				releaseVersion = &version
-			}
-		}
-		engine, openErr := openObjects(cfg.DSN)
-		if openErr != nil {
-			return openErr
-		}
-		defer func() { err = errors.Join(err, engine.Close()) }()
-		var rows []objects.Status
-		if command == "objects apply" {
-			if releaseVersion != nil {
-				if parentVersion != "" {
-					current, currentErr := engine.Current(ctx)
-					if currentErr != nil {
-						return currentErr
-					}
-					if current != parentVersion {
-						return fmt.Errorf("release %s must follow current release %s", manifest.Version, parentVersion)
-					}
-				}
-				rows, err = engine.ApplyRelease(ctx, files, releaseVersion.Schema, releaseVersion.Revision)
-			} else {
-				rows, err = engine.Apply(ctx, files)
-			}
-		} else {
-			rows, err = engine.Status(ctx, files)
-		}
-		if err != nil {
-			return fmt.Errorf("%s: %w", command, err)
-		}
-		w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(w, "STATE\tFILE\tSHA256")
-		for _, row := range rows {
-			fmt.Fprintf(w, "%s\t%s\t%s\n", row.State, row.Path, row.Checksum)
-		}
-		return w.Flush()
-	}
 	engine, err := open(cfg)
 	if err != nil {
 		return err
@@ -306,23 +233,6 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		err = engine.Up(ctx)
 	case "migration down":
 		err = engine.Down(ctx)
-	case "migration version":
-		var version int64
-		version, err = engine.Version(ctx)
-		if err == nil {
-			_, err = fmt.Fprintln(out, version)
-		}
-	case "migration status":
-		var rows []migrations.Status
-		rows, err = engine.Status(ctx)
-		if err == nil {
-			w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "VERSION\tSTATE\tFILE")
-			for _, row := range rows {
-				fmt.Fprintf(w, "%d\t%s\t%s\n", row.Version, row.State, row.Path)
-			}
-			err = w.Flush()
-		}
 	}
 	if err != nil {
 		return fmt.Errorf("%s: %w", command, err)

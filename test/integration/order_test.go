@@ -66,7 +66,7 @@ func TestSQLServerManifestOrder(t *testing.T) {
 	}
 	run("-manifest", "ordered.json", "apply")
 	manifest("2", "reordered.json", true)
-	for _, command := range [][]string{{"plan"}, {"apply"}, {"objects", "apply"}} {
+	for _, command := range [][]string{{"plan"}, {"apply"}} {
 		args := append([]string{"-manifest", "reordered.json"}, command...)
 		out, err := execute(args...)
 		if err == nil || !strings.Contains(out, "immutable") {
@@ -77,7 +77,7 @@ func TestSQLServerManifestOrder(t *testing.T) {
 	write("views/z_base.sql", "CREATE OR ALTER VIEW dbo.ordered_base AS SELECT 2 AS replacement_value;")
 	write("views/a_dependent.sql", "CREATE OR ALTER VIEW dbo.ordered_dependent AS SELECT replacement_value FROM dbo.ordered_base;")
 	manifest("2.1", "updated.json", false)
-	run("-manifest", "updated.json", "objects", "apply")
+	run("-manifest", "updated.json", "apply")
 	var value int
 	if err := db.QueryRowContext(ctx, "SELECT replacement_value FROM dbo.ordered_dependent").Scan(&value); err != nil || value != 2 {
 		t.Fatalf("value=%d err=%v", value, err)
@@ -92,7 +92,7 @@ func TestSQLServerNoSnapshotTable(t *testing.T) {
 	ctx, db, _, _, run := integrationDatabase(t)
 	run("apply")
 	run("plan")
-	run("release", "show", "2")
+	run("release", "history")
 	var count int
 	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_release_objects'").Scan(&count); err != nil || count != 0 {
 		t.Fatalf("snapshot table: %d %v", count, err)

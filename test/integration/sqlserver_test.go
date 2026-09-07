@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net/url"
@@ -18,7 +17,6 @@ import (
 	"time"
 
 	_ "github.com/microsoft/go-mssqldb"
-	"saxbase/internal/objects"
 	"saxbase/internal/releases"
 )
 
@@ -148,8 +146,8 @@ func TestSQLServerMigration(t *testing.T) {
 	objectDir := filepath.Join(workDir, "database", "objects")
 	assertVersion := func(want string) {
 		t.Helper()
-		if got := run("migration", "version"); got != want {
-			t.Fatalf("version = %q, want %q", got, want)
+		if output := run("status"); !strings.Contains(output, "Goose version:\t"+want+"\n") {
+			t.Fatalf("status did not report Goose version %q: %s", want, output)
 		}
 	}
 	assertCount := func(query string, want int) {
@@ -164,10 +162,11 @@ func TestSQLServerMigration(t *testing.T) {
 	}
 	assertStatus := func(first, second string) {
 		t.Helper()
-	got := strings.Fields(run("migration", "status"))
-		want := strings.Fields("VERSION STATE FILE 1 " + first + " 00001_create_customers.sql 2 " + second + " 00002_add_nickname.sql")
-		if strings.Join(got, " ") != strings.Join(want, " ") {
-			t.Fatalf("status = %v, want %v", got, want)
+		output := run("status")
+		for _, value := range []string{"1\t" + first + "\t00001_create_customers.sql", "2\t" + second + "\t00002_add_nickname.sql"} {
+			if !strings.Contains(output, value) {
+				t.Fatalf("status missing %q: %s", value, output)
+			}
 		}
 	}
 
@@ -205,14 +204,14 @@ func TestSQLServerMigration(t *testing.T) {
 	// Object status is read-only, including before its metadata table exists.
 	run("release", "validate")
 	run("-manifest", "database/wrong-schema.json", "release", "create", "3")
-	if output, err := execute("-manifest", "database/wrong-schema.json", "objects", "apply"); err == nil {
+	if output, err := execute("-manifest", "database/wrong-schema.json", "apply"); err == nil {
 		t.Fatalf("schema mismatch accepted: %s", output)
 	}
-	if output := run("objects", "status"); strings.Count(output, "new") != 3 {
+	if output := run("status"); strings.Count(output, "new") != 3 {
 		t.Fatalf("initial objects: %s", output)
 	}
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_objects')", 0)
-	if output := run("-manifest", "database/release.json", "objects", "apply"); strings.Count(output, "applied") != 3 {
+	if output := run("-manifest", "database/release.json", "apply"); strings.Count(output, "applied") != 3 {
 		t.Fatalf("apply objects: %s", output)
 	}
 	assertCount("SELECT value FROM dbo.saxbase_value", 1)
@@ -221,15 +220,15 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_objects", 3)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='2' AND schema_version=2 AND revision=0 AND object_count=3", 1)
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_release_objects'", 0)
-	var originalSnapshot objects.Snapshot
-	if err := json.Unmarshal([]byte(run("release", "show", "2")), &originalSnapshot); err != nil {
+	var originalFingerprint string
+	if err := db.QueryRowContext(ctx, "SELECT fingerprint FROM dbo.saxbase_releases WHERE version='2'").Scan(&originalFingerprint); err != nil {
 		t.Fatal(err)
 	}
-	if originalSnapshot.Version != "2" || originalSnapshot.ObjectCount != 3 || originalSnapshot.Fingerprint == "" {
-		t.Fatalf("snapshot: %+v", originalSnapshot)
+	if originalFingerprint == "" {
+		t.Fatal("release fingerprint is empty")
 	}
 
-	run("-manifest", "database/release.json", "objects", "apply")
+	run("-manifest", "database/release.json", "apply")
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 1)
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_release_objects'", 0)
 	assertVersion("2")
@@ -237,7 +236,7 @@ func TestSQLServerMigration(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "SELECT deployed_at FROM dbo.saxbase_objects WHERE path=N'database/objects/views/value.sql'").Scan(&originalTime); err != nil {
 		t.Fatal(err)
 	}
-	if output := run("objects", "apply"); strings.Count(output, "unchanged") != 3 {
+	if output := run("apply"); strings.Count(output, "unchanged") != 3 {
 		t.Fatalf("repeat objects: %s", output)
 	}
 	var unchangedTime time.Time
@@ -251,15 +250,15 @@ func TestSQLServerMigration(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(objectDir, "views/value.sql"), updated, 0600); err != nil {
 		t.Fatal(err)
 	}
-	run("-manifest", "database/release.json", "objects", "apply")
+	run("-manifest", "database/release.json", "apply")
 	run("plan")
 	assertCount("SELECT value FROM dbo.saxbase_value", 1)
 	run("-manifest", "database/release-2.1.json", "release", "create", "2.1")
 	run("-manifest", "database/release-2.1.json", "release", "validate")
-	if output := run("objects", "status"); strings.Count(output, "changed") != 3 || strings.Count(output, "unchanged") != 2 {
+	if output := run("status"); strings.Count(output, "changed") != 3 || strings.Count(output, "unchanged") != 2 {
 		t.Fatalf("changed status: %s", output)
 	}
-	if output := run("-manifest", "database/release-2.1.json", "objects", "apply"); strings.Count(output, "applied") != 1 || strings.Count(output, "unchanged") != 2 {
+	if output := run("-manifest", "database/release-2.1.json", "apply"); strings.Count(output, "applied") != 1 || strings.Count(output, "unchanged") != 2 {
 		t.Fatalf("changed apply: %s", output)
 	}
 	assertCount("SELECT value FROM dbo.saxbase_value", 2)
@@ -278,11 +277,11 @@ func TestSQLServerMigration(t *testing.T) {
 	if output := run("release", "history"); !strings.Contains(output, "2.1") {
 		t.Fatalf("history: %s", output)
 	}
-	var retained objects.Snapshot
-	if err := json.Unmarshal([]byte(run("release", "show", "2")), &retained); err != nil {
+	var retainedFingerprint string
+	if err := db.QueryRowContext(ctx, "SELECT fingerprint FROM dbo.saxbase_releases WHERE version='2'").Scan(&retainedFingerprint); err != nil {
 		t.Fatal(err)
 	}
-	if retained.Fingerprint != originalSnapshot.Fingerprint {
+	if retainedFingerprint != originalFingerprint {
 		t.Fatal("old release fingerprint changed")
 	}
 
@@ -290,7 +289,7 @@ func TestSQLServerMigration(t *testing.T) {
 	retries := make(chan error, 2)
 	for i := 0; i < 2; i++ {
 		go func() {
-			_, err := execute("-manifest", "database/release-2.1.json", "objects", "apply")
+			_, err := execute("-manifest", "database/release-2.1.json", "apply")
 			retries <- err
 		}()
 	}
@@ -310,7 +309,7 @@ func TestSQLServerMigration(t *testing.T) {
 	if output, err := execute("-manifest", "database/conflicting-2.1.json", "plan"); err == nil || !strings.Contains(output, "immutable") {
 		t.Fatalf("immutable plan: %v %s", err, output)
 	}
-	if output, err := execute("-manifest", "database/conflicting-2.1.json", "objects", "apply"); err == nil || !strings.Contains(output, "immutable") {
+	if output, err := execute("-manifest", "database/conflicting-2.1.json", "apply"); err == nil || !strings.Contains(output, "immutable") {
 		t.Fatalf("release identity conflict: %v %s", err, output)
 	}
 	assertCount("SELECT value FROM dbo.saxbase_value", 2)
@@ -322,7 +321,7 @@ func TestSQLServerMigration(t *testing.T) {
 		t.Fatalf("invalid object succeeded: %s", output)
 	}
 	run("-manifest", "database/failed-2.2.json", "release", "create", "2.2")
-	if output, err := execute("-manifest", "database/failed-2.2.json", "objects", "apply"); err == nil {
+	if output, err := execute("-manifest", "database/failed-2.2.json", "apply"); err == nil {
 		t.Fatalf("invalid release succeeded: %s", output)
 	}
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 2)
@@ -342,14 +341,14 @@ func TestSQLServerMigration(t *testing.T) {
 	if err := os.Remove(filepath.Join(objectDir, "views/value.sql")); err != nil {
 		t.Fatal(err)
 	}
-	if output := run("objects", "status"); !strings.Contains(output, "missing") {
+	if output := run("status"); !strings.Contains(output, "missing") {
 		t.Fatalf("missing status: %s", output)
 	}
 	run("-manifest", "database/incomplete-2.2.json", "release", "create", "2.2")
-	if output, err := execute("-manifest", "database/incomplete-2.2.json", "objects", "apply"); err != nil {
+	if output, err := execute("-manifest", "database/incomplete-2.2.json", "apply"); err != nil {
 		t.Fatalf("delta release failed: %v %s", err, output)
 	}
-	run("objects", "apply")
+	run("apply")
 	assertCount("SELECT value FROM dbo.saxbase_value", 2)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_objects", 3)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 3)
@@ -362,7 +361,7 @@ func TestSQLServerMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	run("-manifest", "database/release-2.3.json", "release", "create", "2.3")
-	run("-manifest", "database/release-2.3.json", "objects", "apply")
+	run("-manifest", "database/release-2.3.json", "apply")
 	assertCount("SELECT value FROM dbo.saxbase_later", 2)
 	if _, err := db.ExecContext(ctx, "CREATE ROLE saxbase_reader; GRANT SELECT ON dbo.saxbase_value TO saxbase_reader;"); err != nil {
 		t.Fatal(err)
@@ -374,7 +373,7 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT COUNT(*) FROM sys.views WHERE object_id=OBJECT_ID(N'dbo.saxbase_later')", 0)
 	assertCount("SELECT value FROM dbo.saxbase_value", 1)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_objects", 3)
-	run("-manifest", "database/release-2.3.json", "objects", "apply")
+	run("-manifest", "database/release-2.3.json", "apply")
 
 	// A newer structural release is rolled back through Goose, with a failed
 	// Down migration first to prove progress survives and retries can finish.
@@ -392,7 +391,7 @@ func TestSQLServerMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	run("-manifest", "database/release-3.json", "release", "create", "3")
-	run("-manifest", "database/release-3.json", "objects", "apply")
+	run("-manifest", "database/release-3.json", "apply")
 	if output, err := execute("-manifest", "database/release-99.json", "-source-manifest", "database/release-3.json", "rollback", "99"); err == nil {
 		t.Fatalf("unknown release accepted: %s", output)
 	}
@@ -412,7 +411,7 @@ func TestSQLServerMigration(t *testing.T) {
 	}
 	assertVersion("3")
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_rollbacks WHERE status='failed' AND phase='objects_removed'", 1)
-	for _, args := range [][]string{{"migration", "up"}, {"migration", "down"}, {"objects", "apply"}, {"release", "current"}, {"-manifest", "database/release-3.json", "plan"}, {"-manifest", "database/release-3.json", "apply"}} {
+	for _, args := range [][]string{{"migration", "up"}, {"migration", "down"}, {"-manifest", "database/release-3.json", "plan"}, {"-manifest", "database/release-3.json", "apply"}} {
 		if output, err := execute(args...); err == nil || !strings.Contains(output, "incomplete") {
 			t.Fatalf("pending rollback did not block %v: %v %s", args, err, output)
 		}
@@ -428,8 +427,8 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT value FROM dbo.saxbase_value", 2)
 	assertCount("SELECT COUNT(*) FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.customers') AND name=N'rollback_note'", 0)
 	assertCount("SELECT COUNT(*) FROM sys.views WHERE object_id=OBJECT_ID(N'dbo.saxbase_later')", 0)
-	if got := run("release", "current"); got != "2.1" {
-		t.Fatalf("current release: %s", got)
+	if output := run("status"); !strings.Contains(output, "Release:\t2.1\n") {
+		t.Fatalf("current release missing from status: %s", output)
 	}
 	if output, err := execute("-manifest", "database/release-3.json", "-source-manifest", "database/release-2.1.json", "rollback", "3"); err == nil {
 		t.Fatalf("forward rollback accepted: %s", output)
@@ -453,22 +452,16 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT dbo.saxbase_function()", 1)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_rollbacks WHERE status <> 'completed'", 0)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 5)
-	if got := run("release", "current"); got != "2" {
-		t.Fatalf("current release: %s", got)
+	if output := run("status"); !strings.Contains(output, "Release:\t2\n") {
+		t.Fatalf("current release missing from status: %s", output)
 	}
 
 	run("migration", "down")
 	assertVersion("1")
-	if output := run("migration", "status"); !strings.Contains(output, "00003_add_customer_note.sql") {
-		t.Fatalf("missing schema migration status: %s", output)
-	}
 	assertCount("SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.customers') AND name = N'nickname'", 0)
 	assertCount("SELECT COUNT(*) FROM dbo.customers WHERE id = 1 AND name = N'Ada'", 1)
 	run("migration", "down")
 	assertVersion("0")
-	if got := run("migration", "version"); got != "0" {
-		t.Fatalf("version after final down: %s", got)
-	}
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id = OBJECT_ID(N'dbo.customers')", 0)
 }
 

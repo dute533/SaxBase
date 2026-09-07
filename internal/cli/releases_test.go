@@ -8,9 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"saxbase/internal/migrations"
 	"saxbase/internal/objects"
-	"saxbase/internal/releases"
 )
 
 func TestReleaseCommandsOffline(t *testing.T) {
@@ -42,50 +40,6 @@ func TestReleaseCommandsOffline(t *testing.T) {
 	}
 	if err := run(context.Background(), append(args, "validate"), env(nil), &bytes.Buffer{}, nil, nil); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestManifestApplyGuards(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "a.sql"), []byte("SELECT 1;"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	files, err := committedFixture(t, dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, version := range []string{"30.1", "20260905123456.1"} {
-		m, err := releases.New(version, files)
-		if err != nil {
-			t.Fatal(err)
-		}
-		filename := filepath.Join(t.TempDir(), "release.json")
-		if err := m.Write(filename); err != nil {
-			t.Fatal(err)
-		}
-		goose := &fakeEngine{}
-		objectEngine := &fakeObjects{}
-		opened := false
-		err = run(context.Background(), []string{"-objects-dir", dir, "-manifest", filename, "objects", "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &bytes.Buffer{}, func(migrations.Config) (migrations.Engine, error) { return goose, nil }, func(string) (objects.Engine, error) { opened = true; return objectEngine, nil })
-		if version == "30.1" {
-			if err == nil || opened {
-				t.Fatal("schema mismatch did not block apply")
-			}
-		} else {
-			if err != nil || !objectEngine.closed || objectEngine.command != "apply-release" || objectEngine.schema != 20260905123456 || objectEngine.revision != 1 {
-				t.Fatalf("matching release failed: %v", err)
-			}
-		}
-		if !goose.closed {
-			t.Fatal("Goose connection leaked")
-		}
-		if err := os.WriteFile(filename, []byte(`{"version":"30","objects":[{"path":"a.sql","commit":"bad"}]}`), 0600); err != nil {
-			t.Fatal(err)
-		}
-		err = run(context.Background(), []string{"-objects-dir", dir, "-manifest", filename, "objects", "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &bytes.Buffer{}, nil, nil)
-		if err == nil {
-			t.Fatal("file mismatch accepted")
-		}
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -46,7 +45,7 @@ func env(values map[string]string) func(string) string {
 }
 
 func TestCommands(t *testing.T) {
-	for _, command := range []string{"migration up", "migration down", "migration status", "migration version"} {
+	for _, command := range []string{"migration up", "migration down"} {
 		t.Run(command, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -64,15 +63,6 @@ func TestCommands(t *testing.T) {
 			}
 			if f.command != strings.TrimPrefix(command, "migration ") || f.ctx != ctx || !f.closed {
 				t.Fatalf("incorrect dispatch or cleanup: %+v", f)
-			}
-			if command == "migration version" && out.String() != "20260905123456\n" {
-				t.Fatalf("version: %q", out.String())
-			}
-			if command == "migration status" {
-				want := strings.Fields("VERSION STATE FILE 30 applied 00030_schema.sql 31 pending 00031_next.sql")
-				if !reflect.DeepEqual(strings.Fields(out.String()), want) {
-					t.Fatalf("status: %q", out.String())
-				}
 			}
 		})
 	}
@@ -122,7 +112,7 @@ func TestConfigurationPrecedence(t *testing.T) {
 }
 
 func TestValidationBeforeOpeningDatabase(t *testing.T) {
-	for _, args := range [][]string{{"deploy"}, {"migration", "up"}, {"-unknown"}, {"-dir"}, {"migration", "up", "extra"}, {"postgres", "dsn", "migration", "up"}, {"migration", "up", "-dir", "custom"}} {
+	for _, args := range [][]string{{"deploy"}, {"migration", "status"}, {"migration", "version"}, {"objects", "apply"}, {"-unknown"}, {"-dir"}, {"migration", "up", "extra"}, {"postgres", "dsn", "migration", "up"}, {"migration", "up", "-dir", "custom"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			err := Run(context.Background(), args, env(nil), &bytes.Buffer{}, func(migrations.Config) (migrations.Engine, error) {
 				t.Fatal("opened database for invalid input")
@@ -151,7 +141,7 @@ func TestHelpWithoutDatabase(t *testing.T) {
 func TestErrorsAndCleanup(t *testing.T) {
 	failure := errors.New("migration failed")
 	closeFailure := errors.New("close failed")
-	for _, command := range []string{"migration up", "migration down", "migration status", "migration version"} {
+	for _, command := range []string{"migration up", "migration down"} {
 		f := &fakeEngine{err: failure, closeErr: closeFailure}
 		var out bytes.Buffer
 		err := Run(context.Background(), []string{command}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out, func(migrations.Config) (migrations.Engine, error) { return f, nil })

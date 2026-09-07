@@ -82,8 +82,8 @@ Rollback restores historical objects and runs the required Goose Down migrations
 | `release create/validate` | Manage manifests |
 | `release history` | Inspect release history |
 
-For direct subsystem maintenance, use the advanced `migration` and `objects`
-namespaces. Run `./saxbase -h` for details.
+For direct migration maintenance, use the advanced `migration up` and
+`migration down` commands. Run `./saxbase -h` for details.
 
 See the [SQL Server example](examples/sqlserver/README.md) and the
 [full reference](docs/reference.md).

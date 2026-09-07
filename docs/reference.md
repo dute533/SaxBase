@@ -61,18 +61,14 @@ Only SQL Server is supported. The default driver is `mssql`.
 manifest's object entries from top to bottom. It records the release after a
 successful deployment. Run `plan` again after changing a migration or object.
 
-For direct subsystem maintenance, the advanced commands are available:
+For direct migration maintenance, the advanced commands are available:
 
 ```sh
 ./saxbase migration up
 ./saxbase migration down
-./saxbase migration status
-./saxbase migration version
-./saxbase objects apply
-./saxbase objects status
 ```
 
-These commands operate on one subsystem and do not record a release. Prefer the
+These commands operate on migrations without recording a release. Prefer the
 top-level commands for normal deployments.
 
 ## Structural migrations
@@ -88,8 +84,7 @@ DROP TABLE dbo.customers;
 ```
 
 `migration up` applies pending migrations. `migration down` rolls back one
-migration. `migration status` lists migration state, and `migration version`
-prints the current Goose schema version.
+migration. Use `status` to inspect migration state and the current Goose version.
 
 Use Goose annotations and transaction rules. Do not include SQL Server `GO` batch
 separators in migration files.
@@ -110,8 +105,8 @@ and does not infer dependencies, so list dependencies before consumers in the
 manifest.
 
 `status` reports each object as `new`, `changed`, `unchanged`, or `missing`.
-Missing files are reported and are not automatically dropped. `objects apply`
-applies changed files without running migrations.
+Missing files are reported and are not automatically dropped. `apply` applies
+changed objects together with the manifest's migrations.
 
 ## Release manifests
 
