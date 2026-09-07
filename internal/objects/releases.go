@@ -49,10 +49,13 @@ const releaseTables = `IF OBJECT_ID(N'dbo.saxbase_releases', N'U') IS NULL
  deployed_at datetime2 NOT NULL DEFAULT SYSUTCDATETIME(),
  object_count int NOT NULL,
  fingerprint char(64) NULL,
+ is_current bit NOT NULL CONSTRAINT DF_saxbase_releases_is_current DEFAULT 0,
  UNIQUE(schema_version,revision)
  );
  IF COL_LENGTH(N'dbo.saxbase_releases', N'fingerprint') IS NULL
- ALTER TABLE dbo.saxbase_releases ADD fingerprint char(64) NULL;`
+ ALTER TABLE dbo.saxbase_releases ADD fingerprint char(64) NULL;
+ IF COL_LENGTH(N'dbo.saxbase_releases', N'is_current') IS NULL
+ ALTER TABLE dbo.saxbase_releases ADD is_current bit NOT NULL CONSTRAINT DF_saxbase_releases_is_current DEFAULT 0;`
 
 func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, files []File) (int64, bool, error) {
 	if _, err := tx.ExecContext(ctx, releaseTables); err != nil {

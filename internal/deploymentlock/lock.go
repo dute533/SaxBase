@@ -71,6 +71,11 @@ func CheckPending(ctx context.Context, db Reader) error {
 }
 
 func Invalidate(ctx context.Context, db Reader) error {
-	_, err := db.ExecContext(ctx, `IF OBJECT_ID(N'dbo.saxbase_release_state', N'U') IS NOT NULL UPDATE dbo.saxbase_release_state SET version=NULL WHERE id=1;`)
+	_, err := db.ExecContext(ctx, `IF OBJECT_ID(N'dbo.saxbase_releases', N'U') IS NOT NULL
+ BEGIN
+   IF COL_LENGTH(N'dbo.saxbase_releases',N'is_current') IS NULL
+     ALTER TABLE dbo.saxbase_releases ADD is_current bit NOT NULL CONSTRAINT DF_saxbase_releases_is_current DEFAULT 0;
+   UPDATE dbo.saxbase_releases SET is_current=0;
+ END;`)
 	return err
 }

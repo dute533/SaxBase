@@ -260,12 +260,11 @@ SaxBase stores no SQL snapshots or Git references in the database:
 | Table | Contents |
 | --- | --- |
 | `dbo.saxbase_objects` | Current object paths, SQL checksums, and deployment times. |
-| `dbo.saxbase_releases` | Release version, schema version, revision, first deployment time, object count, and fingerprint of ordered paths and SQL contents. |
-| `dbo.saxbase_release_state` | Last recorded active release. |
+| `dbo.saxbase_releases` | Release version, schema version, revision, first deployment time, object count, fingerprint of ordered paths and SQL contents, and the active-release marker. |
 | `dbo.saxbase_rollbacks` | Durable rollback progress and errors, created when rollback is used. |
 
 Goose also owns `goose_db_version`. New databases do not create
-`dbo.saxbase_release_objects`. The fingerprint detects reuse of a release version
+`dbo.saxbase_release_objects` or `dbo.saxbase_release_state`. The fingerprint detects reuse of a release version
 with changed SQL, paths, or order without storing those contents. Definitions,
 checksums, release metadata, and the current marker commit in one object transaction.
 Concurrent writes use the same database application lock.
@@ -298,6 +297,9 @@ have no fingerprint and cannot be reused or restored through this workflow; crea
 a new release baseline. Read-only history/show remain available. The old snapshot
 table is neither read nor written and is not automatically dropped. Once its old
 rollback data is no longer needed, it can be removed as part of your database upgrade.
+Existing `dbo.saxbase_release_state` tables are also not dropped automatically; after
+verifying the active marker on `dbo.saxbase_releases`, remove that obsolete table as
+part of the same database upgrade.
 
 ## Release rollback
 

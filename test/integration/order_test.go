@@ -97,6 +97,9 @@ func TestSQLServerNoSnapshotTable(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_release_objects'").Scan(&count); err != nil || count != 0 {
 		t.Fatalf("snapshot table: %d %v", count, err)
 	}
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_release_state'").Scan(&count); err != nil || count != 0 {
+		t.Fatalf("release-state table: %d %v", count, err)
+	}
 }
 
 func TestSQLServerLegacyReleaseMetadata(t *testing.T) {

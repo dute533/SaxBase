@@ -184,8 +184,7 @@ func TestReleaseRechecksGooseVersionAndLock(t *testing.T) {
 }
 
 func expectCurrent(mock sqlmock.Sqlmock, version string) {
-	mock.ExpectExec("IF OBJECT_ID.*saxbase_release_state").WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec("UPDATE dbo.saxbase_release_state").WithArgs(version).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("IF COL_LENGTH").WithArgs(version).WillReturnResult(sqlmock.NewResult(0, 1))
 }
 
 func TestReleaseHistoryBeforeFirstDeployment(t *testing.T) {

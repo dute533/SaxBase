@@ -93,7 +93,7 @@ func TestSQLServerDeploy(t *testing.T) {
 	}
 	count("SELECT value FROM dbo.extra", 2)
 	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='3'", 0)
-	count("SELECT COUNT(*) FROM dbo.saxbase_release_state WHERE version IS NOT NULL", 0)
+	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE is_current=1", 0)
 	if err := os.Remove(filepath.Join(workDir, "database/objects/zz_broken.sql")); err != nil {
 		t.Fatal(err)
 	}
