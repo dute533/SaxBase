@@ -56,14 +56,13 @@ func TestManifestRoundTripAndMismatch(t *testing.T) {
 func TestInvalidManifests(t *testing.T) {
 	sum := strings.Repeat("a", 64)
 	for _, body := range []string{
-		`{"format":2,"version":"30","objects":[]}`,
-		`{"format":1,"version":30,"objects":[]}`,
-		`{"format":1,"version":"30","objects":null}`,
-		`{"format":1,"version":"30","objects":[],"typo":true}`,
-		`{"format":1,"version":"30","objects":[]} {}`,
-		`{"format":1,"version":"30","objects":[{"path":"../a.sql","sha256":"` + sum + `"}]}`,
-		`{"format":1,"version":"30","objects":[{"path":"a.sql","sha256":"bad"}]}`,
-		`{"format":1,"version":"30","objects":[{"path":"a.sql","sha256":"` + sum + `"},{"path":"a.sql","sha256":"` + sum + `"}]}`,
+		`{"version":30,"objects":[]}`,
+		`{"version":"30","objects":null}`,
+		`{"version":"30","objects":[],"typo":true}`,
+		`{"version":"30","objects":[]} {}`,
+		`{"version":"30","objects":[{"path":"../a.sql","sha256":"` + sum + `"}]}`,
+		`{"version":"30","objects":[{"path":"a.sql","sha256":"bad"}]}`,
+		`{"version":"30","objects":[{"path":"a.sql","sha256":"` + sum + `"},{"path":"a.sql","sha256":"` + sum + `"}]}`,
 	} {
 		file := filepath.Join(t.TempDir(), "release.json")
 		if err := os.WriteFile(file, []byte(body), 0600); err != nil {

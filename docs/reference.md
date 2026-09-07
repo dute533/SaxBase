@@ -188,7 +188,7 @@ Create a manifest from current object files without connecting to a database:
 ```
 
 Both commands default to `database/release.json`. `release create` writes
-`format: 1`, a string `version`, and an `objects` array containing `path` and
+a string `version` and an `objects` array containing `path` and
 `sha256` for every scanned SQL file. It refuses to overwrite an existing file.
 Creation initially lists objects in lexical path order. Reorder the array before
 deploying to place dependencies before their consumers; there is no separate
@@ -237,7 +237,7 @@ Alternatively, create a manifest at a new path for the next revision:
 ```
 
 Validation rejects missing, extra, or changed local object files, duplicate paths,
-invalid checksums, and unsupported manifest formats. Paths are relative to the
+invalid checksums, and unknown manifest fields. Paths are relative to the
 object directory, not the manifest file. `-objects-dir` still selects the object
 directory. An empty objects array represents an empty local object set.
 

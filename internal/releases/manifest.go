@@ -44,13 +44,12 @@ type Object struct {
 	SHA256 string `json:"sha256"`
 }
 type Manifest struct {
-	Format  int      `json:"format"`
 	Version string   `json:"version"`
 	Objects []Object `json:"objects"`
 }
 
 func New(version string, files []objects.File) (Manifest, error) {
-	m := Manifest{Format: 1, Version: version, Objects: make([]Object, 0, len(files))}
+	m := Manifest{Version: version, Objects: make([]Object, 0, len(files))}
 	for _, file := range files {
 		m.Objects = append(m.Objects, Object{Path: file.Path, SHA256: file.Checksum})
 	}
@@ -77,9 +76,6 @@ func Load(filename string) (Manifest, error) {
 }
 
 func (m Manifest) check() error {
-	if m.Format != 1 {
-		return fmt.Errorf("unsupported manifest format %d", m.Format)
-	}
 	if _, err := ParseVersion(m.Version); err != nil {
 		return err
 	}

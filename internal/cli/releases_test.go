@@ -76,7 +76,7 @@ func TestManifestApplyGuards(t *testing.T) {
 		if !goose.closed {
 			t.Fatal("Goose connection leaked")
 		}
-		if err := os.WriteFile(filename, []byte(`{"format":1,"version":"30","objects":[]}`), 0600); err != nil {
+		if err := os.WriteFile(filename, []byte(`{"version":"30","objects":[]}`), 0600); err != nil {
 			t.Fatal(err)
 		}
 		err = run(context.Background(), []string{"-objects-dir", dir, "-manifest", filename, "objects", "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &bytes.Buffer{}, nil, nil)
