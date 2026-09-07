@@ -3,13 +3,12 @@
 package integration
 
 import (
-	"encoding/json"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"saxbase/internal/objects"
 	"saxbase/internal/releases"
 )
 
@@ -31,7 +30,8 @@ func TestSQLServerManifestOrder(t *testing.T) {
 	}
 	manifest := func(version, filename string, reverse bool) {
 		t.Helper()
-		files, err := objects.Scan(root)
+		commitFixture(t, workDir)
+		files, err := releases.CommittedFiles(context.Background(), root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -43,9 +43,9 @@ func TestSQLServerManifestOrder(t *testing.T) {
 		var base, dependent releases.Object
 		for _, o := range m.Objects {
 			switch o.Path {
-			case "views/z_base.sql":
+			case "database/objects/views/z_base.sql":
 				base = o
-			case "views/a_dependent.sql":
+			case "database/objects/views/a_dependent.sql":
 				dependent = o
 			default:
 				rest = append(rest, o)
@@ -65,13 +65,6 @@ func TestSQLServerManifestOrder(t *testing.T) {
 		t.Fatal(plan)
 	}
 	run("-manifest", "ordered.json", "deploy")
-	var snapshot objects.Snapshot
-	if err := json.Unmarshal([]byte(run("release", "show", "2")), &snapshot); err != nil {
-		t.Fatal(err)
-	}
-	if snapshot.Objects[0].Path != "views/z_base.sql" || snapshot.Objects[1].Path != "views/a_dependent.sql" {
-		t.Fatal(snapshot.Objects)
-	}
 	manifest("2", "reordered.json", true)
 	for _, command := range [][]string{{"plan"}, {"deploy"}, {"objects", "apply"}} {
 		args := append([]string{"-manifest", "reordered.json"}, command...)
@@ -89,25 +82,43 @@ func TestSQLServerManifestOrder(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "SELECT replacement_value FROM dbo.ordered_dependent").Scan(&value); err != nil || value != 2 {
 		t.Fatalf("value=%d err=%v", value, err)
 	}
-	run("release", "rollback", "2")
+	run("-manifest", "ordered.json", "-source-manifest", "updated.json", "release", "rollback", "2")
 	if err := db.QueryRowContext(ctx, "SELECT original_value FROM dbo.ordered_dependent").Scan(&value); err != nil || value != 1 {
 		t.Fatalf("value=%d err=%v", value, err)
 	}
 }
 
-func TestSQLServerLegacySnapshotOrder(t *testing.T) {
+func TestSQLServerNoSnapshotTable(t *testing.T) {
 	ctx, db, _, _, run := integrationDatabase(t)
 	run("deploy")
-	// Emulate metadata written before snapshot order was introduced.
-	if _, err := db.ExecContext(ctx, "ALTER TABLE dbo.saxbase_release_objects DROP COLUMN deployment_order"); err != nil {
-		t.Fatal(err)
-	}
 	run("plan")
 	run("release", "show", "2")
-	var absent int
-	if err := db.QueryRowContext(ctx, "SELECT CASE WHEN COL_LENGTH('dbo.saxbase_release_objects','deployment_order') IS NULL THEN 1 ELSE 0 END").Scan(&absent); err != nil || absent != 1 {
-		t.Fatalf("read upgraded metadata: %v", err)
+	var count int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_release_objects'").Scan(&count); err != nil || count != 0 {
+		t.Fatalf("snapshot table: %d %v", count, err)
 	}
+}
+
+func TestSQLServerLegacyReleaseMetadata(t *testing.T) {
+	ctx, db, _, execute, run := integrationDatabase(t)
 	run("deploy")
-	run("plan")
+	if _, err := db.ExecContext(ctx, "ALTER TABLE dbo.saxbase_releases DROP COLUMN fingerprint"); err != nil {
+		t.Fatal(err)
+	}
+	run("release", "show", "2")
+	if out, err := execute("plan"); err == nil || !strings.Contains(out, "immutable") {
+		t.Fatalf("legacy plan: %v %s", err, out)
+	}
+	var absent int
+	if err := db.QueryRowContext(ctx, "SELECT CASE WHEN COL_LENGTH('dbo.saxbase_releases','fingerprint') IS NULL THEN 1 ELSE 0 END").Scan(&absent); err != nil || absent != 1 {
+		t.Fatalf("read modified legacy metadata: %d %v", absent, err)
+	}
+	run("-manifest", "database/new.json", "release", "create", "2.1")
+	run("-manifest", "database/new.json", "deploy")
+	if out, err := execute("-manifest", "database/release.json", "-source-manifest", "database/new.json", "release", "rollback", "2"); err == nil || !strings.Contains(out, "fingerprint") {
+		t.Fatalf("legacy rollback: %v %s", err, out)
+	}
+	if got := run("release", "current"); got != "2.1" {
+		t.Fatal(got)
+	}
 }

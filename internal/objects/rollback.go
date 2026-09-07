@@ -60,19 +60,33 @@ func (s *store) Rollbacks(ctx context.Context) ([]Rollback, error) {
 	return result, rows.Err()
 }
 
-func (s *store) Rollback(ctx context.Context, version string, goose migrations.Engine) (result Rollback, err error) {
+func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose migrations.Engine) (result Rollback, err error) {
+	version := target.Version
+	targetFiles, targetIDs, err := snapshotFiles(target)
+	if err != nil {
+		return result, err
+	}
+	sourceFiles, sourceIDs, err := snapshotFiles(source)
+	if err != nil {
+		return result, err
+	}
 	conn, unlock, err := deploymentlock.Acquire(ctx, s.db)
 	if err != nil {
 		return result, err
 	}
 	defer func() { err = errors.Join(err, unlock()) }()
-	target, err := s.Snapshot(ctx, version)
-	if err != nil {
-		return result, err
-	}
-	targetFiles, targetIDs, err := snapshotFiles(target)
-	if err != nil {
-		return result, err
+	for _, supplied := range []Snapshot{target, source} {
+		recorded, err := s.Snapshot(ctx, supplied.Version)
+		if err != nil {
+			return result, err
+		}
+		files, _, err := snapshotFiles(supplied)
+		if err != nil {
+			return result, err
+		}
+		if recorded.Fingerprint == "" || recorded.Fingerprint != Fingerprint(files) || recorded.ObjectCount != len(files) || recorded.SchemaVersion != supplied.SchemaVersion || recorded.Revision != supplied.Revision {
+			return result, fmt.Errorf("manifest for release %s does not match its recorded fingerprint", supplied.Version)
+		}
 	}
 	if _, err := conn.ExecContext(ctx, rollbackTable); err != nil {
 		return result, err
@@ -95,13 +109,8 @@ func (s *store) Rollback(ctx context.Context, version string, goose migrations.E
 			return result, errors.New("current state is unversioned; deploy a manifest before rolling back")
 		}
 	}
-	source, err := s.Snapshot(ctx, sourceVersion)
-	if err != nil {
-		return result, err
-	}
-	sourceFiles, sourceIDs, err := snapshotFiles(source)
-	if err != nil {
-		return result, err
+	if source.Version != sourceVersion {
+		return result, fmt.Errorf("source manifest must describe release %s", sourceVersion)
 	}
 	if target.SchemaVersion > source.SchemaVersion || (target.SchemaVersion == source.SchemaVersion && target.Revision > source.Revision) {
 		return result, errors.New("rollback target is newer than the current release")
@@ -208,7 +217,7 @@ func (s *store) Rollback(ctx context.Context, version string, goose migrations.E
 		if err := checkReleaseSchema(ctx, tx, target.SchemaVersion); err != nil {
 			return err
 		}
-		// Always execute snapshot SQL: local files and current checksum cache are not the source of truth.
+		// Always restore the SQL resolved from the target manifest commits.
 		for _, file := range targetFiles {
 			if _, err := tx.ExecContext(ctx, restoreDefinition(file.SQL)); err != nil {
 				return fmt.Errorf("restore %s: %w", file.Path, err)

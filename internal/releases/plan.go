@@ -105,7 +105,7 @@ func BuildPlan(ctx context.Context, manifest Manifest, files []objects.File, goo
 		if record.Version == manifest.Version {
 			snapshot, err := db.Snapshot(ctx, manifest.Version)
 			if err != nil {
-				return p, fmt.Errorf("inspect release snapshot: %w", err)
+				return p, fmt.Errorf("inspect release fingerprint: %w", err)
 			}
 			if !matchesSnapshot(snapshot, files) {
 				p.Blockers = append(p.Blockers, fmt.Sprintf("release %s is immutable: the object order, set, or definitions differ", manifest.Version))
@@ -133,14 +133,5 @@ func BuildPlan(ctx context.Context, manifest Manifest, files []objects.File, goo
 }
 
 func matchesSnapshot(snapshot objects.Snapshot, files []objects.File) bool {
-	if snapshot.ObjectCount != len(files) || len(snapshot.Objects) != len(files) {
-		return false
-	}
-	for i, file := range files {
-		object := snapshot.Objects[i]
-		if object.Path != file.Path || object.Checksum != file.Checksum || object.SQL != file.SQL {
-			return false
-		}
-	}
-	return true
+	return snapshot.ObjectCount == len(files) && snapshot.Fingerprint == objects.Fingerprint(files)
 }

@@ -42,9 +42,10 @@ func TestSQLServerDeploy(t *testing.T) {
 	}
 	deploy := func() string { return run("-manifest", "database/target.json", "deploy") }
 	write("database/migrations/00003_next.sql", "-- +goose Up\nCREATE TABLE dbo.next_table(id INT);\n-- +goose Down\nDROP TABLE dbo.next_table;")
-	// Invalid local state must fail before even initializing Goose metadata.
+	// Missing Git references must fail before even initializing Goose metadata.
 	write("database/objects/views/extra.sql", "CREATE OR ALTER VIEW dbo.extra AS SELECT 1 AS value;")
-	fail("manifest", "deploy")
+	write("database/release.json", `{"version":"2","objects":[{"path":"database/objects/views/extra.sql","commit":"0000000000000000000000000000000000000000"}]}`)
+	fail("git", "deploy")
 	count("SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped=0", 0)
 	manifest("2")
 	deploy()

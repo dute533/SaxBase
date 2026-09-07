@@ -20,7 +20,7 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 	if err != nil {
 		return err
 	}
-	files, err := objects.Scan(objectDir)
+	files, err := manifest.Resolve(ctx, ".")
 	if err != nil {
 		return fmt.Errorf("scan objects: %w", err)
 	}

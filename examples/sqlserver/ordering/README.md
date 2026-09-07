@@ -9,12 +9,14 @@ configured as described in the parent README:
 
 ```sh
 cp ordering/*.sql database/objects/views/
+git add database/objects
+git commit -m "Add ordered example objects"
 ../../saxbase -manifest database/ordered-release.json release create 2
 ```
 
-Edit `database/ordered-release.json`: move the `views/z_base.sql` entry first,
-then `views/a_dependent.sql`, followed by the remaining entries. Keep every
-generated checksum and each object entry exactly once. Array position is the
+Edit `database/ordered-release.json`: move the `examples/sqlserver/database/objects/views/z_base.sql` entry first,
+then `examples/sqlserver/database/objects/views/a_dependent.sql`, followed by the remaining entries. Keep every
+generated commit reference and each object entry exactly once. Array position is the
 deployment order; no additional order property is needed.
 
 ```sh
@@ -24,7 +26,7 @@ deployment order; no additional order property is needed.
 ```
 
 Query `SELECT original_value FROM dbo.ordered_dependent;` to obtain `1`.
-The snapshot array has the same order as the manifest.
+Rollback uses the order of the supplied historical manifest.
 
 The integration test also renames the base view's output column, updates its
 dependent view in a new revision, and rolls back. Restoring the dependency first

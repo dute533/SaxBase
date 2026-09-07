@@ -36,9 +36,9 @@ func (f *fakeObjects) Close() error { f.closed = true; return nil }
 func (f *fakeObjects) Inspect(context.Context) (objects.Inspection, error) {
 	return objects.Inspection{Current: "30"}, f.err
 }
-func (f *fakeObjects) Rollback(_ context.Context, version string, _ migrations.Engine) (objects.Rollback, error) {
+func (f *fakeObjects) Rollback(_ context.Context, target, source objects.Snapshot, _ migrations.Engine) (objects.Rollback, error) {
 	f.command = "rollback"
-	return objects.Rollback{SourceVersion: "30.2", TargetVersion: version, Status: "completed"}, f.err
+	return objects.Rollback{SourceVersion: "30.2", TargetVersion: target.Version, Status: "completed"}, f.err
 }
 func (f *fakeObjects) Rollbacks(context.Context) ([]objects.Rollback, error) {
 	f.command = "rollbacks"

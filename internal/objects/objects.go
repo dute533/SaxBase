@@ -15,7 +15,7 @@ import (
 	"unicode/utf16"
 )
 
-type File struct{ Path, SQL, Checksum string }
+type File struct{ Path, SQL, Checksum, Commit string }
 type Status struct{ Path, State, Checksum string }
 type Engine interface {
 	Deploy(context.Context, []File, int64, int64, migrations.Engine, func(context.Context) error) ([]Status, error)
@@ -23,7 +23,7 @@ type Engine interface {
 	ApplyRelease(context.Context, []File, int64, int64) ([]Status, error)
 	History(context.Context) ([]Release, error)
 	Snapshot(context.Context, string) (Snapshot, error)
-	Rollback(context.Context, string, migrations.Engine) (Rollback, error)
+	Rollback(context.Context, Snapshot, Snapshot, migrations.Engine) (Rollback, error)
 	Rollbacks(context.Context) ([]Rollback, error)
 	Current(context.Context) (string, error)
 	Inspect(context.Context) (Inspection, error)
@@ -43,6 +43,7 @@ type Release struct {
 	Revision      int64     `json:"revision"`
 	DeployedAt    time.Time `json:"deployed_at"`
 	ObjectCount   int       `json:"object_count"`
+	Fingerprint   string    `json:"fingerprint"`
 }
 
 type SnapshotObject struct {
@@ -51,9 +52,11 @@ type SnapshotObject struct {
 	SQL      string `json:"sql"`
 }
 
+// Snapshot is an in-memory release file set used by rollback. Database lookups
+// populate only Release metadata; SQL is resolved from Git by the caller.
 type Snapshot struct {
 	Release
-	Objects []SnapshotObject `json:"objects"`
+	Objects []SnapshotObject `json:"-"`
 }
 
 // Scan hashes exact file bytes and orders definitions by relative slash path.

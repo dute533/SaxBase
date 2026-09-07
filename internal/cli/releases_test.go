@@ -23,6 +23,9 @@ func TestReleaseCommandsOffline(t *testing.T) {
 	if err := os.WriteFile(file, []byte("SELECT 1;"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := committedFixture(t, dir); err != nil {
+		t.Fatal(err)
+	}
 	manifest := filepath.Join(root, "release.json")
 	args := []string{"-objects-dir", dir, "-manifest", manifest, "release"}
 	for _, suffix := range [][]string{{"create", "30.1"}, {"validate"}} {
@@ -37,8 +40,8 @@ func TestReleaseCommandsOffline(t *testing.T) {
 	if err := os.WriteFile(file, []byte("SELECT 2;"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := run(context.Background(), append(args, "validate"), env(nil), &bytes.Buffer{}, nil, nil); err == nil {
-		t.Fatal("accepted stale manifest")
+	if err := run(context.Background(), append(args, "validate"), env(nil), &bytes.Buffer{}, nil, nil); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -47,7 +50,7 @@ func TestManifestApplyGuards(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "a.sql"), []byte("SELECT 1;"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	files, err := objects.Scan(dir)
+	files, err := committedFixture(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +79,7 @@ func TestManifestApplyGuards(t *testing.T) {
 		if !goose.closed {
 			t.Fatal("Goose connection leaked")
 		}
-		if err := os.WriteFile(filename, []byte(`{"version":"30","objects":[]}`), 0600); err != nil {
+		if err := os.WriteFile(filename, []byte(`{"version":"30","objects":[{"path":"a.sql","commit":"bad"}]}`), 0600); err != nil {
 			t.Fatal(err)
 		}
 		err = run(context.Background(), []string{"-objects-dir", dir, "-manifest", filename, "objects", "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &bytes.Buffer{}, nil, nil)

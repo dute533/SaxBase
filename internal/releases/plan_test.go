@@ -45,7 +45,7 @@ func TestPlanMigrationBoundaries(t *testing.T) {
 }
 
 func TestPlanBlockers(t *testing.T) {
-	file := objects.File{Path: "view.sql", SQL: "SELECT 1;", Checksum: strings.Repeat("a", 64)}
+	file := objects.File{Commit: strings.Repeat("a", 40), Path: "view.sql", SQL: "SELECT 1;", Checksum: strings.Repeat("a", 64)}
 	manifest, _ := New("2.1", []objects.File{file})
 	base := migrations.Inspection{Version: 2, Migrations: []migrations.Status{{Version: 2, State: "applied"}}}
 	for _, tc := range []struct {
@@ -54,7 +54,7 @@ func TestPlanBlockers(t *testing.T) {
 		db         planObjects
 		files      []objects.File
 	}{
-		{name: "stale file", want: "checksum mismatch", schema: base, files: []objects.File{{Path: file.Path, Checksum: "bad"}}},
+		{name: "stale file", want: "commit mismatch", schema: base, files: []objects.File{{Path: file.Path, Checksum: "bad"}}},
 		{name: "downgrade", want: "below current", schema: migrations.Inspection{Version: 3, Migrations: base.Migrations}, files: []objects.File{file}},
 		{name: "unknown target", want: "no migration", schema: migrations.Inspection{}, files: []objects.File{file}},
 		{name: "out of order", want: "pending below", schema: migrations.Inspection{Version: 2, Migrations: []migrations.Status{{Version: 1, State: "pending"}, {Version: 2, State: "applied"}}}, files: []objects.File{file}},
@@ -85,7 +85,7 @@ func TestPlanUnchangedAndNumericRevision(t *testing.T) {
 		t.Fatalf("%+v %v", p, err)
 	}
 	db.state.History = []objects.Release{{Version: "2.10", SchemaVersion: 2, Revision: 10}}
-	db.snapshot = objects.Snapshot{Release: objects.Release{ObjectCount: 0}, Objects: []objects.SnapshotObject{}}
+	db.snapshot = objects.Snapshot{Release: objects.Release{ObjectCount: 0, Fingerprint: objects.Fingerprint(nil)}, Objects: []objects.SnapshotObject{}}
 	p, err = BuildPlan(context.Background(), m, nil, schema, db)
 	if err != nil || len(p.Blockers) != 0 || p.Migrations[0].Action != "applied" {
 		t.Fatalf("%+v %v", p, err)

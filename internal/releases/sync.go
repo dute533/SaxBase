@@ -38,7 +38,7 @@ func Sync(filename string, files []objects.File, version string) (SyncResult, er
 		return result, err
 	}
 	result.Version = m.Version
-	// Validate scanned paths and checksums independently of the stale manifest.
+	// Validate paths and commit references independently of the stale manifest.
 	if _, err := New(m.Version, files); err != nil {
 		return result, err
 	}
@@ -51,8 +51,8 @@ func Sync(filename string, files []objects.File, version string) (SyncResult, er
 		if !ok {
 			return result, fmt.Errorf("manifest object missing locally: %s; sync does not remove objects", object.Path)
 		}
-		if object.SHA256 != file.Checksum {
-			m.Objects[i].SHA256 = file.Checksum
+		if object.Commit != file.Commit {
+			m.Objects[i].Commit = file.Commit
 			result.Updated = append(result.Updated, file.Path)
 		}
 		delete(byPath, object.Path)
@@ -62,7 +62,7 @@ func Sync(filename string, files []objects.File, version string) (SyncResult, er
 	}
 	sort.Strings(result.Added)
 	for _, path := range result.Added {
-		m.Objects = append(m.Objects, Object{Path: path, SHA256: byPath[path].Checksum})
+		m.Objects = append(m.Objects, Object{Path: path, Commit: byPath[path].Commit})
 	}
 	if err := m.Validate(files); err != nil {
 		return result, err

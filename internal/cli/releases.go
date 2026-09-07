@@ -22,9 +22,21 @@ func runRelease(args []string, filename, dir string, out io.Writer) error {
 	if filename == "" {
 		filename = "database/release.json"
 	}
-	files, err := objects.Scan(dir)
+	if args[0] == "validate" {
+		m, err := releases.Load(filename)
+		if err != nil {
+			return err
+		}
+		files, err := m.Resolve(context.Background(), ".")
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(out, "Release %s resolves %d committed object(s)\n", m.Version, len(files))
+		return err
+	}
+	files, err := releases.CommittedFiles(context.Background(), dir)
 	if err != nil {
-		return fmt.Errorf("scan objects: %w", err)
+		return err
 	}
 
 	if args[0] == "sync" {
@@ -65,15 +77,7 @@ func runRelease(args []string, filename, dir string, out io.Writer) error {
 		_, err = fmt.Fprintf(out, "Created release %s: %s\n", m.Version, filename)
 		return err
 	}
-	m, err := releases.Load(filename)
-	if err != nil {
-		return err
-	}
-	if err := m.Validate(files); err != nil {
-		return err
-	}
-	_, err = fmt.Fprintf(out, "Release %s matches %d object(s)\n", m.Version, len(files))
-	return err
+	return errors.New("unsupported local release command")
 }
 
 func runReleaseDatabase(ctx context.Context, args []string, cfg migrations.Config, out io.Writer, open func(string) (objects.Engine, error)) (err error) {
@@ -134,7 +138,7 @@ func runReleaseDatabase(ctx context.Context, args []string, cfg migrations.Confi
 	return w.Flush()
 }
 
-func runRollback(ctx context.Context, args []string, cfg migrations.Config, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {
+func runRollback(ctx context.Context, args []string, cfg migrations.Config, manifestPath, sourceManifest string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {
 	if len(args) != 1 {
 		return errors.New("expected release rollback VERSION")
 	}
@@ -147,6 +151,23 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, out 
 	if cfg.DSN == "" {
 		return errors.New("set GOOSE_DBSTRING before rollback")
 	}
+	if manifestPath == "" {
+		manifestPath = "database/release.json"
+	}
+	if sourceManifest == "" {
+		return errors.New("rollback requires -source-manifest for the active release and -manifest for the target release")
+	}
+	target, err := loadRollbackManifest(ctx, manifestPath)
+	if err != nil {
+		return err
+	}
+	if target.Version != args[0] {
+		return errors.New("target manifest version does not match rollback version")
+	}
+	source, err := loadRollbackManifest(ctx, sourceManifest)
+	if err != nil {
+		return err
+	}
 	engine, err := openObjects(cfg.DSN)
 	if err != nil {
 		return err
@@ -157,7 +178,7 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, out 
 		return err
 	}
 	defer func() { err = errors.Join(err, goose.Close()) }()
-	result, err := engine.Rollback(ctx, args[0], goose)
+	result, err := engine.Rollback(ctx, target, source, goose)
 	if err != nil {
 		return err
 	}
@@ -183,4 +204,21 @@ func checkSchema(ctx context.Context, cfg migrations.Config, m releases.Manifest
 		return fmt.Errorf("release %s requires Goose version %d; database is at %d", m.Version, version.Schema, current)
 	}
 	return nil
+}
+
+func loadRollbackManifest(ctx context.Context, filename string) (objects.Snapshot, error) {
+	m, err := releases.Load(filename)
+	if err != nil {
+		return objects.Snapshot{}, err
+	}
+	files, err := m.Resolve(ctx, ".")
+	if err != nil {
+		return objects.Snapshot{}, err
+	}
+	v, _ := releases.ParseVersion(m.Version)
+	result := objects.Snapshot{Release: objects.Release{Version: m.Version, SchemaVersion: v.Schema, Revision: v.Revision, ObjectCount: len(files), Fingerprint: objects.Fingerprint(files)}}
+	for _, file := range files {
+		result.Objects = append(result.Objects, objects.SnapshotObject{Path: file.Path, SQL: file.SQL, Checksum: file.Checksum})
+	}
+	return result, nil
 }

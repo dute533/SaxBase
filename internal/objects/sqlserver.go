@@ -133,15 +133,13 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files []File
 		return nil, err
 	}
 	result := compare(files, deployed)
-	var releaseID int64
-	var newRelease bool
 	if release != nil {
 		for _, row := range result {
 			if row.State == "missing" {
 				return nil, fmt.Errorf("release omits tracked object %s; object removal must be handled explicitly", row.Path)
 			}
 		}
-		releaseID, newRelease, err = prepareRelease(ctx, tx, *release, files)
+		_, _, err = prepareRelease(ctx, tx, *release, files)
 		if err != nil {
 			return nil, err
 		}
@@ -159,11 +157,7 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files []File
 			return nil, fmt.Errorf("track %s: %w", file.Path, err)
 		}
 	}
-	if newRelease {
-		if err := recordSnapshot(ctx, tx, releaseID, files); err != nil {
-			return nil, err
-		}
-	}
+
 	if release != nil {
 		if err := setCurrent(ctx, tx, release.Version); err != nil {
 			return nil, err

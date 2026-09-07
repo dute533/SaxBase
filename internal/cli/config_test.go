@@ -100,6 +100,10 @@ func TestDotEnvLegacyAndLocalCommands(t *testing.T) {
 	if err := os.Mkdir("objects", 0700); err != nil {
 		t.Fatal(err)
 	}
+	writeConfigFixture(t, "objects/view.sql", "SELECT 1;")
+	if _, err := committedFixture(t, "."); err != nil {
+		t.Fatal(err)
+	}
 	if err := Run(context.Background(), []string{"-objects-dir", "objects", "-manifest", "release.json", "release", "create", "0"}, env(nil), &out, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +118,7 @@ func TestDotEnvLegacyAndLocalCommands(t *testing.T) {
 }
 
 func TestTargetReleaseCommandsKeepOutputUsable(t *testing.T) {
-	for _, command := range [][]string{{"release", "history"}, {"release", "show", "30"}, {"release", "current"}, {"release", "rollbacks"}, {"release", "rollback", "30"}} {
+	for _, command := range [][]string{{"release", "history"}, {"release", "show", "30"}, {"release", "current"}, {"release", "rollbacks"}} {
 		t.Run(strings.Join(command, " "), func(t *testing.T) {
 			t.Chdir(t.TempDir())
 			writeConfigFixture(t, "team.yaml", "default_target: local\ntargets: {local: {connection_env: LOCAL_DSN}}")

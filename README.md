@@ -48,18 +48,24 @@ database/
 Create and deploy a release, using your target Goose migration version:
 
 ```sh
+git add database/objects
+git commit -m "Update database objects"
 ./saxbase release create 30
 # Review release.json: put object dependencies before their consumers.
 ./saxbase plan                 # Preview changes without writing to the database
 ./saxbase deploy               # Migrate to version 30, then apply changed objects
 ```
 
-The manifest records object paths, checksums, and deployment order. Commit it
-alongside your SQL. Object files must each contain a single SQL batch without `GO`.
+The manifest records repository-relative object paths and full Git commit hashes.
+Its array order controls deployment. Commit SQL first, then generate and commit the
+manifest. Deployment reads committed SQL, so working-tree edits do not affect it. Object files must each contain a single SQL batch without `GO`.
+
+Git must be installed and referenced commits available locally. No SQL snapshots
+are stored in the database.
 
 ## Update a release
 
-After editing SQL, sync the manifest and deploy a new version:
+After committing edited SQL, sync the manifest and deploy a new version:
 
 ```sh
 ./saxbase release sync 30.1
@@ -77,10 +83,10 @@ missing files. Review dependencies when adding objects.
 | Command | Purpose |
 | --- | --- |
 | `--version` | Show the SaxBase CLI version |
-| `release validate` | Check the manifest against local SQL files |
+| `release validate` | Resolve the manifest’s committed SQL files |
 | `release current` / `release history` | Inspect deployed releases |
-| `release show VERSION` | Print a stored release and its SQL |
-| `release rollback VERSION` | Restore a recorded release |
+| `release show VERSION` | Print release metadata and fingerprint |
+| `release rollback VERSION` | Restore from target and source manifests |
 | `release rollbacks` | Inspect rollback progress and failures |
 | `status` / `version` | Inspect Goose migrations |
 | `up` / `down` | Apply all pending migrations / undo one migration |
@@ -99,8 +105,9 @@ or `-manifest`, placed before the command:
 - A release is not one transaction. If deployment fails, completed migrations
   remain; fix the cause, sync the manifest if SQL changed, and retry.
 - Rollback can drop newer objects and run Goose Down migrations that remove data.
-  Keep the migration files available. After a failed rollback, fix the cause and
-  retry the same command to resume.
+  Supply `-manifest` for the target and `-source-manifest` for the active release.
+  Keep both manifests, their Git commits, and migration files available. After a
+  failed rollback, fix the cause and retry the same command to resume.
 - Normal deployment never drops missing objects. Dependencies are ordered by you;
   checksums do not detect manual database edits.
 

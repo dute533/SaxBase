@@ -23,7 +23,7 @@ func TestReleaseSyncCLIIsLocal(t *testing.T) {
 	if err := os.WriteFile(file, []byte("SELECT 1;"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	files, _ := objects.Scan(objectDir)
+	files, _ := committedFixture(t, objectDir)
 	m, _ := releases.New("2", files)
 	path := filepath.Join(dir, "release.json")
 	if err := m.Write(path); err != nil {
@@ -33,6 +33,9 @@ func TestReleaseSyncCLIIsLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(objectDir, "new.sql"), []byte("SELECT 3;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := committedFixture(t, objectDir); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer

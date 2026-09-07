@@ -13,7 +13,7 @@ import (
 func TestSyncPreservesOrderAndAppendsSorted(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "release.json")
 	a, b := strings.Repeat("a", 64), strings.Repeat("b", 64)
-	old := []objects.File{{Path: "z.sql", Checksum: a}, {Path: "m.sql", Checksum: a}}
+	old := []objects.File{{Path: "z.sql", Commit: a}, {Path: "m.sql", Commit: a}}
 	m, err := New("30.9", old)
 	if err != nil {
 		t.Fatal(err)
@@ -24,7 +24,7 @@ func TestSyncPreservesOrderAndAppendsSorted(t *testing.T) {
 	if err := os.Chmod(path, 0600); err != nil {
 		t.Fatal(err)
 	}
-	files := []objects.File{{Path: "b.sql", Checksum: a}, {Path: "m.sql", Checksum: a}, {Path: "a.sql", Checksum: a}, {Path: "z.sql", Checksum: b}}
+	files := []objects.File{{Path: "b.sql", Commit: a}, {Path: "m.sql", Commit: a}, {Path: "a.sql", Commit: a}, {Path: "z.sql", Commit: b}}
 	result, err := Sync(path, files, "30.10")
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +70,7 @@ func TestSyncPreservesOrderAndAppendsSorted(t *testing.T) {
 }
 
 func TestSyncFailuresLeaveManifestUntouched(t *testing.T) {
-	file := objects.File{Path: "view.sql", Checksum: strings.Repeat("a", 64)}
+	file := objects.File{Path: "view.sql", Commit: strings.Repeat("a", 64)}
 	for _, kind := range []string{"missing", "invalid-version", "duplicate", "malformed", "symlink"} {
 		t.Run(kind, func(t *testing.T) {
 			dir := t.TempDir()

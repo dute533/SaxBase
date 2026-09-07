@@ -16,7 +16,7 @@ import (
 )
 
 var versionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)(\.([1-9][0-9]*))?$`)
-var checksumPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+var commitPattern = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
 
 type Version struct{ Schema, Revision int64 }
 
@@ -41,7 +41,7 @@ func ParseVersion(value string) (Version, error) {
 
 type Object struct {
 	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
+	Commit string `json:"commit"`
 }
 type Manifest struct {
 	Version string   `json:"version"`
@@ -51,7 +51,7 @@ type Manifest struct {
 func New(version string, files []objects.File) (Manifest, error) {
 	m := Manifest{Version: version, Objects: make([]Object, 0, len(files))}
 	for _, file := range files {
-		m.Objects = append(m.Objects, Object{Path: file.Path, SHA256: file.Checksum})
+		m.Objects = append(m.Objects, Object{Path: file.Path, Commit: file.Commit})
 	}
 	return m, m.Validate(files)
 }
@@ -92,35 +92,35 @@ func (m Manifest) check() error {
 			return fmt.Errorf("duplicate object path %q", p)
 		}
 		seen[p] = true
-		if !checksumPattern.MatchString(object.SHA256) {
-			return fmt.Errorf("invalid SHA-256 for %s", p)
+		if !commitPattern.MatchString(object.Commit) {
+			return fmt.Errorf("invalid full Git commit hash for %s", p)
 		}
 	}
 	return nil
 }
 
-// Validate requires the complete local file set to match the manifest exactly.
+// Validate requires the resolved file set to match the manifest references exactly.
 func (m Manifest) Validate(files []objects.File) error {
 	if err := m.check(); err != nil {
 		return err
 	}
 	expected := make(map[string]string, len(m.Objects))
 	for _, object := range m.Objects {
-		expected[object.Path] = object.SHA256
+		expected[object.Path] = object.Commit
 	}
 	for _, file := range files {
 		sum, ok := expected[file.Path]
 		if !ok {
 			return fmt.Errorf("object not in manifest: %s", file.Path)
 		}
-		if sum != file.Checksum {
-			return fmt.Errorf("checksum mismatch: %s", file.Path)
+		if sum != file.Commit {
+			return fmt.Errorf("commit mismatch: %s", file.Path)
 		}
 		delete(expected, file.Path)
 	}
 	for _, object := range m.Objects {
 		if _, ok := expected[object.Path]; ok {
-			return fmt.Errorf("manifest object missing locally: %s", object.Path)
+			return fmt.Errorf("manifest object missing from resolved files: %s", object.Path)
 		}
 	}
 	return nil

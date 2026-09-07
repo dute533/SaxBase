@@ -87,6 +87,8 @@ not add a structural migration.
 To version this change as release `2.1`, generate a new manifest and deploy with it:
 
 ```sh
+git add database/objects
+git commit -m "Update example objects"
 ../../saxbase -manifest database/release-2.1.json release create 2.1
 ../../saxbase -manifest database/release-2.1.json release validate
 ../../saxbase -manifest database/release-2.1.json plan
@@ -95,14 +97,10 @@ To version this change as release `2.1`, generate a new manifest and deploy with
 ../../saxbase release show 2.1
 ```
 
-The original `database/release.json` contains release `2` and intentionally stops
-matching after the view is edited. Applying with that old manifest now fails
-before executing object SQL. Manifest creation is offline and refuses to
-overwrite existing files. A successful manifest deployment stores a release
-record and the complete SQL snapshot in the database, atomically with the object
-changes. `release show 2` still returns the original view definition after `2.1`
-is deployed. Reusing `2.1` with different definitions fails; create a new revision
-instead. A failed deployment leaves no new release record.
+The original manifest continues to resolve release `2` from Git even after working
+SQL changes. Commit SQL before creating each revision manifest. Deployment stores
+release metadata and a fingerprint, with no SQL snapshots. `release show` displays
+that metadata. Reusing a version with changed SQL, paths, or order fails.
 
 ## Roll back a release
 
@@ -110,13 +108,13 @@ After deploying `2.1`, restore the recorded release `2`:
 
 ```sh
 ../../saxbase release current
-../../saxbase release rollback 2
+../../saxbase -manifest database/release.json -source-manifest database/release-2.1.json release rollback 2
 ../../saxbase release current
 ../../saxbase release rollbacks
 ```
 
 The view returns `1` again even though its local SQL file still contains `id + 1`.
-Goose remains at version `2`, and both release snapshots remain in history.
+Goose remains at version `2`, and both release records remain in history.
 The object restore, checksum changes, and rollback completion commit together.
 
 To try rollback across structural versions, first restore the local view file
@@ -125,9 +123,11 @@ to its initial checked-in contents, then add the supplied third migration:
 ```sh
 cp rollback/00003_add_customer_note.sql database/migrations/
 ../../saxbase up
+git add database
+git commit -m "Prepare release 3 SQL"
 ../../saxbase -manifest database/release-3.json release create 3
 ../../saxbase -manifest database/release-3.json objects apply
-../../saxbase release rollback 2
+../../saxbase -manifest database/release.json -source-manifest database/release-3.json release rollback 2
 ../../saxbase version
 ```
 
@@ -158,9 +158,9 @@ paths, verifies migrations and object results, exercises object updates and
 rollback on failure, checks that missing files do not drop objects, and cleans
 up the database. The checked-in example files are never modified by the test.
 It also validates the checked-in release manifest, rejects a wrong Goose version
-and stale checksums, and generates and applies an object revision manifest.
-It verifies complete release snapshots, immutable versions, concurrent retries,
-and that failed deployments leave no release or snapshot rows behind.
+and unavailable Git commits, and generates and applies an object revision manifest.
+It verifies Git-backed releases, immutable versions, concurrent retries,
+and that failed deployments leave no release rows behind.
 Rollback tests restore old views independently of local files, remove an object
 introduced later, retain permissions, and recover from failures in both Goose
 Down and object restoration.

@@ -18,7 +18,7 @@ func TestDeployCLI(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 1;"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	files, err := objects.Scan(dir)
+	files, err := committedFixture(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}

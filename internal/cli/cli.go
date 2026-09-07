@@ -47,8 +47,8 @@ Commands:
   release sync [VERSION]  Refresh a local manifest, preserving object order
   release validate        Check the manifest against current object files
   release history         List successfully recorded database releases
-  release show VERSION    Print a stored release and its SQL definitions as JSON
-  release rollback VERSION Restore a recorded release using Goose and stored SQL
+  release show VERSION    Print recorded release metadata as JSON
+  release rollback VERSION Restore a release using Goose and Git-backed manifests
   release rollbacks       Show rollback progress and failures as JSON
   release current         Print the last recorded active release
 
@@ -60,6 +60,7 @@ Environment:
 
 Configuration:
   -config PATH   Target config (default saxbase.yaml)
+  -source-manifest PATH  Active release manifest for rollback
   -target NAME   Database target (defaults to default_target in config)
   -yes           Confirm database writes to targets requiring confirmation
   .env           Loaded from the working directory; environment takes precedence
@@ -92,12 +93,13 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	flags := flag.NewFlagSet("saxbase", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var dir, objectDir, manifestPath, configPath, target string
+	var dir, objectDir, manifestPath, sourceManifest, configPath, target string
 	var yes, showVersion bool
 	flags.BoolVar(&showVersion, "version", false, "print SaxBase CLI version")
 	flags.BoolVar(&yes, "yes", false, "confirm writes to protected targets")
 	flags.StringVar(&dir, "dir", "", "migration directory")
 	flags.StringVar(&objectDir, "objects-dir", "", "full-state object directory")
+	flags.StringVar(&sourceManifest, "source-manifest", "", "active release manifest for rollback")
 	flags.StringVar(&manifestPath, "manifest", "", "release manifest")
 	flags.StringVar(&configPath, "config", "", "target configuration file")
 	flags.StringVar(&target, "target", "", "database target")
@@ -157,15 +159,15 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		})
 	}
 	pos := flags.Args()
+	if sourceManifest != "" && !(len(pos) > 1 && pos[0] == "release" && pos[1] == "rollback") {
+		return errors.New("-source-manifest only applies to release rollback")
+	}
 	if len(pos) > 0 && pos[0] == "release" {
 		if len(pos) > 1 && pos[1] == "rollback" {
-			if manifestPath != "" {
-				return errors.New("rollback uses database snapshots, not -manifest")
-			}
 			if err := resolveTarget(false, "release rollback"); err != nil {
 				return err
 			}
-			return runRollback(ctx, pos[2:], cfg, out, open, openObjects)
+			return runRollback(ctx, pos[2:], cfg, manifestPath, sourceManifest, out, open, openObjects)
 		}
 		if len(pos) > 1 && (pos[1] == "history" || pos[1] == "show" || pos[1] == "rollbacks" || pos[1] == "current") {
 			if manifestPath != "" {
@@ -222,9 +224,13 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	if command == "objects apply" || command == "objects status" {
 		var releaseVersion *releases.Version
-		files, scanErr := objects.Scan(objectDir)
-		if scanErr != nil {
-			return fmt.Errorf("scan objects: %w", scanErr)
+		var files []objects.File
+		if manifestPath == "" {
+			var scanErr error
+			files, scanErr = releases.WorkingFiles(ctx, objectDir)
+			if scanErr != nil {
+				return fmt.Errorf("scan objects: %w", scanErr)
+			}
 		}
 		if manifestPath != "" {
 			manifest, loadErr := releases.Load(manifestPath)
@@ -232,7 +238,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 				return loadErr
 			}
 			var validateErr error
-			files, validateErr = manifest.OrderedFiles(files)
+			files, validateErr = manifest.Resolve(ctx, ".")
 			if validateErr != nil {
 				return validateErr
 			}

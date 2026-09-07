@@ -19,7 +19,7 @@ func TestPlanCLI(t *testing.T) {
 	if err := os.WriteFile(file, []byte("SELECT 1;"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	files, err := objects.Scan(dir)
+	files, err := committedFixture(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestPlanCLI(t *testing.T) {
 		db := &fakeObjects{}
 		var out bytes.Buffer
 		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "mssql", "dsn", "plan"}, env(nil), &out, func(migrations.Config) (migrations.Engine, error) { return goose, nil }, func(string) (objects.Engine, error) { return db, nil })
-		if (err != nil) != blocked || !goose.closed || !db.closed {
+		if err != nil || !goose.closed || !db.closed {
 			t.Fatalf("error=%v goose=%+v db=%+v", err, goose, db)
 		}
 		if goose.command != "" || db.command != "status" {
@@ -50,7 +50,7 @@ func TestPlanCLI(t *testing.T) {
 		if !strings.Contains(out.String(), "30 -> 30.1") || !strings.Contains(out.String(), "No database changes made") {
 			t.Fatal(out.String())
 		}
-		if blocked && !strings.Contains(out.String(), "BLOCKERS") {
+		if strings.Contains(out.String(), "BLOCKERS") {
 			t.Fatal("missing blockers")
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"unicode/utf8"
@@ -47,39 +48,27 @@ const releaseTables = `IF OBJECT_ID(N'dbo.saxbase_releases', N'U') IS NULL
  revision bigint NOT NULL,
  deployed_at datetime2 NOT NULL DEFAULT SYSUTCDATETIME(),
  object_count int NOT NULL,
+ fingerprint char(64) NULL,
  UNIQUE(schema_version,revision)
  );
- IF OBJECT_ID(N'dbo.saxbase_release_objects', N'U') IS NULL
- CREATE TABLE dbo.saxbase_release_objects (
- release_id bigint NOT NULL REFERENCES dbo.saxbase_releases(id),
- path nvarchar(450) COLLATE Latin1_General_100_BIN2 NOT NULL,
- checksum char(64) NOT NULL,
- definition varbinary(max) NOT NULL,
- deployment_order int NULL,
- PRIMARY KEY NONCLUSTERED(release_id,path)
- );
- IF COL_LENGTH(N'dbo.saxbase_release_objects', N'deployment_order') IS NULL
- ALTER TABLE dbo.saxbase_release_objects ADD deployment_order int NULL;`
+ IF COL_LENGTH(N'dbo.saxbase_releases', N'fingerprint') IS NULL
+ ALTER TABLE dbo.saxbase_releases ADD fingerprint char(64) NULL;`
 
 func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, files []File) (int64, bool, error) {
 	if _, err := tx.ExecContext(ctx, releaseTables); err != nil {
 		return 0, false, fmt.Errorf("initialize release history: %w", err)
 	}
 	var id int64
-	err := tx.QueryRowContext(ctx, "SELECT id FROM dbo.saxbase_releases WHERE version=@version", sql.Named("version", release.Version)).Scan(&id)
+	var fingerprint sql.NullString
+	err := tx.QueryRowContext(ctx, "SELECT id, fingerprint FROM dbo.saxbase_releases WHERE version=@version", sql.Named("version", release.Version)).Scan(&id, &fingerprint)
 	exists := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return 0, false, err
 	}
-	if exists {
-		snapshot, err := readSnapshotObjects(ctx, tx, id)
-		if err != nil {
-			return 0, false, err
-		}
-		if err := sameSnapshot(snapshot, files); err != nil {
-			return 0, false, fmt.Errorf("release %s is immutable: %w", release.Version, err)
-		}
+	if exists && (!fingerprint.Valid || fingerprint.String != Fingerprint(files)) {
+		return 0, false, fmt.Errorf("release %s is immutable or predates Git manifests; use a new release version", release.Version)
 	}
+
 	var schema, revision int64
 	err = tx.QueryRowContext(ctx, "SELECT TOP (1) schema_version, revision FROM dbo.saxbase_releases ORDER BY schema_version DESC, revision DESC").Scan(&schema, &revision)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -91,39 +80,22 @@ func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, files []Fi
 	if exists {
 		return id, false, nil
 	}
-	err = tx.QueryRowContext(ctx, `INSERT INTO dbo.saxbase_releases(version,schema_version,revision,object_count)
- OUTPUT INSERTED.id VALUES(@version,@schema,@revision,@count);`, sql.Named("version", release.Version), sql.Named("schema", release.SchemaVersion), sql.Named("revision", release.Revision), sql.Named("count", len(files))).Scan(&id)
+	err = tx.QueryRowContext(ctx, `INSERT INTO dbo.saxbase_releases(version,schema_version,revision,object_count,fingerprint)
+ OUTPUT INSERTED.id VALUES(@version,@schema,@revision,@count,@fingerprint);`, sql.Named("version", release.Version), sql.Named("schema", release.SchemaVersion), sql.Named("revision", release.Revision), sql.Named("count", len(files)), sql.Named("fingerprint", Fingerprint(files))).Scan(&id)
 	if err != nil {
 		return 0, false, fmt.Errorf("record release: %w", err)
 	}
 	return id, true, nil
 }
 
-func sameSnapshot(snapshot []SnapshotObject, files []File) error {
-	if len(snapshot) != len(files) {
-		return errors.New("object set differs")
+// Fingerprint binds the ordered paths and exact SQL contents without retaining SQL.
+func Fingerprint(files []File) string {
+	entries := make([][2]string, 0, len(files))
+	for _, file := range files {
+		entries = append(entries, [2]string{file.Path, fmt.Sprintf("%x", sha256.Sum256([]byte(file.SQL)))})
 	}
-	for i, file := range files {
-		object := snapshot[i]
-		if object.Path != file.Path {
-			return fmt.Errorf("object order differs at position %d", i+1)
-		}
-		if object.Checksum != file.Checksum || object.SQL != file.SQL {
-			return fmt.Errorf("definition differs for %s", file.Path)
-		}
-	}
-	return nil
-}
-
-func recordSnapshot(ctx context.Context, tx *sql.Tx, id int64, files []File) error {
-	for i, file := range files {
-		_, err := tx.ExecContext(ctx, `INSERT INTO dbo.saxbase_release_objects(release_id,path,checksum,definition,deployment_order)
- VALUES(@id,@path,@checksum,@definition,@order);`, sql.Named("id", id), sql.Named("path", file.Path), sql.Named("checksum", file.Checksum), sql.Named("definition", []byte(file.SQL)), sql.Named("order", i))
-		if err != nil {
-			return fmt.Errorf("snapshot %s: %w", file.Path, err)
-		}
-	}
-	return nil
+	data, _ := json.Marshal(entries)
+	return fmt.Sprintf("%x", sha256.Sum256(data))
 }
 
 func historyExists(ctx context.Context, db reader) (bool, error) {
@@ -153,27 +125,6 @@ func (s *store) History(ctx context.Context) ([]Release, error) {
 	return result, rows.Err()
 }
 
-func readSnapshotObjects(ctx context.Context, db reader, id int64) ([]SnapshotObject, error) {
-	rows, err := db.QueryContext(ctx, `IF COL_LENGTH(N'dbo.saxbase_release_objects', N'deployment_order') IS NULL
- SELECT path, checksum, definition FROM dbo.saxbase_release_objects WHERE release_id=@id ORDER BY path;
- ELSE EXEC sys.sp_executesql N'SELECT path, checksum, definition FROM dbo.saxbase_release_objects WHERE release_id=@id ORDER BY deployment_order, path', N'@id bigint', @id=@id;`, sql.Named("id", id))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	result := make([]SnapshotObject, 0)
-	for rows.Next() {
-		var object SnapshotObject
-		var definition []byte
-		if err := rows.Scan(&object.Path, &object.Checksum, &definition); err != nil {
-			return nil, err
-		}
-		object.SQL = string(definition)
-		result = append(result, object)
-	}
-	return result, rows.Err()
-}
-
 func (s *store) Snapshot(ctx context.Context, version string) (Snapshot, error) {
 	var snapshot Snapshot
 	exists, err := historyExists(ctx, s.db)
@@ -184,13 +135,16 @@ func (s *store) Snapshot(ctx context.Context, version string) (Snapshot, error) 
 		return snapshot, fmt.Errorf("release %s not found", version)
 	}
 	var id int64
-	err = s.db.QueryRowContext(ctx, "SELECT id, version, schema_version, revision, deployed_at, object_count FROM dbo.saxbase_releases WHERE version=@version", sql.Named("version", version)).Scan(&id, &snapshot.Version, &snapshot.SchemaVersion, &snapshot.Revision, &snapshot.DeployedAt, &snapshot.ObjectCount)
+	var fingerprint sql.NullString
+	err = s.db.QueryRowContext(ctx, `IF COL_LENGTH(N'dbo.saxbase_releases', N'fingerprint') IS NULL
+ SELECT id, version, schema_version, revision, deployed_at, object_count, CAST(NULL AS char(64)) AS fingerprint FROM dbo.saxbase_releases WHERE version=@version;
+ ELSE EXEC sys.sp_executesql N'SELECT id, version, schema_version, revision, deployed_at, object_count, fingerprint FROM dbo.saxbase_releases WHERE version=@version', N'@version varchar(39)', @version=@version;`, sql.Named("version", version)).Scan(&id, &snapshot.Version, &snapshot.SchemaVersion, &snapshot.Revision, &snapshot.DeployedAt, &snapshot.ObjectCount, &fingerprint)
 	if errors.Is(err, sql.ErrNoRows) {
 		return snapshot, fmt.Errorf("release %s not found", version)
 	}
 	if err != nil {
 		return snapshot, err
 	}
-	snapshot.Objects, err = readSnapshotObjects(ctx, s.db, id)
+	snapshot.Fingerprint = fingerprint.String
 	return snapshot, err
 }

@@ -170,107 +170,105 @@ Missing files are reported but never automatically dropped or removed from
 tracking. Checksums compare files with the last deployment, not live database
 definitions, so manual database edits are not detected. Automatic removal during
 normal apply and dependency resolution are not implemented. Explicit release
-rollback can restore saved definitions and remove objects introduced later.
+rollback can restore committed definitions and remove objects introduced later.
 
 ## Release manifests
 
-A JSON manifest names a release and records the exact set of object paths and
-SHA-256 checksums. The version is a string: `30` requires Goose version 30;
-`30.1` and `30.2` represent object revisions at that same structural version.
-Components are parsed as nonnegative 64-bit integers, never floating-point
-numbers. Use `30` for the initial revision, not `30.0`.
+A manifest contains a release `version` and an ordered `objects` array. Each
+object has exactly a repository-relative `path` and a full Git `commit` hash:
 
-Create a manifest from current object files without connecting to a database:
-
-```sh
-./saxbase release create 30
-./saxbase release validate
+```json
+{
+  "version": "30.1",
+  "objects": [
+    {
+      "path": "database/objects/views/customer.sql",
+      "commit": "0123456789abcdef0123456789abcdef01234567"
+    }
+  ]
+}
 ```
 
-Both commands default to `database/release.json`. `release create` writes
-a string `version` and an `objects` array containing `path` and
-`sha256` for every scanned SQL file. It refuses to overwrite an existing file.
-Creation initially lists objects in lexical path order. Reorder the array before
-deploying to place dependencies before their consumers; there is no separate
-priority field. `plan`, `deploy`, and manifest-backed `objects apply` and
-`objects status` follow this order. Each path must still appear exactly once
-with its matching checksum. Unchanged objects are skipped without changing the
-relative execution order of changed objects.
+The example hash is illustrative; use a real commit from your repository.
+There is no `format`, `sha256`, or separate order field. Move entire object entries
+to put dependencies before their consumers. SaxBase executes the array top to
+bottom. Different objects may reference different commits in the same repository.
 
-Order is part of a release's immutable identity. To reorder an already recorded
-release, create a new revision even if its SQL and checksums are unchanged.
-Snapshots store the full array order, including unchanged objects; `release show`
-returns that order and rollback restores it. Older snapshots retain the lexical
-path order used when they were deployed. Read-only commands support the old
-metadata layout; a versioned deployment adds the order column when needed.
-See the [dependency ordering example](../examples/sqlserver/ordering/README.md).
+`30` requires Goose version 30; `30.1` and `30.2` are object revisions at that
+structural version. Components are nonnegative 64-bit integers, never floating
+point. Use `30` for the initial revision, not `30.0`.
 
-See the [complete example manifest](../examples/sqlserver/database/release.json).
-The schema component is supplied by you; creation does not inspect the database
-or certify that the corresponding migration exists.
-
-After editing objects, refresh an existing manifest while preserving its object order:
+Commit SQL before generating a manifest:
 
 ```sh
+git add database/objects
+git commit -m "Update database objects"
+./saxbase release create 30
+# Edit database/release.json to arrange dependencies.
+./saxbase release validate
+git add database/release.json
+git commit -m "Record release 30"
+./saxbase plan
+./saxbase deploy
+```
+
+Creation scans `-objects-dir` (default `database/objects`) and pins each SQL file
+to its latest touching commit on HEAD. Untracked or modified SQL must be committed
+first, including staged edits. Creation refuses to overwrite an existing manifest.
+It initially lists files in lexical path order. Keep manifest files in Git or
+release artifacts so previous releases can be restored later.
+
+`release sync [VERSION]` refreshes commit references, keeps existing array order,
+and appends new paths in lexical order. It refuses to remove missing entries.
+Omitting VERSION preserves the version. Sync replaces the manifest atomically;
+invalid input leaves it untouched. Use a new revision when changing an already
+deployed release's file contents, paths, or order.
+
+```sh
+git add database/objects
+git commit -m "Revise database objects"
 ./saxbase release sync 30.1
 ./saxbase release validate
+./saxbase deploy
 ```
 
-`release sync [VERSION]` defaults to `database/release.json`; use `-manifest`
-to select another existing manifest. It updates changed checksums and appends
-new files in lexical path order. Review the order of new objects before deployment
-so dependencies run first. Missing local objects cause an error; sync never removes
-manifest entries. Validation completes before the manifest is replaced atomically,
-and an unchanged manifest is left untouched.
+All manifest commands require Git on PATH. Deployment, plan, validation, and
+rollback resolve paths from commits in the repository containing the working
+directory. Paths are relative to the repository root, regardless of the manifest's
+location or `-objects-dir`. Git commits must already be available locally; SaxBase
+does not fetch, check out files, or apply Git filters. Full 40- or 64-character
+lowercase commit IDs are accepted; branches, tags, and abbreviated IDs are rejected.
+A reference must identify an actual commit, and its path a regular, nonempty UTF-8
+SQL file. Symlinks, duplicate paths, invalid versions, and unknown fields fail.
 
-Omitting `VERSION` keeps the current version. Sync only edits the local manifest
-and does not connect to the database. If the release has already been deployed,
-supply a new version when changing its contents because recorded releases are
-immutable. Sync does not check migration availability or database release history.
+Every referenced file is loaded before opening a database connection. Working-tree
+edits, deletions, or extra files do not change a manifest deployment. `release
+validate` checks that references can be resolved; it does not compare working SQL
+or validate SQL syntax on a server. Each object is one batch without `GO`.
 
-Alternatively, create a manifest at a new path for the next revision:
-
-```sh
-./saxbase -manifest database/release-30.1.json release create 30.1
-./saxbase -manifest database/release-30.1.json release validate
-./saxbase -manifest database/release-30.1.json objects apply
-```
-
-Validation rejects missing, extra, or changed local object files, duplicate paths,
-invalid checksums, and unknown manifest fields. Paths are relative to the
-object directory, not the manifest file. `-objects-dir` still selects the object
-directory. An empty objects array represents an empty local object set.
-
-When `-manifest` is supplied to `objects apply`, SaxBase validates the files and
-requires the current Goose database version to equal the version's integer
-component before applying objects. It does not run structural migrations for
-you. The initial check uses Goose and requires the migrations directory; the
-version is checked again using Goose's store API inside the object transaction.
-Supplying
-`-manifest` to `objects status` validates the local files before displaying object
-status; it does not check the database's Goose version.
-
-The manifest is opt-in for object commands; without `-manifest`, existing object
-deployment behavior is retained and no release is recorded. Keep manifests and
-their matching SQL in Git. The manifest itself contains checksums rather than SQL;
-successful manifest deployments also store full SQL snapshots in the database.
+`objects apply` and `objects status` use working SQL unless `-manifest` is supplied.
+Inside Git, their tracked paths are repository-relative too. Outside Git, these
+unversioned commands retain object-directory-relative paths. Manifest-backed apply
+requires the current Goose version to match the manifest; `deploy` also applies
+pending migrations through the requested schema version. Structural migrations
+still come from `-dir`, not the manifest's object commits.
 
 ### Database release history
 
-Deploying with `-manifest` automatically maintains these SaxBase-owned tables:
+SaxBase stores no SQL snapshots or Git references in the database:
 
 | Table | Contents |
 | --- | --- |
-| `dbo.saxbase_releases` | Release version, numeric Goose version and revision, first deployment time in UTC, and object count. |
-| `dbo.saxbase_release_objects` | Every object path, SHA-256 checksum, and exact UTF-8 SQL bytes for each release, including unchanged objects. |
-| `dbo.saxbase_release_state` | The last recorded active release, updated by versioned apply and successful rollback. |
+| `dbo.saxbase_objects` | Current object paths, SQL checksums, and deployment times. |
+| `dbo.saxbase_releases` | Release version, schema version, revision, first deployment time, object count, and fingerprint of ordered paths and SQL contents. |
+| `dbo.saxbase_release_state` | Last recorded active release. |
+| `dbo.saxbase_rollbacks` | Durable rollback progress and errors, created when rollback is used. |
 
-The object definitions, deployed checksums, release record, and complete snapshot
-commit in one transaction. SQL or metadata errors roll back the transaction,
-leaving no successful release record. Existing databases with only
-`dbo.saxbase_objects` need no manual metadata migration.
-
-Inspect releases using the configured `GOOSE_DBSTRING`:
+Goose also owns `goose_db_version`. New databases do not create
+`dbo.saxbase_release_objects`. The fingerprint detects reuse of a release version
+with changed SQL, paths, or order without storing those contents. Definitions,
+checksums, release metadata, and the current marker commit in one object transaction.
+Concurrent writes use the same database application lock.
 
 ```sh
 ./saxbase release history
@@ -278,92 +276,75 @@ Inspect releases using the configured `GOOSE_DBSTRING`:
 ./saxbase release current
 ```
 
-`history` lists versions in descending numeric schema/revision order (`30.10`
-comes after `30.2` in version order). `show` prints JSON containing the release
-metadata and each object's path, checksum, and SQL definition. These commands
-are read-only, need no local SQL files, and never initialize database tables.
-Before the first deployment, history is empty and showing a release returns an error.
+`history` lists releases in descending numeric schema/revision order. `show` prints
+release metadata and its fingerprint, with no SQL. These commands need no Git or
+local SQL and never create metadata tables. Reapplying the latest identical release
+preserves its first deployment time and creates no duplicate history.
 
-Release versions are immutable: reusing a version with different SQL or a
-different object set fails. Reapplying the latest version with the same snapshot
-is allowed and creates no duplicate history or snapshot rows; its timestamp
-remains the first successful deployment time. Concurrent applies use the same
-database application lock. To restore an older version, use explicit
-`release rollback VERSION` rather than `objects apply`.
+Manifest deployment rejects omission of previously tracked paths. Unversioned
+apply reports missing objects without dropping them. Manual database edits are
+not detected by the checksum cache. Changed unversioned SQL or standalone Goose
+changes clear the active release marker.
 
-A release manifest must include every previously tracked object as well as the
-complete local file set. Omitted tracked objects block release deployment;
-unversioned `objects apply` still reports missing files without dropping them.
-Objects that SaxBase has never tracked are outside this check.
+### Existing databases and manifests
 
-The Goose version is rechecked within a serializable release transaction, while
-Goose still owns all structural migration tracking. Coordinate structural
-migrations with object deployment, especially nontransactional SQL or external
-tools. Release history is a record of successful versioned deployments, not a
-live drift detector: unversioned applies, Goose `down`, or manual SQL can change
-the current database without changing historical release snapshots. It is not
-an audit log of every retry. SaxBase marks the active release as unversioned when
-an unversioned object apply changes SQL or a standalone Goose command changes
-the structural version. Manual SQL and external Goose commands cannot update
-this marker automatically.
+Old checksum manifests must be regenerated after committing their SQL, then reordered
+as needed. The new repository-relative paths also change object identity for databases
+previously tracking object-directory-relative paths. Map those tracked paths to their
+repository-relative equivalents before deploying; SaxBase refuses omitted old paths.
+
+The next versioned apply adds the fingerprint column if needed. Old release records
+have no fingerprint and cannot be reused or restored through this workflow; create
+a new release baseline. Read-only history/show remain available. The old snapshot
+table is neither read nor written and is not automatically dropped. Once its old
+rollback data is no longer needed, it can be removed as part of your database upgrade.
 
 ## Release rollback
 
+Supply the target manifest and the manifest for the active source release:
+
 ```sh
+./saxbase -manifest releases/30.1.json -source-manifest releases/30.2.json release rollback 30.1
 ./saxbase release current
-./saxbase release rollback 30.1
 ./saxbase release rollbacks
 ```
 
-Rollback reads the target SQL snapshot from the database. It does not read local
-object files or require a manifest. The migrations directory is still required;
-for a structural downgrade it must contain every applied migration above the
-target version with its Goose Down SQL. `-dir` selects an alternate directory.
-The target must be a previously recorded release no newer than the active release.
+The target manifest defaults to `database/release.json`; `-source-manifest` is
+required. Its source version must match the active release (or the original source
+of an interrupted rollback). Both manifests resolve SQL from Git before database
+access. Their ordered files must match the fingerprints recorded at deployment.
+The target must already be recorded and no newer than the active release.
 
-Before modifying objects, SaxBase validates snapshot checksums and completeness,
-the active release's tracked object set and Goose version, and the required
-migration files. A changed, unversioned object state must be deployed with a
-manifest before rollback. Objects must use schema-qualified
-`CREATE [OR ALTER] VIEW`, `PROCEDURE`/`PROC`, or `FUNCTION` definitions. Quoted
-identifiers and leading SQL comments are supported; unsupported headers are
-rejected before object changes.
-For an older snapshot using plain `CREATE`, rollback executes it with
-`CREATE OR ALTER`; the stored SQL bytes and checksum remain unchanged.
+The source manifest identifies objects to remove and their reverse deployment order.
+Target SQL executes top to bottom in the target manifest's order. No historical SQL
+is obtained from the database. Keep both manifests and all referenced commits
+available for retries, even on another machine or CI runner.
 
-For an object-only rollback, SaxBase restores all target definitions, drops
-tracked objects absent from the target, replaces the deployed checksum set,
-updates the active release, and records completion in one transaction. Existing
-target objects are altered rather than dropped, preserving their permissions.
-Untracked database objects are never dropped. Historical releases and snapshots
-remain unchanged.
+Before writes, SaxBase validates object identities, source tracking, Goose version,
+and required Down migrations. Objects must have schema-qualified
+`CREATE [OR ALTER] VIEW`, `PROCEDURE`/`PROC`, or `FUNCTION` headers. Plain CREATE is
+executed as CREATE OR ALTER on restore; the original committed bytes determine the
+checksum. Retained objects keep their permissions. Untracked objects are never dropped.
 
-For rollback across structural versions, Goose owns its migration transactions,
-so the entire operation is **not atomic**. The phases are:
+Object-only rollback restores target SQL, removes extra tracked objects, replaces
+checksums, updates current, and records completion in one transaction. Structural
+rollback has separate phases because Goose commits its own migrations:
 
-1. Drop tracked objects absent from the target and commit that phase.
-2. Run Goose Down migrations to the target structural version.
-3. Restore the target SQL definitions, checksums, and active release in one transaction.
+1. Drop tracked objects absent from the target and commit progress.
+2. Run Goose Down migrations using the supplied migrations directory.
+3. Restore target objects, checksums, and current in one transaction.
 
-Goose Down SQL can remove data. Retained modules are not automatically dropped
-before structural rollback. Schema-bound modules or other dependencies may need
-explicit preparation; SaxBase does not resolve dependency graphs. Target SQL is
-restored in the target snapshot’s stored deployment order, and removed objects
-are dropped in reverse source snapshot order. All DDL is executed as supplied in the saved snapshots and
-migration files.
+Required Down SQL must be available through `-dir`. Structural rollback can remove
+data; schema-bound dependencies may require explicit migration preparation. SaxBase
+does not resolve dependency graphs.
 
-`dbo.saxbase_rollbacks` stores each operation's source, target, phase, status,
-timestamps, and latest error. `release rollbacks` prints those records as JSON.
-Phases are `started`, `objects_removed`, `schema_rolled_back`, and `restored`.
-After failure, repair the migration or database issue and rerun the **same**
-`release rollback VERSION` command. It resumes the existing operation using the
-actual Goose version; it does not replay already completed Down migrations.
-
-An incomplete operation blocks other SaxBase writes and `release current` until
-the rollback completes. `version`, `status`, release history, and rollback history
-remain available for inspection. A session-scoped database lock prevents another
-SaxBase deployment from interleaving between phases. The test suite exercises
-both partial structural failure and atomic object-restore failure with retries.
+`dbo.saxbase_rollbacks` retains source/target versions, phase, status, timestamps,
+and latest error, so retries survive process or machine failures. Phases are
+`started`, `objects_removed`, and `schema_rolled_back`, ending in `restored`.
+After failure, repair the cause and rerun the same command with the same manifests.
+Completed Down migrations are not replayed. An incomplete rollback blocks other
+SaxBase writes and `release current`; status and history remain available. A
+session-level database lock prevents concurrent SaxBase changes between phases.
 
 ## Release plan
 
@@ -383,9 +364,9 @@ Objects are `new`, `changed`, `unchanged`, or `missing` based on stored checksum
 
 Planning never executes SQL files or initializes metadata tables, even on an
 empty database. It rejects malformed manifests and reports deployment blockers:
-file/checksum mismatches, missing applied migration files, unknown targets,
+unavailable Git references, missing applied migration files, unknown targets,
 out-of-order migrations, schema downgrades, omitted tracked objects, incomplete
-rollbacks, older release versions, and conflicts with immutable release snapshots.
+rollbacks, older release versions, and conflicts with immutable release fingerprints.
 Blockers are printed with the preview and produce a nonzero exit status. An
 unversioned starting database is allowed; a first deployment can be planned.
 
@@ -415,8 +396,7 @@ that lock before changing the database. Blocked deployments exit nonzero.
 
 Goose applies only pending migrations up to the manifest's integer schema
 version. Later migration files remain pending. SaxBase then verifies that schema
-version and applies changed objects, stores their checksums and complete SQL
-snapshots, and marks the release current in one object transaction. An object-only
+version and applies changed objects, stores their checksums and a release fingerprint, and marks the release current in one object transaction. An object-only
 revision skips structural migrations. Retrying an identical successful release
 skips unchanged objects and does not duplicate release history.
 
@@ -469,10 +449,10 @@ The same pipeline deploys and queries a view, procedure, and function, verifies
 unchanged objects are skipped, updates a view, checks its stored SHA-256, verifies
 transaction rollback after a later invalid object, and checks missing files are
 not dropped.
-Release tests verify complete SQL snapshots, retained historical definitions,
+Release tests verify Git-resolved historical definitions, release fingerprints,
 immutable version identities, concurrent retries without duplicate records,
 and rollback of failed release records. SQL mock tests additionally inject
-checksum and snapshot write failures to check transaction rollback without a server.
+checksum write and commit failures to check transaction rollback without a server.
 Rollback coverage also includes restoring despite changed local files, removing
 newer objects, preserving permissions, rejecting missing migration files,
 structural downgrade failure/retry, and DDL-trigger failure during object restore.
@@ -523,7 +503,7 @@ Releases pair a Goose structural version with an exact object state.
 Versions such as `30`, `30.1`, `30.2`, `31`, and `31.1` consist of an integer
 schema version and an optional object revision; they must never use floating-point
 representation. Release manifests, database release history, and historical SQL
-snapshots, explicit release rollback, and read-only release planning are implemented.
+Git manifests, explicit release rollback, and read-only release planning are implemented.
 Unified deployment is also implemented; ArchiMate model generation remains future work.
 
 ## CLI version

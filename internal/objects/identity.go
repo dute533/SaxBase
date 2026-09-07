@@ -76,7 +76,7 @@ type headerLexer struct {
 	pos   int
 }
 
-// Older snapshots may use CREATE rather than CREATE OR ALTER. Make only the
+// Historical files may use CREATE rather than CREATE OR ALTER. Make only the
 // DDL verb repeatable; preserve the stored source/checksum and the object's body.
 func restoreDefinition(definition string) string {
 	l := headerLexer{input: []rune(strings.TrimPrefix(definition, "\ufeff"))}
@@ -163,7 +163,7 @@ func (l *headerLexer) next() (string, bool, error) {
 
 func snapshotFiles(snapshot Snapshot) ([]File, []identity, error) {
 	if snapshot.ObjectCount != len(snapshot.Objects) {
-		return nil, nil, fmt.Errorf("release %s has an incomplete snapshot", snapshot.Version)
+		return nil, nil, fmt.Errorf("release %s has an incomplete file set", snapshot.Version)
 	}
 	files := make([]File, 0, len(snapshot.Objects))
 	ids := make([]identity, 0, len(snapshot.Objects))
@@ -174,7 +174,7 @@ func snapshotFiles(snapshot Snapshot) ([]File, []identity, error) {
 			return nil, nil, fmt.Errorf("%s: %w", object.Path, err)
 		}
 		if seen[id.key()] {
-			return nil, nil, fmt.Errorf("duplicate database object in snapshot: %s.%s", id.schema, id.name)
+			return nil, nil, fmt.Errorf("duplicate database object in manifest: %s.%s", id.schema, id.name)
 		}
 		seen[id.key()] = true
 		files = append(files, File{Path: object.Path, SQL: object.SQL, Checksum: object.Checksum})

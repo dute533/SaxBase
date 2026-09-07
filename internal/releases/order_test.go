@@ -7,7 +7,7 @@ import (
 )
 
 func TestManifestOrder(t *testing.T) {
-	files := []objects.File{{Path: "a.sql", Checksum: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, {Path: "z.sql", Checksum: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+	files := []objects.File{{Path: "a.sql", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, {Path: "z.sql", Commit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
 	m, err := New("2", files)
 	if err != nil {
 		t.Fatal(err)
@@ -26,7 +26,7 @@ func TestManifestOrder(t *testing.T) {
 // Keep the snapshot identity order-sensitive even when definitions match.
 func TestSnapshotOrderIdentity(t *testing.T) {
 	files := []objects.File{{Path: "z.sql", SQL: "z", Checksum: "z"}, {Path: "a.sql", SQL: "a", Checksum: "a"}}
-	s := objects.Snapshot{Release: objects.Release{ObjectCount: 2}, Objects: []objects.SnapshotObject{{Path: "z.sql", SQL: "z", Checksum: "z"}, {Path: "a.sql", SQL: "a", Checksum: "a"}}}
+	s := objects.Snapshot{Release: objects.Release{ObjectCount: 2, Fingerprint: objects.Fingerprint(files)}, Objects: []objects.SnapshotObject{{Path: "z.sql", SQL: "z", Checksum: "z"}, {Path: "a.sql", SQL: "a", Checksum: "a"}}}
 	if !matchesSnapshot(s, files) {
 		t.Fatal("identical ordered snapshot rejected")
 	}

@@ -27,7 +27,7 @@ func TestVersions(t *testing.T) {
 }
 
 func TestManifestRoundTripAndMismatch(t *testing.T) {
-	files := []objects.File{{Path: "views/a.sql", Checksum: strings.Repeat("a", 64)}}
+	files := []objects.File{{Path: "views/a.sql", Commit: strings.Repeat("a", 64)}}
 	m, err := New("30.1", files)
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +46,7 @@ func TestManifestRoundTripAndMismatch(t *testing.T) {
 	if err := loaded.Validate(files); err != nil {
 		t.Fatal(err)
 	}
-	for _, bad := range [][]objects.File{nil, {{Path: "views/a.sql", Checksum: strings.Repeat("b", 64)}}, append(append([]objects.File{}, files...), objects.File{Path: "extra.sql", Checksum: strings.Repeat("c", 64)})} {
+	for _, bad := range [][]objects.File{nil, {{Path: "views/a.sql", Commit: strings.Repeat("b", 64)}}, append(append([]objects.File{}, files...), objects.File{Path: "extra.sql", Commit: strings.Repeat("c", 64)})} {
 		if err := loaded.Validate(bad); err == nil {
 			t.Fatalf("accepted mismatch: %+v", bad)
 		}
@@ -60,9 +60,9 @@ func TestInvalidManifests(t *testing.T) {
 		`{"version":"30","objects":null}`,
 		`{"version":"30","objects":[],"typo":true}`,
 		`{"version":"30","objects":[]} {}`,
-		`{"version":"30","objects":[{"path":"../a.sql","sha256":"` + sum + `"}]}`,
-		`{"version":"30","objects":[{"path":"a.sql","sha256":"bad"}]}`,
-		`{"version":"30","objects":[{"path":"a.sql","sha256":"` + sum + `"},{"path":"a.sql","sha256":"` + sum + `"}]}`,
+		`{"version":"30","objects":[{"path":"../a.sql","commit":"` + sum + `"}]}`,
+		`{"version":"30","objects":[{"path":"a.sql","commit":"bad"}]}`,
+		`{"version":"30","objects":[{"path":"a.sql","commit":"` + sum + `"},{"path":"a.sql","commit":"` + sum + `"}]}`,
 	} {
 		file := filepath.Join(t.TempDir(), "release.json")
 		if err := os.WriteFile(file, []byte(body), 0600); err != nil {
