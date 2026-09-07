@@ -25,7 +25,7 @@ func runDeploy(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 	if err != nil {
 		return err
 	}
-	files, err := manifest.Resolve(ctx, ".")
+	files, err := manifest.Resolve(ctx, objectDir)
 	if err != nil {
 		return fmt.Errorf("scan objects: %w", err)
 	}

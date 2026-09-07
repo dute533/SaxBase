@@ -246,7 +246,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 			}
 			manifest = loaded
 			var validateErr error
-			files, validateErr = manifest.Resolve(ctx, ".")
+			files, validateErr = manifest.Resolve(ctx, objectDir)
 			if validateErr != nil {
 				return validateErr
 			}

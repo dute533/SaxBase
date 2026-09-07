@@ -29,7 +29,7 @@ func runRelease(ctx context.Context, args []string, filename, dir, parentFilenam
 		if err != nil {
 			return err
 		}
-		files, err := m.Resolve(context.Background(), ".")
+		files, err := m.Resolve(context.Background(), dir)
 		if err != nil {
 			return err
 		}
@@ -284,7 +284,7 @@ func loadRollbackManifest(ctx context.Context, filename, objectDir string) (obje
 		return objects.Snapshot{}, err
 	}
 	v, _ := releases.ParseVersion(m.Version)
-	delta, err := m.Resolve(ctx, ".")
+	delta, err := m.Resolve(ctx, objectDir)
 	if err != nil {
 		return objects.Snapshot{}, err
 	}
@@ -321,7 +321,7 @@ func loadManifestStateSeen(ctx context.Context, filename, objectDir string, seen
 			return nil, err
 		}
 	}
-	delta, err := m.Resolve(ctx, ".")
+	delta, err := m.Resolve(ctx, objectDir)
 	if err != nil {
 		return nil, err
 	}

@@ -174,12 +174,14 @@ rollback can restore committed definitions and remove objects introduced later.
 
 ## Release manifests
 
-A manifest contains a release `version` and an ordered `objects` array. Each
-object has exactly a repository-relative `path` and a full Git `commit` hash:
+A manifest contains a release `version`, an optional `parent` manifest path, and
+an ordered `objects` array. Each object has a `path` and a `commit` reference,
+which can be a full Git hash or `latest`:
 
 ```json
 {
   "version": "30.1",
+  "parent": "release-30.json",
   "objects": [
     {
       "path": "database/objects/views/customer.sql",
@@ -190,9 +192,14 @@ object has exactly a repository-relative `path` and a full Git `commit` hash:
 ```
 
 The example hash is illustrative; use a real commit from your repository.
-There is no `format`, `sha256`, or separate order field. Move entire object entries
-to put dependencies before their consumers. SaxBase executes the array top to
-bottom. Different objects may reference different commits in the same repository.
+There is no `format`, `sha256`, or separate order field. A manifest without
+`parent` is the initial complete object state. A manifest with `parent` contains
+only changed or added objects; entries marked `"delete": true` remove an object.
+Deletion entries must use a historical commit hash so SaxBase can recover the
+object definition needed to identify and drop it.
+Move entries to put changed dependencies before their consumers. SaxBase executes
+the array top to bottom. Different objects may reference different commits in the
+same repository. The parent must be the release currently deployed.
 
 `30` requires Goose version 30; `30.1` and `30.2` are object revisions at that
 structural version. Components are nonnegative 64-bit integers, never floating
@@ -213,13 +220,17 @@ git commit -m "Record release 30"
 ```
 
 Creation scans `-objects-dir` (default `database/objects`) and pins each SQL file
-to its latest touching commit on HEAD. Untracked or modified SQL must be committed
-first, including staged edits. Creation refuses to overwrite an existing manifest.
-It initially lists files in lexical path order. Keep manifest files in Git or
-release artifacts so previous releases can be restored later.
+to its latest touching commit on HEAD when Git is available. Outside Git, files are
+recorded as `latest`; this is intended for tests and local, non-reproducible use.
+To create a delta, pass the previous manifest with `-parent-manifest`; only changed,
+added, and removed objects are written. Git-backed manifests require committed SQL.
+Creation refuses to overwrite an existing manifest. It initially lists entries in
+lexical path order. Keep every manifest in Git or release artifacts so the state
+chain can be reconstructed for rollback.
 
 `release sync [VERSION]` refreshes commit references, keeps existing array order,
-and appends new paths in lexical order. It refuses to remove missing entries.
+and appends new paths in lexical order. For a delta manifest, sync recomputes the
+changes against its parent and adds deletion entries when files were removed.
 Omitting VERSION preserves the version. Sync replaces the manifest atomically;
 invalid input leaves it untouched. Use a new revision when changing an already
 deployed release's file contents, paths, or order.
@@ -232,19 +243,18 @@ git commit -m "Revise database objects"
 ./saxbase deploy
 ```
 
-All manifest commands require Git on PATH. Deployment, plan, validation, and
-rollback resolve paths from commits in the repository containing the working
-directory. Paths are relative to the repository root, regardless of the manifest's
-location or `-objects-dir`. Git commits must already be available locally; SaxBase
-does not fetch, check out files, or apply Git filters. Full 40- or 64-character
-lowercase commit IDs are accepted; branches, tags, and abbreviated IDs are rejected.
-A reference must identify an actual commit, and its path a regular, nonempty UTF-8
-SQL file. Symlinks, duplicate paths, invalid versions, and unknown fields fail.
+Manifest entries accept full 40- or 64-character lowercase Git commit IDs or the
+special value `latest`. Commit IDs must identify actual commits; branches, tags,
+and abbreviated IDs are rejected. Hash references resolve repository-relative
+regular SQL files from Git. `latest` reads the corresponding working-tree file,
+which allows tests and projects without Git but is not reproducible. SaxBase does
+not fetch, check out files, or apply Git filters. Symlinks, duplicate paths, invalid
+versions, and unknown fields fail.
 
-Every referenced file is loaded before opening a database connection. Working-tree
-edits, deletions, or extra files do not change a manifest deployment. `release
-validate` checks that references can be resolved; it does not compare working SQL
-or validate SQL syntax on a server. Each object is one batch without `GO`.
+Every referenced file is loaded before opening a database connection. Hash-based
+entries ignore working-tree edits; `latest` entries read them directly. `release
+validate` checks that references can be resolved; it does not validate SQL syntax on
+a server. Each object is one batch without `GO`.
 
 `objects apply` and `objects status` use working SQL unless `-manifest` is supplied.
 Inside Git, their tracked paths are repository-relative too. Outside Git, these
@@ -280,8 +290,9 @@ release metadata and its fingerprint, with no SQL. These commands need no Git or
 local SQL and never create metadata tables. Reapplying the latest identical release
 preserves its first deployment time and creates no duplicate history.
 
-Manifest deployment rejects omission of previously tracked paths. Unversioned
-apply reports missing objects without dropping them. Manual database edits are
+Manifest deployment applies only entries in the delta; omitted tracked paths are
+left unchanged. Unversioned apply reports missing objects without dropping them.
+Manual database edits are
 not detected by the checksum cache. Changed unversioned SQL or standalone Goose
 changes clear the active release marker.
 
@@ -313,8 +324,9 @@ Supply the target manifest and the manifest for the active source release:
 
 The target manifest defaults to `database/release.json`; `-source-manifest` is
 required. Its source version must match the active release (or the original source
-of an interrupted rollback). Both manifests resolve SQL from Git before database
-access. Their ordered files must match the fingerprints recorded at deployment.
+of an interrupted rollback). Both manifests resolve SQL before database access,
+from Git for commit entries and the working tree for `latest` entries. Their ordered
+files must match the fingerprints recorded at deployment.
 The target must already be recorded and no newer than the active release.
 
 The source manifest identifies objects to remove and their reverse deployment order.

@@ -73,3 +73,36 @@ func TestInvalidManifests(t *testing.T) {
 		}
 	}
 }
+
+func TestNewDeltaContainsOnlyChanges(t *testing.T) {
+	old := []objects.File{
+		{Path: "a.sql", Commit: strings.Repeat("a", 40), SQL: "SELECT 1;", Checksum: strings.Repeat("1", 64)},
+		{Path: "b.sql", Commit: strings.Repeat("b", 40), SQL: "SELECT 2;", Checksum: strings.Repeat("2", 64)},
+	}
+	current := []objects.File{
+		{Path: "a.sql", Commit: strings.Repeat("c", 40), SQL: "SELECT 3;", Checksum: strings.Repeat("3", 64)},
+		{Path: "c.sql", Commit: strings.Repeat("d", 40), SQL: "SELECT 4;", Checksum: strings.Repeat("4", 64)},
+	}
+	m, err := NewDelta("2.1", "release-2.json", current, old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Parent != "release-2.json" || len(m.Objects) != 3 {
+		t.Fatalf("manifest=%+v", m)
+	}
+	if m.Objects[0].Path != "a.sql" || m.Objects[1].Path != "c.sql" || !m.Objects[2].Delete || m.Objects[2].Path != "b.sql" {
+		t.Fatalf("objects=%+v", m.Objects)
+	}
+}
+
+func TestNewDeltaDetectsLatestContentChanges(t *testing.T) {
+	old := []objects.File{{Path: "a.sql", Commit: "latest", SQL: "SELECT 1;", Checksum: "old"}}
+	current := []objects.File{{Path: "a.sql", Commit: "latest", SQL: "SELECT 2;", Checksum: "new"}}
+	m, err := NewDelta("2", "release-1.json", current, old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Objects) != 1 || m.Objects[0].Path != "a.sql" {
+		t.Fatalf("manifest=%+v", m)
+	}
+}

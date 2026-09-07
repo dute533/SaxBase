@@ -89,7 +89,7 @@ To version this change as release `2.1`, generate a new manifest and deploy with
 ```sh
 git add database/objects
 git commit -m "Update example objects"
-../../saxbase -manifest database/release-2.1.json release create 2.1
+../../saxbase -parent-manifest database/release.json -manifest database/release-2.1.json release create 2.1
 ../../saxbase -manifest database/release-2.1.json release validate
 ../../saxbase -manifest database/release-2.1.json plan
 ../../saxbase -manifest database/release-2.1.json objects apply
@@ -125,7 +125,7 @@ cp rollback/00003_add_customer_note.sql database/migrations/
 ../../saxbase up
 git add database
 git commit -m "Prepare release 3 SQL"
-../../saxbase -manifest database/release-3.json release create 3
+../../saxbase -parent-manifest database/release-2.1.json -manifest database/release-3.json release create 3
 ../../saxbase -manifest database/release-3.json objects apply
 ../../saxbase -manifest database/release.json -source-manifest database/release-3.json release rollback 2
 ../../saxbase version

@@ -56,19 +56,22 @@ git commit -m "Update database objects"
 ./saxbase deploy               # Migrate to version 30, then apply changed objects
 ```
 
-The manifest records repository-relative object paths and full Git commit hashes.
-Its array order controls deployment. Commit SQL first, then generate and commit the
-manifest. Deployment reads committed SQL, so working-tree edits do not affect it. Object files must each contain a single SQL batch without `GO`.
+The manifest records object paths, their deployment order, and either full Git
+commit hashes or `"latest"`. The first manifest is a complete state; later
+manifests can contain only changes by naming the previous manifest as their parent.
+Full hashes make deployments reproducible. `latest` reads the current working-tree
+file and is useful for tests or projects that do not use Git. Object files must each
+contain a single SQL batch without `GO`.
 
-Git must be installed and referenced commits available locally. No SQL snapshots
-are stored in the database.
+Git must be installed when a manifest uses commit hashes. No SQL snapshots are
+stored in the database.
 
 ## Update a release
 
 After committing edited SQL, sync the manifest and deploy a new version:
 
 ```sh
-./saxbase release sync 30.1
+./saxbase -parent-manifest database/release-30.json -manifest database/release-30.1.json release create 30.1
 ./saxbase plan
 ./saxbase deploy
 ```
@@ -83,7 +86,7 @@ missing files. Review dependencies when adding objects.
 | Command | Purpose |
 | --- | --- |
 | `--version` | Show the SaxBase CLI version |
-| `release validate` | Resolve the manifest’s committed SQL files |
+| `release validate` | Resolve the manifest’s referenced SQL files |
 | `release current` / `release history` | Inspect deployed releases |
 | `release show VERSION` | Print release metadata and fingerprint |
 | `release rollback VERSION` | Restore from target and source manifests |
@@ -93,7 +96,7 @@ missing files. Review dependencies when adding objects.
 | `objects status` / `objects apply` | Compare / apply objects without recording a release |
 
 Run `./saxbase -h` for help. Override default paths with `-dir`, `-objects-dir`,
-or `-manifest`, placed before the command:
+`-manifest`, or `-parent-manifest`, placed before the command:
 
 ```sh
 ./saxbase -manifest database/release-30.1.json deploy

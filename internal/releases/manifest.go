@@ -18,7 +18,7 @@ import (
 )
 
 var versionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)(\.([1-9][0-9]*))?$`)
-var commitPattern = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
+var commitPattern = regexp.MustCompile(`^(latest|[0-9a-f]{40}|[0-9a-f]{64})$`)
 
 type Version struct{ Schema, Revision int64 }
 
@@ -97,7 +97,10 @@ func (m Manifest) check() error {
 		}
 		seen[p] = true
 		if !commitPattern.MatchString(object.Commit) {
-			return fmt.Errorf("invalid full Git commit hash for %s", p)
+			return fmt.Errorf("invalid commit reference for %s: use a full Git commit hash or latest", p)
+		}
+		if object.Delete && object.Commit == "latest" {
+			return fmt.Errorf("deleted object %s requires a historical Git commit", p)
 		}
 	}
 	return nil
@@ -210,7 +213,7 @@ func NewDelta(version, parent string, current, previous []objects.File) (Manifes
 	m := Manifest{Version: version, Parent: parent, Objects: make([]Object, 0)}
 	for _, file := range current {
 		before, ok := old[file.Path]
-		if !ok || before.Commit != file.Commit {
+		if !ok || before.Commit != file.Commit || before.Checksum != file.Checksum {
 			m.Objects = append(m.Objects, Object{Path: file.Path, Commit: file.Commit})
 		}
 		delete(old, file.Path)

@@ -94,3 +94,38 @@ func TestCommittedFilesRequireCommittedSQL(t *testing.T) {
 		t.Fatal("accepted staged SQL")
 	}
 }
+
+func TestLatestManifestResolvesOutsideGit(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "view.sql"), []byte("SELECT 42;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m := Manifest{Version: "1", Objects: []Object{{Path: "view.sql", Commit: "latest"}}}
+	files, err := m.Resolve(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0].Commit != "latest" || files[0].SQL != "SELECT 42;" {
+		t.Fatalf("resolved=%+v", files)
+	}
+	if err := os.Symlink("view.sql", filepath.Join(root, "link.sql")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Manifest{Version: "1", Objects: []Object{{Path: "link.sql", Commit: "latest"}}}).Resolve(context.Background(), root); err == nil {
+		t.Fatal("accepted latest symlink")
+	}
+}
+
+func TestCommittedFilesUsesLatestOutsideGit(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "view.sql"), []byte("SELECT 42;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	files, err := CommittedFiles(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0].Commit != "latest" {
+		t.Fatalf("files=%+v", files)
+	}
+}
