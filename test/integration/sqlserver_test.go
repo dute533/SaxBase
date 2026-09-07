@@ -146,7 +146,8 @@ func TestSQLServerMigration(t *testing.T) {
 	objectDir := filepath.Join(workDir, "database", "objects")
 	assertVersion := func(want string) {
 		t.Helper()
-		if output := run("status"); !strings.Contains(output, "Goose version:\t"+want+"\n") {
+		output := strings.Join(strings.Fields(run("status")), " ")
+		if !strings.Contains(output, "Goose version: "+want) {
 			t.Fatalf("status did not report Goose version %q: %s", want, output)
 		}
 	}
@@ -162,8 +163,8 @@ func TestSQLServerMigration(t *testing.T) {
 	}
 	assertStatus := func(first, second string) {
 		t.Helper()
-		output := run("status")
-		for _, value := range []string{"1\t" + first + "\t00001_create_customers.sql", "2\t" + second + "\t00002_add_nickname.sql"} {
+		output := strings.Join(strings.Fields(run("status")), " ")
+		for _, value := range []string{"1 " + first + " 00001_create_customers.sql", "2 " + second + " 00002_add_nickname.sql"} {
 			if !strings.Contains(output, value) {
 				t.Fatalf("status missing %q: %s", value, output)
 			}
@@ -254,7 +255,7 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT value FROM dbo.saxbase_value", 1)
 	run("-manifest", "database/release-2.1.json", "release", "create", "2.1")
 	run("-manifest", "database/release-2.1.json", "release", "validate")
-	if output := run("status"); strings.Count(output, "changed") != 3 || strings.Count(output, "unchanged") != 2 {
+	if output := run("-manifest", "database/release-2.1.json", "status"); strings.Count(output, "changed") != 3 || strings.Count(output, "unchanged") != 2 {
 		t.Fatalf("changed status: %s", output)
 	}
 	if output := run("-manifest", "database/release-2.1.json", "apply"); strings.Count(output, "applied") != 1 || strings.Count(output, "unchanged") != 2 {
@@ -337,14 +338,19 @@ func TestSQLServerMigration(t *testing.T) {
 	if err := os.Remove(filepath.Join(objectDir, "views/value.sql")); err != nil {
 		t.Fatal(err)
 	}
-	if output := run("status"); !strings.Contains(output, "missing") {
-		t.Fatalf("missing status: %s", output)
+	run("-manifest", "database/incomplete-2.2.json", "release", "create", "2.2")
+	if output, err := execute("-manifest", "database/incomplete-2.2.json", "apply"); err == nil || !strings.Contains(output, "omits tracked object") {
+		t.Fatalf("missing tracked object was accepted: %v %s", err, output)
+	}
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 2)
+	if err := os.WriteFile(filepath.Join(objectDir, "views/value.sql"), updated, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(workDir, "database/incomplete-2.2.json")); err != nil {
+		t.Fatal(err)
 	}
 	run("-manifest", "database/incomplete-2.2.json", "release", "create", "2.2")
-	if output, err := execute("-manifest", "database/incomplete-2.2.json", "apply"); err != nil {
-		t.Fatalf("delta release failed: %v %s", err, output)
-	}
-	run("apply")
+	run("-manifest", "database/incomplete-2.2.json", "apply")
 	assertCount("SELECT value FROM dbo.saxbase_value", 2)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_objects", 3)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 3)
@@ -420,7 +426,7 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT value FROM dbo.saxbase_value", 2)
 	assertCount("SELECT COUNT(*) FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.customers') AND name=N'rollback_note'", 0)
 	assertCount("SELECT COUNT(*) FROM sys.views WHERE object_id=OBJECT_ID(N'dbo.saxbase_later')", 0)
-	if output := run("status"); !strings.Contains(output, "Release:\t2.1\n") {
+	if output := strings.Join(strings.Fields(run("status")), " "); !strings.Contains(output, "Release: 2.1") {
 		t.Fatalf("current release missing from status: %s", output)
 	}
 	if output, err := execute("-manifest", "database/release-3.json", "-source-manifest", "database/release-2.1.json", "rollback", "3"); err == nil {
@@ -445,7 +451,7 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT dbo.saxbase_function()", 1)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_rollbacks WHERE status <> 'completed'", 0)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 5)
-	if output := run("status"); !strings.Contains(output, "Release:\t2\n") {
+	if output := strings.Join(strings.Fields(run("status")), " "); !strings.Contains(output, "Release: 2") {
 		t.Fatalf("current release missing from status: %s", output)
 	}
 

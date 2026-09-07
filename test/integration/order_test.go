@@ -119,7 +119,7 @@ func TestSQLServerLegacyReleaseMetadata(t *testing.T) {
 	if out, err := execute("-manifest", "database/release.json", "-source-manifest", "database/new.json", "rollback", "2"); err == nil || !strings.Contains(out, "fingerprint") {
 		t.Fatalf("legacy rollback: %v %s", err, out)
 	}
-	if output := run("status"); !strings.Contains(output, "Release:\t2.1\n") {
+	if output := strings.Join(strings.Fields(run("status")), " "); !strings.Contains(output, "Release: 2.1") {
 		t.Fatalf("current release missing from status: %s", output)
 	}
 }

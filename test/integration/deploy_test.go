@@ -43,7 +43,8 @@ func TestSQLServerDeploy(t *testing.T) {
 	deploy := func() string { return run("-manifest", "database/target.json", "apply") }
 	assertVersion := func(want string) {
 		t.Helper()
-		if output := run("status"); !strings.Contains(output, "Goose version:\t"+want+"\n") {
+		output := strings.Join(strings.Fields(run("-manifest", "database/target.json", "status")), " ")
+		if !strings.Contains(output, "Goose version: "+want) {
 			t.Fatalf("status did not report Goose version %q: %s", want, output)
 		}
 	}
@@ -58,7 +59,7 @@ func TestSQLServerDeploy(t *testing.T) {
 	assertVersion("2")
 	count("SELECT COUNT(*) FROM sys.tables WHERE name='next_table'", 0)
 	count("SELECT COUNT(*) FROM dbo.customers WHERE name='Ada' AND nickname IS NULL", 1)
-	if output := run("status"); !strings.Contains(output, "Release:\t2\n") {
+	if output := strings.Join(strings.Fields(run("-manifest", "database/target.json", "status")), " "); !strings.Contains(output, "Release: 2") {
 		t.Fatalf("current release missing from status: %s", output)
 	}
 	if out := deploy(); strings.Count(out, "unchanged") != 4 {
@@ -101,7 +102,7 @@ func TestSQLServerDeploy(t *testing.T) {
 	}
 	manifest("3")
 	deploy()
-	if output := run("status"); !strings.Contains(output, "Release:\t3\n") {
+	if output := strings.Join(strings.Fields(run("-manifest", "database/target.json", "status")), " "); !strings.Contains(output, "Release: 3") {
 		t.Fatalf("current release missing from status: %s", output)
 	}
 	count("SELECT value FROM dbo.extra", 3)
