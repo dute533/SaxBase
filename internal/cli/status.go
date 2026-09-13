@@ -55,7 +55,11 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 	}
 	var baseline []objects.File
 	if len(history) > 0 {
-		baseline, err = releaseBaseline(manifestPath, history, history[len(history)-1], databaseState.Current)
+		current, currentErr := effectiveCurrent(history, databaseState)
+		if currentErr != nil {
+			return fmt.Errorf("resolve current release: %w", currentErr)
+		}
+		baseline, err = releaseBaseline(history, current)
 		if err != nil {
 			return fmt.Errorf("resolve current object state: %w", err)
 		}

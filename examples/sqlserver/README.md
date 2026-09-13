@@ -58,28 +58,26 @@ Edit `database/objects/views/value.sql`, then inspect the change:
 ../../saxbase apply
 ```
 
-To record the change as release `2.1`, commit the SQL and create a delta manifest:
+To record the change as release `2.1`, commit the SQL and append a delta:
 
 ```sh
 git add database/objects
 git commit -m "Update example objects"
-../../saxbase -parent-manifest database/release.json \
-  -manifest database/release-2.1.json release create 2.1
-../../saxbase -manifest database/release-2.1.json plan
-../../saxbase -manifest database/release-2.1.json apply
+../../saxbase release create 2.1
+../../saxbase plan
+../../saxbase apply
 ```
 
 ## Roll back
 
-Restore release `2` using both manifests:
+Restore release `2` from the manifest history:
 
 ```sh
-../../saxbase -manifest database/release.json \
-  -source-manifest database/release-2.1.json rollback 2
+../../saxbase rollback 2
 ```
 
 Rollback resolves the target objects from their historical Git commits. Keep the
-manifests and referenced commits available.
+manifest and referenced commits available.
 
 ## Verify locally
 

@@ -104,23 +104,9 @@ together with the manifest's migrations.
 
 ## Release manifests
 
-A manifest records a release version and its ordered object entries:
-
-```json
-{
-  "version": "30.1",
-  "parent": "release-30.json",
-  "objects": [
-    {
-      "path": "database/objects/views/customer.sql",
-      "commit": "0123456789abcdef0123456789abcdef01234567"
-    }
-  ]
-}
-```
-
-The default history file can contain multiple releases. Later entries contain
-only their changes and use the earlier version as `parent`:
+A manifest is an ordered release history. The first entry describes the full
+object state. Each later entry contains only changes from the entry immediately
+before it:
 
 ```json
 {
@@ -133,7 +119,6 @@ only their changes and use the earlier version as `parent`:
     },
     {
       "version": "2",
-      "parent": "1",
       "objects": [
         {"path": "database/objects/views/customer.sql", "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
         {"path": "database/objects/views/order.sql", "commit": "cccccccccccccccccccccccccccccccccccccccc"}
@@ -145,9 +130,8 @@ only their changes and use the earlier version as `parent`:
 
 Each entry has a repository-relative `path` and either a full Git commit hash or
 `"latest"`. A commit hash makes the release reproducible by resolving the file
-from that commit. `latest` reads the working tree and is useful for standalone
-test manifests, but it cannot be used as the parent of an appended delta because
-its previous contents are not recoverable.
+from that commit. `latest` reads the working tree, but a history containing it
+cannot be extended because its previous contents are not recoverable.
 
 Entries execute from top to bottom. Edit the array when dependencies require a
 different order. A `delete` entry removes an object from the database and must
@@ -175,34 +159,25 @@ versions. `plan` and `apply` advance one release at a time; rollback selects an
 older version from the same file. Rerunning an existing version or creating an
 older version is rejected.
 
-To create a delta containing only changes from a previous release:
+To append a delta containing only changes from the latest release:
 
 ```sh
-./saxbase -parent-manifest database/release-30.json \
-  -manifest database/release-30.1.json release create 30.1
+./saxbase release create 30.1
 ```
 
 Keep manifests and their referenced Git commits available for rollback.
 
 ## Rollback
 
-When target and current releases are in the same history file, only the target
-version is needed:
+Only the target version is needed:
 
 ```sh
 ./saxbase rollback 30
 ```
 
-When releases are stored in separate legacy files, provide both paths:
-
-```sh
-./saxbase -manifest database/release-30.json \
-  -source-manifest database/release-30.1.json rollback 30
-```
-
-The target release must already be recorded and the source version must match the
-active release. SaxBase resolves historical object files from the commits in the
-manifests, so the manifests and commits must still be available. Fix any failed
+The target and active releases must both be present in the history. SaxBase
+resolves historical object files from the commits in the manifest, so the
+manifest and commits must still be available. Fix any failed
 deployment before requesting a rollback; rollback is for returning from a
 recorded release to an earlier one.
 

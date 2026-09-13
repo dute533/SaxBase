@@ -24,19 +24,19 @@ func TestRollbackCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	target, _ := releases.New("30.1", files)
-	source, _ := releases.New("30.2", files)
-	targetPath, sourcePath := filepath.Join(dir, "target.json"), filepath.Join(dir, "source.json")
-	if err := target.Write(targetPath); err != nil {
+	source, _ := releases.NewDelta("30.2", files, files)
+	path := filepath.Join(dir, "release.json")
+	if err := target.Write(path); err != nil {
 		t.Fatal(err)
 	}
-	if err := source.Write(sourcePath); err != nil {
+	if err := releases.Append(path, source); err != nil {
 		t.Fatal(err)
 	}
 	for _, failure := range []error{nil, errors.New("rollback failed")} {
 		goose := &fakeEngine{}
 		store := &fakeObjects{rollbackErr: failure, current: "30.2", currentSet: true}
 		var out bytes.Buffer
-		err := run(context.Background(), []string{"-manifest", targetPath, "-source-manifest", sourcePath, "rollback", "30.1"}, env(map[string]string{"GOOSE_DBSTRING": "dsn", "SAXBASE_OBJECTS_DIR": "absent"}), &out, func(migrations.Config) (migrations.Engine, error) { return goose, nil }, func(string) (objects.Engine, error) { return store, nil })
+		err := run(context.Background(), []string{"-manifest", path, "rollback", "30.1"}, env(map[string]string{"GOOSE_DBSTRING": "dsn", "SAXBASE_OBJECTS_DIR": "absent"}), &out, func(migrations.Config) (migrations.Engine, error) { return goose, nil }, func(string) (objects.Engine, error) { return store, nil })
 		if !errors.Is(err, failure) || !goose.closed || !store.closed || store.command != "rollback" {
 			t.Fatalf("result: %v %+v %+v", err, goose, store)
 		}
@@ -60,8 +60,8 @@ func TestRollbackSelectsCurrentReleaseFromHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, manifest := range []releases.Manifest{
-		{Version: "30.1", Parent: "30", Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}},
-		{Version: "30.2", Parent: "30.1", Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}},
+		{Version: "30.1", Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}},
+		{Version: "30.2", Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}},
 	} {
 		if err := releases.Append(path, manifest); err != nil {
 			t.Fatal(err)

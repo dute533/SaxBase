@@ -38,7 +38,7 @@ func TestPlanCLI(t *testing.T) {
 			}
 		}
 		goose := &fakeEngine{}
-		db := &fakeObjects{}
+		db := &fakeObjects{currentSet: true}
 		var out bytes.Buffer
 		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "plan"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out, func(migrations.Config) (migrations.Engine, error) { return goose, nil }, func(string) (objects.Engine, error) { return db, nil })
 		if err != nil || !goose.closed || !db.closed {
@@ -47,7 +47,7 @@ func TestPlanCLI(t *testing.T) {
 		if goose.command != "" || db.command != "inspect" {
 			t.Fatal("planner called a migration/deployment operation")
 		}
-		if !strings.Contains(out.String(), "30 -> 30.1") || !strings.Contains(out.String(), "No database changes made") {
+		if !strings.Contains(out.String(), "(unversioned) -> 30.1") || !strings.Contains(out.String(), "No database changes made") {
 			t.Fatal(out.String())
 		}
 		if strings.Contains(out.String(), "BLOCKERS") {
@@ -66,7 +66,7 @@ func TestPlanSelectsNextManifestHistoryRelease(t *testing.T) {
 	if err := base.Write(path); err != nil {
 		t.Fatal(err)
 	}
-	delta := releases.Manifest{Version: "30.1", Parent: "30", Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	delta := releases.Manifest{Version: "30.1", Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
 	if err := releases.Append(path, delta); err != nil {
 		t.Fatal(err)
 	}

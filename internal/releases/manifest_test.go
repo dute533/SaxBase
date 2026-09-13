@@ -57,12 +57,16 @@ func TestInvalidManifests(t *testing.T) {
 	sum := strings.Repeat("a", 64)
 	for _, body := range []string{
 		`{"version":30,"objects":[]}`,
-		`{"version":"30","objects":null}`,
-		`{"version":"30","objects":[],"typo":true}`,
-		`{"version":"30","objects":[]} {}`,
-		`{"version":"30","objects":[{"path":"../a.sql","commit":"` + sum + `"}]}`,
-		`{"version":"30","objects":[{"path":"a.sql","commit":"bad"}]}`,
-		`{"version":"30","objects":[{"path":"a.sql","commit":"` + sum + `"},{"path":"a.sql","commit":"` + sum + `"}]}`,
+		`{"version":"30","objects":[]}`,
+		`{"releases":[]}`,
+		`{"releases":[{"version":"30","objects":null}]}`,
+		`{"releases":[{"version":"30","objects":[],"typo":true}]}`,
+		`{"releases":[{"version":"30","parent":"29","objects":[]}]}`,
+		`{"releases":[{"version":"30","objects":[]}]} {}`,
+		`{"releases":[{"version":"30","objects":[{"path":"../a.sql","commit":"` + sum + `"}]}]}`,
+		`{"releases":[{"version":"30","objects":[{"path":"a.sql","commit":"bad"}]}]}`,
+		`{"releases":[{"version":"30","objects":[{"path":"a.sql","commit":"` + sum + `"},{"path":"a.sql","commit":"` + sum + `"}]}]}`,
+		`{"releases":[{"version":"30","objects":[{"path":"a.sql","commit":"` + sum + `","delete":true}]}]}`,
 	} {
 		file := filepath.Join(t.TempDir(), "release.json")
 		if err := os.WriteFile(file, []byte(body), 0600); err != nil {
@@ -71,6 +75,13 @@ func TestInvalidManifests(t *testing.T) {
 		if _, err := Load(file); err == nil {
 			t.Errorf("accepted %s", body)
 		}
+	}
+}
+
+func TestFirstReleaseCannotBeADeletion(t *testing.T) {
+	m := Manifest{Version: "1", Objects: []Object{{Path: "a.sql", Commit: strings.Repeat("a", 40), Delete: true}}}
+	if err := m.Write(filepath.Join(t.TempDir(), "release.json")); err == nil {
+		t.Fatal("wrote deletion as the initial release")
 	}
 }
 
@@ -83,11 +94,11 @@ func TestNewDeltaContainsOnlyChanges(t *testing.T) {
 		{Path: "a.sql", Commit: strings.Repeat("c", 40), SQL: "SELECT 3;", Checksum: strings.Repeat("3", 64)},
 		{Path: "c.sql", Commit: strings.Repeat("d", 40), SQL: "SELECT 4;", Checksum: strings.Repeat("4", 64)},
 	}
-	m, err := NewDelta("2.1", "release-2.json", current, old)
+	m, err := NewDelta("2.1", current, old)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.Parent != "release-2.json" || len(m.Objects) != 3 {
+	if len(m.Objects) != 3 {
 		t.Fatalf("manifest=%+v", m)
 	}
 	if m.Objects[0].Path != "a.sql" || m.Objects[1].Path != "c.sql" || !m.Objects[2].Delete || m.Objects[2].Path != "b.sql" {
@@ -98,7 +109,7 @@ func TestNewDeltaContainsOnlyChanges(t *testing.T) {
 func TestNewDeltaDetectsLatestContentChanges(t *testing.T) {
 	old := []objects.File{{Path: "a.sql", Commit: "latest", SQL: "SELECT 1;", Checksum: "old"}}
 	current := []objects.File{{Path: "a.sql", Commit: "latest", SQL: "SELECT 2;", Checksum: "new"}}
-	m, err := NewDelta("2", "release-1.json", current, old)
+	m, err := NewDelta("2", current, old)
 	if err != nil {
 		t.Fatal(err)
 	}

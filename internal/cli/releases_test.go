@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"saxbase/internal/objects"
 	"saxbase/internal/releases"
 )
 
@@ -86,7 +87,7 @@ func TestReleaseCreateAppendsReleaseHistory(t *testing.T) {
 	if err != nil || len(history) != 2 || history[0].Version != "1" || history[1].Version != "2" {
 		t.Fatalf("history=%+v err=%v", history, err)
 	}
-	if history[1].Parent != "1" || len(history[1].Objects) != 1 {
+	if len(history[1].Objects) != 1 {
 		t.Fatalf("release 2=%+v", history[1])
 	}
 	oldFiles, err := releases.ResolveStateVersion(context.Background(), manifest, dir, "1")
@@ -100,5 +101,30 @@ func TestReleaseCreateAppendsReleaseHistory(t *testing.T) {
 
 	if err := run(context.Background(), append(append([]string{}, args...), "2"), env(nil), &bytes.Buffer{}, nil, nil); err == nil {
 		t.Fatal("same release version was accepted twice")
+	}
+}
+
+func TestEffectiveCurrentRecoversNewestRecordedManifestRelease(t *testing.T) {
+	history := []resolvedRelease{
+		{manifest: releases.Manifest{Version: "2"}},
+		{manifest: releases.Manifest{Version: "2.1"}},
+		{manifest: releases.Manifest{Version: "3"}},
+	}
+	state := objects.Inspection{History: []objects.Release{{Version: "2"}, {Version: "2.1"}}}
+	got, err := effectiveCurrent(history, state)
+	if err != nil || got != "2.1" {
+		t.Fatalf("current=%q err=%v", got, err)
+	}
+	state.Current = "2"
+	if got, err = effectiveCurrent(history, state); err != nil || got != "2" {
+		t.Fatalf("explicit current=%q err=%v", got, err)
+	}
+}
+
+func TestEffectiveCurrentRejectsUnrelatedRecordedHistory(t *testing.T) {
+	history := []resolvedRelease{{manifest: releases.Manifest{Version: "2"}}}
+	state := objects.Inspection{History: []objects.Release{{Version: "1"}}}
+	if _, err := effectiveCurrent(history, state); err == nil {
+		t.Fatal("accepted unrelated database history")
 	}
 }

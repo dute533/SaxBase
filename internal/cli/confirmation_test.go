@@ -56,7 +56,7 @@ func TestConfirmationSelectionAndBypass(t *testing.T) {
 			if err := os.MkdirAll("database/objects", 0700); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile("database/release.json", []byte(`{"version":"0","objects":[]}`), 0600); err != nil {
+			if err := os.WriteFile("database/release.json", []byte(`{"releases":[{"version":"0","objects":[]}]}`), 0600); err != nil {
 				t.Fatal(err)
 			}
 			flag := "false"

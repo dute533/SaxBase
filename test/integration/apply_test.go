@@ -35,10 +35,17 @@ func TestSQLServerApply(t *testing.T) {
 		}
 	}
 	manifest := func(version string) {
-		if err := os.Remove(filepath.Join(workDir, "database/target.json")); err != nil && !os.IsNotExist(err) {
+		run("-manifest", "database/target.json", "release", "create", version)
+	}
+	copyManifest := func(source, target string) {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(workDir, source))
+		if err != nil {
 			t.Fatal(err)
 		}
-		run("-manifest", "database/target.json", "release", "create", version)
+		if err := os.WriteFile(filepath.Join(workDir, target), data, 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	apply := func() string { return run("-manifest", "database/target.json", "apply") }
 	assertVersion := func(want string) {
@@ -51,7 +58,7 @@ func TestSQLServerApply(t *testing.T) {
 	write("database/migrations/00003_next.sql", "-- +goose Up\nCREATE TABLE dbo.next_table(id INT);\n-- +goose Down\nDROP TABLE dbo.next_table;")
 	// Missing Git references must fail before even initializing Goose metadata.
 	write("database/objects/views/extra.sql", "CREATE OR ALTER VIEW dbo.extra AS SELECT 1 AS value;")
-	write("database/release.json", `{"version":"2","objects":[{"path":"database/objects/views/extra.sql","commit":"0000000000000000000000000000000000000000"}]}`)
+	write("database/release.json", `{"releases":[{"version":"2","objects":[{"path":"database/objects/views/extra.sql","commit":"0000000000000000000000000000000000000000"}]}]}`)
 	fail("git", "apply")
 	count("SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped=0", 0)
 	manifest("2")
@@ -66,6 +73,7 @@ func TestSQLServerApply(t *testing.T) {
 		t.Fatal(out)
 	}
 	count("SELECT COUNT(*) FROM dbo.saxbase_releases", 1)
+	copyManifest("database/target.json", "database/release-2-base.json")
 	// An object-only revision does not apply migration 3.
 	write("database/objects/views/extra.sql", "CREATE OR ALTER VIEW dbo.extra AS SELECT 2 AS value;")
 	manifest("2.1")
@@ -83,24 +91,27 @@ func TestSQLServerApply(t *testing.T) {
 	count("SELECT COUNT(*) FROM dbo.goose_db_version WHERE version_id=3", 0)
 	// Conflicting immutable release and absent target both fail before Goose.
 	write("database/objects/views/extra.sql", "CREATE OR ALTER VIEW dbo.extra AS SELECT 3 AS value;")
-	manifest("2.1")
-	fail("immutable", "-manifest", "database/target.json", "apply")
-	manifest("9")
-	fail("no migration file", "-manifest", "database/target.json", "apply")
+	copyManifest("database/release-2-base.json", "database/conflicting.json")
+	run("-manifest", "database/conflicting.json", "release", "create", "2.1")
+	fail("immutable", "-manifest", "database/conflicting.json", "apply")
+	copyManifest("database/target.json", "database/future.json")
+	run("-manifest", "database/future.json", "release", "create", "9")
+	fail("no migration file", "-manifest", "database/future.json", "apply")
 	count("SELECT value FROM dbo.extra", 2)
 	// Goose commits before objects. A failure rolls back all object changes,
 	// records no release, invalidates current, and can be retried at schema 3.
-	write("database/objects/zz_broken.sql", "THROW 51000, 'intentional apply failure', 1;")
+	if _, err := db.ExecContext(ctx, "CREATE TRIGGER saxbase_block_apply ON DATABASE FOR ALTER_VIEW AS THROW 51000, 'intentional apply failure', 1;"); err != nil {
+		t.Fatal(err)
+	}
 	manifest("3")
 	fail("intentional apply failure", "-manifest", "database/target.json", "apply")
 	assertVersion("3")
 	count("SELECT value FROM dbo.extra", 2)
 	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='3'", 0)
 	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE is_current=1", 0)
-	if err := os.Remove(filepath.Join(workDir, "database/objects/zz_broken.sql")); err != nil {
+	if _, err := db.ExecContext(ctx, "DROP TRIGGER saxbase_block_apply ON DATABASE"); err != nil {
 		t.Fatal(err)
 	}
-	manifest("3")
 	apply()
 	if output := strings.Join(strings.Fields(run("-manifest", "database/target.json", "status")), " "); !strings.Contains(output, "Release: 3") {
 		t.Fatalf("current release missing from status: %s", output)
@@ -115,6 +126,5 @@ func TestSQLServerApply(t *testing.T) {
 	write("database/migrations/00004_failure.sql", "-- +goose Up\nCREATE TABLE dbo.recovered(id INT);\n-- +goose Down\nDROP TABLE dbo.recovered;")
 	apply()
 	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='4'", 1)
-	manifest("3")
-	fail("rollback", "-manifest", "database/target.json", "apply")
+	fail("newer than existing release", "-manifest", "database/target.json", "release", "create", "3")
 }

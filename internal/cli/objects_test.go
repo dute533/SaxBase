@@ -21,13 +21,14 @@ type fakeObjects struct {
 	rollbackSource string
 	rollbackTarget string
 	rollbacks      []objects.Rollback
+	history        []objects.Release
 }
 
 func (f *fakeObjects) Close() error { f.closed = true; return nil }
 func (f *fakeObjects) Inspect(context.Context) (objects.Inspection, error) {
 	f.command = "inspect"
 	if f.currentSet {
-		return objects.Inspection{Current: f.current, Rollbacks: f.rollbacks}, f.err
+		return objects.Inspection{Current: f.current, History: f.history, Rollbacks: f.rollbacks}, f.err
 	}
 	return objects.Inspection{Current: "30"}, f.err
 }

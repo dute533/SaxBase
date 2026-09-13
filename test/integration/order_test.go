@@ -35,7 +35,16 @@ func TestSQLServerManifestOrder(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		m, err := releases.New(version, files)
+		path := filepath.Join(workDir, filename)
+		var m releases.Manifest
+		previous, resolveErr := releases.ResolveState(context.Background(), path, root)
+		if resolveErr == nil {
+			m, err = releases.NewDelta(version, files, previous)
+		} else if os.IsNotExist(resolveErr) {
+			m, err = releases.New(version, files)
+		} else {
+			t.Fatal(resolveErr)
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -55,7 +64,7 @@ func TestSQLServerManifestOrder(t *testing.T) {
 		if reverse {
 			m.Objects[0], m.Objects[1] = m.Objects[1], m.Objects[0]
 		}
-		if err := m.Write(filepath.Join(workDir, filename)); err != nil {
+		if err := releases.Append(path, m); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -76,13 +85,13 @@ func TestSQLServerManifestOrder(t *testing.T) {
 	// Both objects must change in dependency order on update and rollback.
 	write("views/z_base.sql", "CREATE OR ALTER VIEW dbo.ordered_base AS SELECT 2 AS replacement_value;")
 	write("views/a_dependent.sql", "CREATE OR ALTER VIEW dbo.ordered_dependent AS SELECT replacement_value FROM dbo.ordered_base;")
-	manifest("2.1", "updated.json", false)
-	run("-manifest", "updated.json", "apply")
+	manifest("2.1", "ordered.json", false)
+	run("-manifest", "ordered.json", "apply")
 	var value int
 	if err := db.QueryRowContext(ctx, "SELECT replacement_value FROM dbo.ordered_dependent").Scan(&value); err != nil || value != 2 {
 		t.Fatalf("value=%d err=%v", value, err)
 	}
-	run("-manifest", "ordered.json", "-source-manifest", "updated.json", "rollback", "2")
+	run("-manifest", "ordered.json", "rollback", "2")
 	if err := db.QueryRowContext(ctx, "SELECT original_value FROM dbo.ordered_dependent").Scan(&value); err != nil || value != 1 {
 		t.Fatalf("value=%d err=%v", value, err)
 	}

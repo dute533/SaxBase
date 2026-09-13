@@ -43,8 +43,6 @@ Configuration:
   -dir PATH      Migration directory (default database/migrations)
   -objects-dir PATH  Object directory (default database/objects)
   -manifest PATH Release manifest (default database/release.json)
-  -parent-manifest PATH  Previous release manifest when creating a delta
-  -source-manifest PATH  Separate active release manifest for rollback
   -target NAME   Database target (defaults to default_target in config)
   -yes           Confirm database writes to targets requiring confirmation
   .env           Loaded from the working directory; environment takes precedence
@@ -77,14 +75,12 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	flags := flag.NewFlagSet("saxbase", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var dir, objectDir, manifestPath, sourceManifest, parentManifest, configPath, target string
+	var dir, objectDir, manifestPath, configPath, target string
 	var yes, showVersion bool
 	flags.BoolVar(&showVersion, "version", false, "print SaxBase CLI version")
 	flags.BoolVar(&yes, "yes", false, "confirm writes to protected targets")
 	flags.StringVar(&dir, "dir", "", "migration directory")
 	flags.StringVar(&objectDir, "objects-dir", "", "full-state object directory")
-	flags.StringVar(&sourceManifest, "source-manifest", "", "active release manifest for rollback")
-	flags.StringVar(&parentManifest, "parent-manifest", "", "previous release manifest when creating a delta")
 	flags.StringVar(&manifestPath, "manifest", "", "release manifest")
 	flags.StringVar(&configPath, "config", "", "target configuration file")
 	flags.StringVar(&target, "target", "", "database target")
@@ -144,20 +140,14 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		})
 	}
 	pos := flags.Args()
-	if parentManifest != "" && !(len(pos) > 1 && pos[0] == "release" && pos[1] == "create") {
-		return errors.New("-parent-manifest only applies to release create")
-	}
-	if sourceManifest != "" && !(len(pos) > 0 && pos[0] == "rollback") {
-		return errors.New("-source-manifest only applies to rollback")
-	}
 	if len(pos) > 0 && pos[0] == "rollback" {
 		if err := resolveTarget("rollback"); err != nil {
 			return err
 		}
-		return runRollback(ctx, pos[1:], cfg, manifestPath, sourceManifest, objectDir, out, open, openObjects)
+		return runRollback(ctx, pos[1:], cfg, manifestPath, objectDir, out, open, openObjects)
 	}
 	if len(pos) > 0 && pos[0] == "release" {
-		return runRelease(ctx, pos[1:], manifestPath, objectDir, parentManifest, out)
+		return runRelease(ctx, pos[1:], manifestPath, objectDir, out)
 	}
 	var command string
 	if len(pos) != 1 {

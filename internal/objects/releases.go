@@ -65,6 +65,9 @@ func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, files []Fi
 	if exists && fingerprint != Fingerprint(files) {
 		return 0, false, fmt.Errorf("release %s is immutable; use a new release version", release.Version)
 	}
+	if exists {
+		return id, false, nil
+	}
 
 	var schema, revision int64
 	err = tx.QueryRowContext(ctx, "SELECT TOP (1) schema_version, revision FROM dbo.saxbase_releases ORDER BY schema_version DESC, revision DESC").Scan(&schema, &revision)
@@ -73,9 +76,6 @@ func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, files []Fi
 	}
 	if err == nil && (release.SchemaVersion < schema || (release.SchemaVersion == schema && release.Revision < revision)) {
 		return 0, false, fmt.Errorf("release %s is older than the latest recorded release; use rollback %s", release.Version, release.Version)
-	}
-	if exists {
-		return id, false, nil
 	}
 	err = tx.QueryRowContext(ctx, `INSERT INTO dbo.saxbase_releases(version,schema_version,revision,fingerprint)
  OUTPUT INSERTED.id VALUES(@version,@schema,@revision,@fingerprint);`, sql.Named("version", release.Version), sql.Named("schema", release.SchemaVersion), sql.Named("revision", release.Revision), sql.Named("fingerprint", Fingerprint(files))).Scan(&id)

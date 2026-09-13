@@ -30,7 +30,7 @@ type ObjectInspector interface {
 	Snapshot(context.Context, string) (objects.Snapshot, error)
 }
 
-func BuildPlan(ctx context.Context, manifest Manifest, files, baseline []objects.File, goose MigrationInspector, db ObjectInspector) (Plan, error) {
+func BuildPlan(ctx context.Context, manifest Manifest, delta bool, files, baseline []objects.File, goose MigrationInspector, db ObjectInspector) (Plan, error) {
 	p := Plan{TargetRelease: manifest.Version, Migrations: make([]MigrationPlan, 0), Blockers: make([]string, 0)}
 	version, err := ParseVersion(manifest.Version)
 	if err != nil {
@@ -55,7 +55,7 @@ func BuildPlan(ctx context.Context, manifest Manifest, files, baseline []objects
 	}
 	p.CurrentRelease = state.Current
 	p.Objects = objects.Compare(files, baseline)
-	if manifest.Parent != "" && len(p.Objects) > len(files) {
+	if delta && len(p.Objects) > len(files) {
 		p.Objects = p.Objects[:len(files)]
 	}
 	if version.Schema < schema.Version {
@@ -85,19 +85,13 @@ func BuildPlan(ctx context.Context, manifest Manifest, files, baseline []objects
 		p.Blockers = append(p.Blockers, fmt.Sprintf("target Goose version %d has no migration file or applied record", version.Schema))
 	}
 	for _, row := range p.Objects {
-		if row.State == "missing" && manifest.Parent == "" {
+		if row.State == "missing" && !delta {
 			p.Blockers = append(p.Blockers, fmt.Sprintf("release omits object %s from the active manifest; object removal must be handled explicitly", row.Path))
 		}
 	}
 	for _, rollback := range state.Rollbacks {
 		if rollback.Status != "completed" {
 			p.Blockers = append(p.Blockers, fmt.Sprintf("rollback to %s is incomplete; retry rollback %s", rollback.TargetVersion, rollback.TargetVersion))
-		}
-	}
-	for _, record := range state.History {
-		if record.SchemaVersion > version.Schema || (record.SchemaVersion == version.Schema && record.Revision > version.Revision) {
-			p.Blockers = append(p.Blockers, fmt.Sprintf("release %s is older than recorded release %s; use rollback", manifest.Version, record.Version))
-			break
 		}
 	}
 	for _, record := range state.History {

@@ -45,9 +45,6 @@ func TestGitResolutionFailsBeforeDatabaseOpen(t *testing.T) {
 	}
 	for _, command := range [][]string{{"apply"}, {"plan"}, {"rollback", "30"}} {
 		prefix := []string{"-manifest", path}
-		if command[0] == "release" {
-			prefix = append(prefix, "-source-manifest", path)
-		}
 		args := append(prefix, command...)
 		err := run(context.Background(), args, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &bytes.Buffer{},
 			func(migrations.Config) (migrations.Engine, error) {
@@ -61,7 +58,7 @@ func TestGitResolutionFailsBeforeDatabaseOpen(t *testing.T) {
 	}
 }
 
-func TestReleaseCreateDeltaFromParentManifest(t *testing.T) {
+func TestReleaseCreateAppendsDeltaToHistory(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"a.sql", "b.sql"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("SELECT 1;"), 0600); err != nil {
@@ -72,12 +69,12 @@ func TestReleaseCreateDeltaFromParentManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parent := filepath.Join(dir, "release-1.json")
+	manifestPath := filepath.Join(dir, "release.json")
 	base, err := releases.New("1", files)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := base.Write(parent); err != nil {
+	if err := base.Write(manifestPath); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "a.sql"), []byte("SELECT 2;"), 0600); err != nil {
@@ -92,17 +89,16 @@ func TestReleaseCreateDeltaFromParentManifest(t *testing.T) {
 			t.Fatalf("git commit: %v %s", err, out)
 		}
 	}
-	target := filepath.Join(dir, "release-2.json")
 	var out bytes.Buffer
-	if err := run(context.Background(), []string{"-objects-dir", ".", "-parent-manifest", parent, "-manifest", target, "release", "create", "2"}, env(nil), &out, nil, nil); err != nil {
+	if err := run(context.Background(), []string{"-objects-dir", ".", "-manifest", manifestPath, "release", "create", "2"}, env(nil), &out, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := releases.Load(target)
-	if err != nil {
+	history, err := releases.LoadAll(manifestPath)
+	if err != nil || len(history) != 2 {
 		t.Fatal(err)
 	}
-	if manifest.Parent != "release-1.json" || len(manifest.Objects) != 2 {
-		t.Fatalf("delta=%+v", manifest)
+	if len(history[1].Objects) != 2 {
+		t.Fatalf("delta=%+v", history[1])
 	}
 }
 

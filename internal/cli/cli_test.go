@@ -75,7 +75,7 @@ func TestStatusResolvesCompleteManifestHistory(t *testing.T) {
 	if err := base.Write(path); err != nil {
 		t.Fatal(err)
 	}
-	delta := releases.Manifest{Version: "30.1", Parent: "30", Objects: []releases.Object{{Path: "a.sql", Commit: "latest"}}}
+	delta := releases.Manifest{Version: "30.1", Objects: []releases.Object{{Path: "a.sql", Commit: "latest"}}}
 	if err := releases.Append(path, delta); err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestConfigurationPrecedence(t *testing.T) {
 }
 
 func TestValidationBeforeOpeningDatabase(t *testing.T) {
-	for _, args := range [][]string{{"deploy"}, {"migration", "status"}, {"migration", "version"}, {"objects", "apply"}, {"mssql", "dsn", "apply"}, {"-unknown"}, {"-dir"}, {"migration", "up", "extra"}, {"migration", "up", "-dir", "custom"}} {
+	for _, args := range [][]string{{"deploy"}, {"migration", "status"}, {"migration", "version"}, {"objects", "apply"}, {"mssql", "dsn", "apply"}, {"-unknown"}, {"-parent-manifest", "old.json"}, {"-source-manifest", "old.json"}, {"-dir"}, {"migration", "up", "extra"}, {"migration", "up", "-dir", "custom"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			err := Run(context.Background(), args, env(nil), &bytes.Buffer{}, func(migrations.Config) (migrations.Engine, error) {
 				t.Fatal("opened database for invalid input")

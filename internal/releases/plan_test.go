@@ -31,7 +31,7 @@ func (s planObjects) Snapshot(context.Context, string) (objects.Snapshot, error)
 func TestPlanMigrationBoundaries(t *testing.T) {
 	manifest, _ := New("2", nil)
 	schema := planSchema{state: migrations.Inspection{Migrations: []migrations.Status{{Version: 3, State: "pending"}, {Version: 1, State: "pending"}, {Version: 2, State: "pending"}}}}
-	p, err := BuildPlan(context.Background(), manifest, nil, nil, schema, planObjects{})
+	p, err := BuildPlan(context.Background(), manifest, false, nil, nil, schema, planObjects{})
 	if err != nil || len(p.Blockers) != 0 {
 		t.Fatalf("%+v %v", p, err)
 	}
@@ -58,11 +58,10 @@ func TestPlanBlockers(t *testing.T) {
 		{name: "missing migration", want: "migration file", schema: migrations.Inspection{Version: 2, Migrations: []migrations.Status{{Version: 2, State: "missing"}}}, files: []objects.File{file}},
 		{name: "missing object", want: "omits object", schema: base, files: []objects.File{file}, baseline: []objects.File{{Path: "old.sql", Checksum: "old"}}},
 		{name: "rollback", want: "rollback to 2 is incomplete", schema: base, files: []objects.File{file}, db: planObjects{state: objects.Inspection{Rollbacks: []objects.Rollback{{TargetVersion: "2", Status: "failed"}}}}},
-		{name: "older revision", want: "older than recorded", schema: base, files: []objects.File{file}, db: planObjects{state: objects.Inspection{History: []objects.Release{{Version: "2.10", SchemaVersion: 2, Revision: 10}}}}},
 		{name: "immutable", want: "immutable", schema: base, files: []objects.File{file}, db: planObjects{state: objects.Inspection{History: []objects.Release{{Version: "2.1", SchemaVersion: 2, Revision: 1}}}, snapshot: objects.Snapshot{Objects: []objects.SnapshotObject{{Path: file.Path, Checksum: file.Checksum, SQL: "different SQL"}}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p, err := BuildPlan(context.Background(), manifest, tc.files, tc.baseline, planSchema{state: tc.schema}, tc.db)
+			p, err := BuildPlan(context.Background(), manifest, false, tc.files, tc.baseline, planSchema{state: tc.schema}, tc.db)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -77,13 +76,13 @@ func TestPlanUnchangedAndNumericRevision(t *testing.T) {
 	m, _ := New("2.10", nil)
 	db := planObjects{state: objects.Inspection{Current: "2.2", History: []objects.Release{{Version: "2.2", SchemaVersion: 2, Revision: 2}}}}
 	schema := planSchema{state: migrations.Inspection{Version: 2, Migrations: []migrations.Status{{Version: 2, State: "applied"}}}}
-	p, err := BuildPlan(context.Background(), m, nil, nil, schema, db)
+	p, err := BuildPlan(context.Background(), m, false, nil, nil, schema, db)
 	if err != nil || len(p.Blockers) != 0 {
 		t.Fatalf("%+v %v", p, err)
 	}
 	db.state.History = []objects.Release{{Version: "2.10", SchemaVersion: 2, Revision: 10}}
 	db.snapshot = objects.Snapshot{Release: objects.Release{Fingerprint: objects.Fingerprint(nil)}, Objects: []objects.SnapshotObject{}}
-	p, err = BuildPlan(context.Background(), m, nil, nil, schema, db)
+	p, err = BuildPlan(context.Background(), m, false, nil, nil, schema, db)
 	if err != nil || len(p.Blockers) != 0 || p.Migrations[0].Action != "applied" {
 		t.Fatalf("%+v %v", p, err)
 	}
@@ -92,7 +91,7 @@ func TestPlanUnchangedAndNumericRevision(t *testing.T) {
 func TestPlanInspectionFailure(t *testing.T) {
 	failure := errors.New("database unavailable")
 	m, _ := New("0", nil)
-	if _, err := BuildPlan(context.Background(), m, nil, nil, planSchema{err: failure}, planObjects{}); !errors.Is(err, failure) {
+	if _, err := BuildPlan(context.Background(), m, false, nil, nil, planSchema{err: failure}, planObjects{}); !errors.Is(err, failure) {
 		t.Fatalf("lost error: %v", err)
 	}
 }

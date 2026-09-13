@@ -46,7 +46,7 @@ func TestSQLServerManifestHistoryWorkflow(t *testing.T) {
 	writeView("2")
 	run("release", "create", "2.1")
 	history, err := releases.LoadAll(manifestPath)
-	if err != nil || len(history) != 2 || history[1].Parent != "2" || len(history[1].Objects) != 1 {
+	if err != nil || len(history) != 2 || len(history[1].Objects) != 1 {
 		t.Fatalf("history=%+v err=%v", history, err)
 	}
 	if output := run("plan"); !strings.Contains(output, "-> 2") {
@@ -63,7 +63,7 @@ func TestSQLServerManifestHistoryWorkflow(t *testing.T) {
 		t.Fatalf("repeat apply was not idempotent: %s", output)
 	}
 
-	// Forward deletion is derived from the manifest parent, without a database
+	// Forward deletion is derived from the preceding release, without a database
 	// object-checksum table.
 	extraPath := filepath.Join(workDir, "database", "objects", "views", "temporary.sql")
 	if err := os.WriteFile(extraPath, []byte("CREATE VIEW dbo.saxbase_temporary AS SELECT 1 AS value;\n"), 0600); err != nil {

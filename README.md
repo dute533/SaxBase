@@ -53,16 +53,16 @@ filename. Older releases remain available in the same file for rollback.
 
 Each object entry contains a path and either a full Git commit hash or `latest`.
 Full hashes make releases reproducible. `latest` reads the working tree and is
-useful for a standalone release in tests or projects without Git; appending a
+useful for an initial release in tests or projects without Git; appending a
 delta requires Git-backed references so previous contents remain available.
 
-For a later object revision, create a delta from its parent:
+For a later object revision, run `release create` again. SaxBase compares the
+working tree with the latest resolved state and appends only the changes:
 
 ```sh
-./saxbase -parent-manifest database/release-30.json \
-  -manifest database/release-30.1.json release create 30.1
-./saxbase -manifest database/release-30.1.json plan
-./saxbase -manifest database/release-30.1.json apply
+./saxbase release create 30.1
+./saxbase plan
+./saxbase apply
 ```
 
 Move entries in the manifest to put dependencies before their consumers. A release
@@ -70,17 +70,10 @@ version is immutable; use a new revision when SQL, paths, or order changes.
 
 ## Rollback
 
-With release history in the default manifest, roll back directly by version:
+Roll back directly to any earlier version in the manifest history:
 
 ```sh
 ./saxbase rollback 30
-```
-
-For separate legacy manifests, provide the target and active files:
-
-```sh
-./saxbase -manifest database/release-30.json \
-  -source-manifest database/release-30.1.json rollback 30
 ```
 
 Rollback restores historical objects and runs the required Goose Down migrations.

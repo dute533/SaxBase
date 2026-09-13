@@ -1,17 +1,21 @@
 {
-  "version": "2",
-  "objects": [
+  "releases": [
     {
-      "path": "examples/sqlserver/database/objects/functions/value.sql",
-      "commit": "788fd9d886ab992c2c34512412f933243bdfd4e5"
-    },
-    {
-      "path": "examples/sqlserver/database/objects/procedures/value.sql",
-      "commit": "788fd9d886ab992c2c34512412f933243bdfd4e5"
-    },
-    {
-      "path": "examples/sqlserver/database/objects/views/value.sql",
-      "commit": "788fd9d886ab992c2c34512412f933243bdfd4e5"
+      "version": "2",
+      "objects": [
+        {
+          "path": "examples/sqlserver/database/objects/functions/value.sql",
+          "commit": "788fd9d886ab992c2c34512412f933243bdfd4e5"
+        },
+        {
+          "path": "examples/sqlserver/database/objects/procedures/value.sql",
+          "commit": "788fd9d886ab992c2c34512412f933243bdfd4e5"
+        },
+        {
+          "path": "examples/sqlserver/database/objects/views/value.sql",
+          "commit": "788fd9d886ab992c2c34512412f933243bdfd4e5"
+        }
+      ]
     }
   ]
 }

@@ -31,7 +31,7 @@ func TestApplyCLI(t *testing.T) {
 		if err := manifest.Write(path); err != nil {
 			t.Fatal(err)
 		}
-		goose, db := &fakeEngine{}, &fakeObjects{}
+		goose, db := &fakeEngine{}, &fakeObjects{currentSet: true}
 		var out bytes.Buffer
 		err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
 			func(migrations.Config) (migrations.Engine, error) { return goose, nil },
@@ -59,7 +59,7 @@ func TestApplyAdvancesManifestHistoryAndIsIdempotent(t *testing.T) {
 	if err := base.Write(path); err != nil {
 		t.Fatal(err)
 	}
-	delta := releases.Manifest{Version: "30.1", Parent: "30", Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	delta := releases.Manifest{Version: "30.1", Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
 	if err := releases.Append(path, delta); err != nil {
 		t.Fatal(err)
 	}

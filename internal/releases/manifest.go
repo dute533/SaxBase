@@ -49,7 +49,6 @@ type Object struct {
 }
 type Manifest struct {
 	Version string   `json:"version"`
-	Parent  string   `json:"parent,omitempty"`
 	Objects []Object `json:"objects"`
 }
 
@@ -73,38 +72,23 @@ func Load(filename string) (Manifest, error) {
 	return releases[len(releases)-1], nil
 }
 
-// LoadAll reads both the legacy single-manifest format and the history format.
-// The returned manifests are ordered from oldest to newest.
+// LoadAll reads the release history from oldest to newest.
 func LoadAll(filename string) ([]Manifest, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
-	var fields map[string]json.RawMessage
-	if err := decodeExactly(data, &fields); err != nil {
+	var document manifestDocument
+	if err := decodeExactly(data, &document); err != nil {
 		return nil, fmt.Errorf("decode manifest: %w", err)
 	}
-	if _, ok := fields["releases"]; ok {
-		var document manifestDocument
-		if err := decodeExactly(data, &document); err != nil {
-			return nil, fmt.Errorf("decode manifest: %w", err)
-		}
-		if len(document.Releases) == 0 {
-			return nil, errors.New("manifest releases must be a nonempty array")
-		}
-		if err := validateHistory(document.Releases); err != nil {
-			return nil, err
-		}
-		return document.Releases, nil
+	if len(document.Releases) == 0 {
+		return nil, errors.New("manifest releases must be a nonempty array")
 	}
-	var m Manifest
-	if err := decodeExactly(data, &m); err != nil {
-		return nil, fmt.Errorf("decode manifest: %w", err)
-	}
-	if err := m.check(); err != nil {
+	if err := validateHistory(document.Releases); err != nil {
 		return nil, err
 	}
-	return []Manifest{m}, nil
+	return document.Releases, nil
 }
 
 // LoadVersion returns a specific release from a manifest file. An empty
@@ -144,6 +128,13 @@ func validateHistory(releases []Manifest) error {
 	for i, m := range releases {
 		if err := m.check(); err != nil {
 			return err
+		}
+		if i == 0 {
+			for _, object := range m.Objects {
+				if object.Delete {
+					return fmt.Errorf("first release cannot delete object %s", object.Path)
+				}
+			}
 		}
 		if seen[m.Version] {
 			return fmt.Errorf("duplicate release version %q", m.Version)
@@ -198,9 +189,6 @@ func (m Manifest) Validate(files []objects.File) error {
 	for _, file := range files {
 		sum, ok := expected[file.Path]
 		if !ok {
-			if m.Parent != "" {
-				continue
-			}
 			return fmt.Errorf("object not in manifest: %s", file.Path)
 		}
 		if sum != file.Commit {
@@ -216,12 +204,12 @@ func (m Manifest) Validate(files []objects.File) error {
 	return nil
 }
 
-// Write creates a new file exclusively; existing manifests are never overwritten.
+// Write creates a new one-release history exclusively.
 func (m Manifest) Write(filename string) error {
-	if err := m.check(); err != nil {
+	if err := validateHistory([]Manifest{m}); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(m, "", "  ")
+	data, err := json.MarshalIndent(manifestDocument{Releases: []Manifest{m}}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -233,20 +221,7 @@ func (m Manifest) Write(filename string) error {
 	return errors.Join(writeErr, file.Close())
 }
 
-// WriteReplace atomically replaces an existing manifest after validating it.
-func (m Manifest) WriteReplace(filename string) error {
-	if err := m.check(); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return err
-	}
-	return replaceManifestFile(filename, append(data, '\n'))
-}
-
-// Append adds a newer release to filename. A legacy single-manifest file is
-// converted to the history format on the first append.
+// Append adds a newer release to the history in filename.
 func Append(filename string, m Manifest) error {
 	if err := m.check(); err != nil {
 		return err
@@ -317,15 +292,15 @@ func (m Manifest) OrderedFiles(files []objects.File) ([]objects.File, error) {
 	return ordered, nil
 }
 
-// NewDelta creates a manifest containing only objects whose committed
-// definitions differ from the parent state. Removed objects retain their last
+// NewDelta creates a release containing only objects whose committed
+// definitions differ from the preceding state. Removed objects retain their last
 // commit so SaxBase can identify and drop the database object during apply.
-func NewDelta(version, parent string, current, previous []objects.File) (Manifest, error) {
+func NewDelta(version string, current, previous []objects.File) (Manifest, error) {
 	old := make(map[string]objects.File, len(previous))
 	for _, file := range previous {
 		old[file.Path] = file
 	}
-	m := Manifest{Version: version, Parent: parent, Objects: make([]Object, 0)}
+	m := Manifest{Version: version, Objects: make([]Object, 0)}
 	for _, file := range current {
 		before, ok := old[file.Path]
 		if !ok || before.Commit != file.Commit || before.Checksum != file.Checksum {

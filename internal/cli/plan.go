@@ -34,27 +34,30 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 	if err != nil {
 		return fmt.Errorf("inspect releases: %w", err)
 	}
-	selected, err := selectNextRelease(manifestPath, history, state.Current)
+	current, err := effectiveCurrent(history, state)
+	if err != nil {
+		return err
+	}
+	selected, err := selectNextRelease(history, current)
 	if err != nil {
 		return err
 	}
 	manifest, files := selected.manifest, selected.files
-	baseline, err := releaseBaseline(manifestPath, history, selected, state.Current)
+	baseline, err := releaseBaseline(history, current)
 	if err != nil {
 		return err
 	}
-	parentVersion, err := releases.ParentVersion(manifestPath, manifest)
+	plan, err := releases.BuildPlan(ctx, manifest, selected.delta, files, baseline, goose, db)
 	if err != nil {
 		return err
 	}
-	plan, err := releases.BuildPlan(ctx, manifest, files, baseline, goose, db)
-	if err != nil {
-		return err
+	if plan.CurrentRelease == "" {
+		plan.CurrentRelease = current
 	}
-	if parentVersion != "" && plan.CurrentRelease != parentVersion && plan.CurrentRelease != manifest.Version {
-		plan.Blockers = append(plan.Blockers, fmt.Sprintf("release %s must follow current release %s", manifest.Version, parentVersion))
+	if selected.previous != "" && plan.CurrentRelease != selected.previous && plan.CurrentRelease != manifest.Version {
+		plan.Blockers = append(plan.Blockers, fmt.Sprintf("release %s must follow current release %s", manifest.Version, selected.previous))
 	}
-	current := plan.CurrentRelease
+	current = plan.CurrentRelease
 	if current == "" {
 		current = "(unversioned)"
 	}

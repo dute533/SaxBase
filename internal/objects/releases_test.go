@@ -117,13 +117,13 @@ func TestReleaseIdentityAndOrdering(t *testing.T) {
 				definition += "\n"
 			}
 			fingerprint := Fingerprint([]File{objectFile(file.Path, definition)})
-			mock.ExpectQuery("SELECT id, fingerprint FROM dbo.saxbase_releases").WithArgs("30.2").WillReturnRows(sqlmock.NewRows([]string{"id", "fingerprint"}).AddRow(7, fingerprint))
-			if scenario != "changed" {
-				revision := int64(2)
-				if scenario == "older" {
-					revision = 10
-				}
-				mock.ExpectQuery("SELECT TOP.*schema_version, revision").WillReturnRows(sqlmock.NewRows([]string{"schema", "revision"}).AddRow(30, revision))
+			existing := sqlmock.NewRows([]string{"id", "fingerprint"})
+			if scenario != "older" {
+				existing.AddRow(7, fingerprint)
+			}
+			mock.ExpectQuery("SELECT id, fingerprint FROM dbo.saxbase_releases").WithArgs("30.2").WillReturnRows(existing)
+			if scenario == "older" {
+				mock.ExpectQuery("SELECT TOP.*schema_version, revision").WillReturnRows(sqlmock.NewRows([]string{"schema", "revision"}).AddRow(30, 10))
 			}
 			if scenario == "retry" {
 				mock.ExpectQuery("SELECT OBJECT_ID.*saxbase_releases").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
