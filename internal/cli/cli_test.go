@@ -114,7 +114,7 @@ func TestConfigurationPrecedence(t *testing.T) {
 }
 
 func TestValidationBeforeOpeningDatabase(t *testing.T) {
-	for _, args := range [][]string{{"deploy"}, {"migration", "status"}, {"migration", "version"}, {"objects", "apply"}, {"mssql", "dsn", "apply"}, {"-unknown"}, {"-dir"}, {"migration", "up", "extra"}, {"migration", "up", "-dir", "custom"}} {
+	for _, args := range [][]string{{"deploy"}, {"migration", "status"}, {"migration", "version"}, {"objects", "apply"}, {"mssql", "dsn", "apply"}, {"-unknown"}, {"-f", "plan"}, {"-force", "status"}, {"-dir"}, {"migration", "up", "extra"}, {"migration", "up", "-dir", "custom"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			err := Run(context.Background(), args, env(nil), &bytes.Buffer{}, func(migrations.Config) (migrations.Engine, error) {
 				t.Fatal("opened database for invalid input")

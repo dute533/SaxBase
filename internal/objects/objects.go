@@ -20,7 +20,7 @@ type File struct {
 }
 type Status struct{ Path, State, Checksum string }
 type Engine interface {
-	Apply(context.Context, []File, []File, int64, int64, migrations.Engine, func(context.Context) error) ([]Status, error)
+	Apply(context.Context, []File, []File, int64, int64, bool, migrations.Engine, func(context.Context) error) ([]Status, error)
 	History(context.Context) ([]Release, error)
 	Snapshot(context.Context, string) (Snapshot, error)
 	Rollback(context.Context, Snapshot, Snapshot, migrations.Engine) (Rollback, error)

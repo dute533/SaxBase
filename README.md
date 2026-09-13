@@ -77,6 +77,19 @@ recorded in a database is immutable; use a new revision when SQL, paths, or orde
 changes after deployment. Before deployment, rerun `release create` with the
 newest version to refresh that entry while leaving older releases unchanged.
 
+For an intentionally mutable development database, force the refreshed release:
+
+```sh
+./saxbase release create 30.1
+./saxbase -f apply
+```
+
+Force apply re-executes every object entry in the selected release and replaces
+its recorded fingerprint. It does not infer operations removed from the old
+release entry; ensuring that the refreshed delta produces the intended database
+state is the user's responsibility. Do not use force for shared or production
+databases.
+
 ## Rollback
 
 Roll back directly to any earlier version in the manifest history:

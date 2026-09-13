@@ -51,7 +51,7 @@ const releaseTables = `IF OBJECT_ID(N'dbo.saxbase_releases', N'U') IS NULL
  UNIQUE(schema_version,revision)
  );`
 
-func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, files []File) (int64, bool, error) {
+func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, files []File, force bool) (int64, bool, error) {
 	if _, err := tx.ExecContext(ctx, releaseTables); err != nil {
 		return 0, false, fmt.Errorf("initialize release history: %w", err)
 	}
@@ -62,8 +62,14 @@ func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, files []Fi
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return 0, false, err
 	}
-	if exists && fingerprint != Fingerprint(files) {
-		return 0, false, fmt.Errorf("release %s is immutable; use a new release version", release.Version)
+	requestedFingerprint := Fingerprint(files)
+	if exists && fingerprint != requestedFingerprint {
+		if !force {
+			return 0, false, fmt.Errorf("release %s is immutable; use a new release version or force a development rewrite", release.Version)
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE dbo.saxbase_releases SET fingerprint=@fingerprint WHERE id=@id", sql.Named("fingerprint", requestedFingerprint), sql.Named("id", id)); err != nil {
+			return 0, false, fmt.Errorf("rewrite release fingerprint: %w", err)
+		}
 	}
 	if exists {
 		return id, false, nil
@@ -78,18 +84,33 @@ func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, files []Fi
 		return 0, false, fmt.Errorf("release %s is older than the latest recorded release; use rollback %s", release.Version, release.Version)
 	}
 	err = tx.QueryRowContext(ctx, `INSERT INTO dbo.saxbase_releases(version,schema_version,revision,fingerprint)
- OUTPUT INSERTED.id VALUES(@version,@schema,@revision,@fingerprint);`, sql.Named("version", release.Version), sql.Named("schema", release.SchemaVersion), sql.Named("revision", release.Revision), sql.Named("fingerprint", Fingerprint(files))).Scan(&id)
+ OUTPUT INSERTED.id VALUES(@version,@schema,@revision,@fingerprint);`, sql.Named("version", release.Version), sql.Named("schema", release.SchemaVersion), sql.Named("revision", release.Revision), sql.Named("fingerprint", requestedFingerprint)).Scan(&id)
 	if err != nil {
 		return 0, false, fmt.Errorf("record release: %w", err)
 	}
 	return id, true, nil
 }
 
-// Fingerprint binds the ordered paths and exact SQL contents without retaining SQL.
+// Fingerprint binds the ordered operations, paths, and exact SQL contents without
+// retaining SQL. Commit IDs are deliberately excluded: identical release inputs
+// should have the same identity regardless of which Git commit supplied them.
 func Fingerprint(files []File) string {
-	entries := make([][2]string, 0, len(files))
+	type entry struct {
+		Operation string `json:"operation"`
+		Path      string `json:"path"`
+		SHA256    string `json:"sha256"`
+	}
+	entries := make([]entry, 0, len(files))
 	for _, file := range files {
-		entries = append(entries, [2]string{file.Path, fmt.Sprintf("%x", sha256.Sum256([]byte(file.SQL)))})
+		operation := "apply"
+		if file.Delete {
+			operation = "delete"
+		}
+		entries = append(entries, entry{
+			Operation: operation,
+			Path:      file.Path,
+			SHA256:    fmt.Sprintf("%x", sha256.Sum256([]byte(file.SQL))),
+		})
 	}
 	data, _ := json.Marshal(entries)
 	return fmt.Sprintf("%x", sha256.Sum256(data))

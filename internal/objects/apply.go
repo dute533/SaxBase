@@ -11,7 +11,7 @@ import (
 
 // Apply holds one session lock across preflight, Goose, and the object
 // transaction. Preflight must inspect the intended release without writing.
-func (s *store) Apply(ctx context.Context, files, baseline []File, schema, revision int64, goose migrations.Engine, preflight func(context.Context) error) (rows []Status, err error) {
+func (s *store) Apply(ctx context.Context, files, baseline []File, schema, revision int64, force bool, goose migrations.Engine, preflight func(context.Context) error) (rows []Status, err error) {
 	if schema < 0 || revision < 0 || preflight == nil {
 		return nil, errors.New("apply requires a valid release and preflight")
 	}
@@ -60,7 +60,7 @@ func (s *store) Apply(ctx context.Context, files, baseline []File, schema, revis
 	if revision > 0 {
 		version += fmt.Sprintf(".%d", revision)
 	}
-	rows, err = s.applyOn(ctx, conn, files, baseline, &Release{Version: version, SchemaVersion: schema, Revision: revision}, false)
+	rows, err = s.applyOn(ctx, conn, files, baseline, &Release{Version: version, SchemaVersion: schema, Revision: revision}, force, false)
 	if err != nil {
 		return nil, fmt.Errorf("apply objects at Goose version %d: %w; release success was not confirmed; completed Goose migrations remain, inspect the failure and retry apply", schema, err)
 	}

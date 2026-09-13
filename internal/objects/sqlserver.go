@@ -35,12 +35,12 @@ type transactionStarter interface {
 }
 
 func (s *store) apply(ctx context.Context, files, baseline []File, release *Release) ([]Status, error) {
-	return s.applyOn(ctx, s.db, files, baseline, release, true)
+	return s.applyOn(ctx, s.db, files, baseline, release, false, true)
 }
 
 // Apply uses its locked connection for the object transaction to avoid taking
 // the same application lock on a second session.
-func (s *store) applyOn(ctx context.Context, db transactionStarter, files, baseline []File, release *Release, acquireLock bool) ([]Status, error) {
+func (s *store) applyOn(ctx context.Context, db transactionStarter, files, baseline []File, release *Release, force, acquireLock bool) ([]Status, error) {
 	if err := validateFiles(files); err != nil {
 		return nil, err
 	}
@@ -80,13 +80,21 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files, basel
 	if release != nil && len(result) > len(files) {
 		result = result[:len(files)]
 	}
+	if force {
+		for i, file := range files {
+			result[i].State = "changed"
+			if file.Delete {
+				result[i].State = "deleted"
+			}
+		}
+	}
 	alreadyCurrent := false
 	if release != nil {
-		_, created, err := prepareRelease(ctx, tx, *release, files)
+		_, created, err := prepareRelease(ctx, tx, *release, files, force)
 		if err != nil {
 			return nil, err
 		}
-		if !created {
+		if !created && !force {
 			current, err := currentVersion(ctx, tx)
 			if err != nil {
 				return nil, err

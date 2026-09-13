@@ -140,6 +140,45 @@ func TestReleaseIdentityAndOrdering(t *testing.T) {
 	}
 }
 
+func TestForceApplyRewritesFingerprintAndEveryDeltaEntry(t *testing.T) {
+	s, mock := mockStore(t)
+	view := objectFile("view.sql", "CREATE OR ALTER VIEW dbo.current_view AS SELECT 2 AS n;")
+	removed := objectFile("removed.sql", "CREATE VIEW dbo.removed_view AS SELECT 1 AS n;")
+	removed.Delete = true
+	files := []File{view, removed}
+
+	expectReleaseStart(mock, 30)
+	mock.ExpectExec("IF OBJECT_ID.*saxbase_releases").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("SELECT id, fingerprint FROM dbo.saxbase_releases").WithArgs("30.1").WillReturnRows(
+		sqlmock.NewRows([]string{"id", "fingerprint"}).AddRow(7, Fingerprint([]File{objectFile("old.sql", "SELECT 1;")})),
+	)
+	mock.ExpectExec("UPDATE dbo.saxbase_releases SET fingerprint").WithArgs(Fingerprint(files), int64(7)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("CREATE OR ALTER VIEW dbo.current_view").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("DROP VIEW IF EXISTS.*removed_view").WillReturnResult(sqlmock.NewResult(0, 0))
+	expectCurrent(mock, "30.1")
+	mock.ExpectCommit()
+
+	rows, err := s.applyOn(context.Background(), s.db, files, nil, &Release{Version: "30.1", SchemaVersion: 30, Revision: 1}, true, true)
+	if err != nil || len(rows) != 2 || rows[0].State != "applied" || rows[1].State != "deleted" {
+		t.Fatalf("rows=%+v err=%v", rows, err)
+	}
+}
+
+func TestFingerprintIncludesOperationButNotCommit(t *testing.T) {
+	applied := objectFile("view.sql", "CREATE VIEW dbo.current_view AS SELECT 1 AS n;")
+	fromAnotherCommit := applied
+	fromAnotherCommit.Commit = "different-source-commit"
+	deleted := applied
+	deleted.Delete = true
+
+	if Fingerprint([]File{applied}) != Fingerprint([]File{fromAnotherCommit}) {
+		t.Fatal("commit metadata changed the release fingerprint")
+	}
+	if Fingerprint([]File{applied}) == Fingerprint([]File{deleted}) {
+		t.Fatal("apply and delete operations have the same release fingerprint")
+	}
+}
+
 func TestReleaseRechecksGooseVersionAndLock(t *testing.T) {
 	for _, scenario := range []string{"schema", "lock"} {
 		t.Run(scenario, func(t *testing.T) {

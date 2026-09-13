@@ -19,7 +19,8 @@ const usage = `SaxBase
 
 Usage:
   saxbase --version
-  saxbase [-manifest database/release.json] plan|apply|status
+  saxbase [-manifest database/release.json] plan|status
+  saxbase [-f] [-manifest database/release.json] apply
   saxbase rollback VERSION
   saxbase [-manifest database/release.json] release create VERSION
   saxbase [-manifest database/release.json] release validate
@@ -29,7 +30,7 @@ Commands:
   apply     Advance to the next manifest release, apply it, and record it
   status    Show Goose, release, and object state together
   rollback  Restore a recorded release using its manifest
-  release create VERSION  Append a release from current object files
+  release create VERSION  Add or refresh a release from current object files
   release validate        Check the manifest against current object files
 
 Environment:
@@ -43,6 +44,7 @@ Configuration:
   -dir PATH      Migration directory (default database/migrations)
   -objects-dir PATH  Object directory (default database/objects)
   -manifest PATH Release manifest (default database/release.json)
+  -f, -force     Rewrite and reapply the selected release (development only)
   -target NAME   Database target (defaults to default_target in config)
   -yes           Confirm database writes to targets requiring confirmation
   .env           Loaded from the working directory; environment takes precedence
@@ -76,8 +78,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	flags := flag.NewFlagSet("saxbase", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var dir, objectDir, manifestPath, configPath, target string
-	var yes, showVersion bool
+	var force, yes, showVersion bool
 	flags.BoolVar(&showVersion, "version", false, "print SaxBase CLI version")
+	flags.BoolVar(&force, "f", false, "rewrite and reapply the selected release")
+	flags.BoolVar(&force, "force", false, "rewrite and reapply the selected release")
 	flags.BoolVar(&yes, "yes", false, "confirm writes to protected targets")
 	flags.StringVar(&dir, "dir", "", "migration directory")
 	flags.StringVar(&objectDir, "objects-dir", "", "full-state object directory")
@@ -140,6 +144,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		})
 	}
 	pos := flags.Args()
+	if force && !(len(pos) == 1 && pos[0] == "apply") {
+		return errors.New("-f and -force only apply to the apply command")
+	}
 	if len(pos) > 0 && pos[0] == "rollback" {
 		if err := resolveTarget("rollback"); err != nil {
 			return err
@@ -172,7 +179,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		return errors.New("set GOOSE_DBSTRING or provide a connection string")
 	}
 	if command == "apply" {
-		return runApply(ctx, cfg, manifestPath, objectDir, out, open, openObjects)
+		return runApply(ctx, cfg, manifestPath, objectDir, force, out, open, openObjects)
 	}
 	if command == "plan" {
 		return runPlan(ctx, cfg, manifestPath, objectDir, out, open, openObjects)

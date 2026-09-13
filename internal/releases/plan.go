@@ -30,7 +30,7 @@ type ObjectInspector interface {
 	Snapshot(context.Context, string) (objects.Snapshot, error)
 }
 
-func BuildPlan(ctx context.Context, manifest Manifest, delta bool, files, baseline []objects.File, goose MigrationInspector, db ObjectInspector) (Plan, error) {
+func BuildPlan(ctx context.Context, manifest Manifest, delta, force bool, files, baseline []objects.File, goose MigrationInspector, db ObjectInspector) (Plan, error) {
 	p := Plan{TargetRelease: manifest.Version, Migrations: make([]MigrationPlan, 0), Blockers: make([]string, 0)}
 	version, err := ParseVersion(manifest.Version)
 	if err != nil {
@@ -100,7 +100,7 @@ func BuildPlan(ctx context.Context, manifest Manifest, delta bool, files, baseli
 			if err != nil {
 				return p, fmt.Errorf("inspect release fingerprint: %w", err)
 			}
-			if !matchesSnapshot(snapshot, files) {
+			if !force && !matchesSnapshot(snapshot, files) {
 				p.Blockers = append(p.Blockers, fmt.Sprintf("release %s is immutable: the object order, set, or definitions differ", manifest.Version))
 			}
 			break

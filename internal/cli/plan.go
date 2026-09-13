@@ -47,7 +47,7 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 	if err != nil {
 		return err
 	}
-	plan, err := releases.BuildPlan(ctx, manifest, selected.delta, files, baseline, goose, db)
+	plan, err := releases.BuildPlan(ctx, manifest, selected.delta, false, files, baseline, goose, db)
 	if err != nil {
 		return err
 	}

@@ -177,6 +177,21 @@ version to rebuild its entry from the current committed object files. Older
 entries remain unchanged. If that version was already recorded in a database,
 its stored fingerprint still prevents a changed definition from being applied.
 
+To deliberately rewrite that recorded release in a disposable development
+database, use force after refreshing it:
+
+```sh
+./saxbase release create 30.1
+./saxbase -f apply
+```
+
+`-f` (or `-force`) re-executes every object entry in the selected release and
+atomically replaces its recorded fingerprint. Other deployment blockers remain
+active. Force does not infer definitions or deletion operations that disappeared
+when the release entry was refreshed, so the user is responsible for ensuring
+the resulting database matches a fresh deployment. Never force a shared or
+production database.
+
 To prepend a delta containing only changes from the latest release:
 
 ```sh

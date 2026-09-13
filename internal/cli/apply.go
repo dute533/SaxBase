@@ -13,7 +13,7 @@ import (
 	"saxbase/internal/releases"
 )
 
-func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDir string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {
+func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDir string, force bool, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {
 	if manifestPath == "" {
 		manifestPath = "database/release.json"
 	}
@@ -52,8 +52,8 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 	if err != nil {
 		return err
 	}
-	rows, err := db.Apply(ctx, files, baseline, version.Schema, version.Revision, goose, func(ctx context.Context) error {
-		plan, err := releases.BuildPlan(ctx, manifest, selected.delta, files, baseline, goose, db)
+	rows, err := db.Apply(ctx, files, baseline, version.Schema, version.Revision, force, goose, func(ctx context.Context) error {
+		plan, err := releases.BuildPlan(ctx, manifest, selected.delta, force, files, baseline, goose, db)
 		if err != nil {
 			return err
 		}
@@ -73,7 +73,11 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 		return err
 	}
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(w, "Applied release %s (Goose %d)\nSTATE\tFILE\tSHA256\n", manifest.Version, version.Schema)
+	action := "Applied"
+	if force {
+		action = "Force-applied"
+	}
+	fmt.Fprintf(w, "%s release %s (Goose %d)\nSTATE\tFILE\tSHA256\n", action, manifest.Version, version.Schema)
 	for _, row := range rows {
 		fmt.Fprintf(w, "%s\t%s\t%s\n", row.State, row.Path, row.Checksum)
 	}

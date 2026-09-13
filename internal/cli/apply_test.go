@@ -80,3 +80,23 @@ func TestApplyAdvancesManifestHistoryAndIsIdempotent(t *testing.T) {
 	apply("30.1")
 	apply("30.1")
 }
+
+func TestForceApplyReappliesCurrentRelease(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 1;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "release.json")
+	manifest := releases.Manifest{Version: "30", Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	if err := manifest.Write(path); err != nil {
+		t.Fatal(err)
+	}
+	db := &fakeObjects{}
+	var out bytes.Buffer
+	err := run(context.Background(), []string{"-f", "-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
+		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
+		func(string) (objects.Engine, error) { return db, nil })
+	if err != nil || !db.force || !strings.Contains(out.String(), "Force-applied release 30") {
+		t.Fatalf("force apply: err=%v force=%v output=%s", err, db.force, out.String())
+	}
+}
