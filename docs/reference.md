@@ -214,9 +214,11 @@ manifest and commits must still be available. Fix any failed
 deployment before requesting a rollback; rollback is for returning from a
 recorded release to an earlier one.
 
-SaxBase resolves object state from release manifests and stores only release
-history and rollback progress in its `dbo` metadata tables. Goose stores its
-migration version in `goose_db_version`.
+SaxBase resolves object state from release manifests. Its
+`dbo.saxbase_releases` table stores only the canonical release `version`, its
+`fingerprint`, and the `is_current` marker; schema and revision numbers are
+derived from the version when needed. Rollback progress uses a separate `dbo`
+metadata table. Goose stores its migration version in `goose_db_version`.
 
 ## Development
 

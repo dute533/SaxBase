@@ -43,7 +43,7 @@ func TestApplyCLI(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "apply blocked") || db.command != "inspect" {
 				t.Fatalf("blocked apply: %v %+v", err, db)
 			}
-		} else if err != nil || db.schema != 30 || db.revision != 2 || !strings.Contains(out.String(), "Applied release 30.2") {
+		} else if err != nil || db.version != "30.2" || !strings.Contains(out.String(), "Applied release 30.2") {
 			t.Fatalf("apply: %v %+v %s", err, db, out.String())
 		}
 	}

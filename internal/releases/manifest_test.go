@@ -14,7 +14,7 @@ func TestVersions(t *testing.T) {
 	for _, test := range []struct {
 		value string
 		want  Version
-	}{{"0", Version{}}, {"30", Version{Schema: 30}}, {"30.10", Version{30, 10}}, {"9223372036854775807.1", Version{9223372036854775807, 1}}} {
+	}{{"0", Version{}}, {"30", Version{Schema: 30}}, {"30.10", Version{Schema: 30, Revision: 10}}, {"9223372036854775807.1", Version{Schema: 9223372036854775807, Revision: 1}}} {
 		got, err := ParseVersion(test.value)
 		if err != nil || got != test.want {
 			t.Fatalf("%s: %+v %v", test.value, got, err)

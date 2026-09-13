@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"fmt"
 
 	"saxbase/internal/migrations"
 	"saxbase/internal/objects"
@@ -14,8 +13,7 @@ type fakeObjects struct {
 	closed         bool
 	err            error
 	rollbackErr    error
-	schema         int64
-	revision       int64
+	version        string
 	current        string
 	currentSet     bool
 	rollbackSource string
@@ -52,25 +50,22 @@ func (f *fakeObjects) Current(context.Context) (string, error) {
 
 func (f *fakeObjects) History(context.Context) ([]objects.Release, error) {
 	f.command = "history"
-	return []objects.Release{{Version: "30.1", SchemaVersion: 30, Revision: 1}}, f.err
+	return []objects.Release{{Version: "30.1"}}, f.err
 }
 func (f *fakeObjects) Snapshot(_ context.Context, version string) (objects.Snapshot, error) {
 	f.command = "show"
 	return objects.Snapshot{Release: objects.Release{Version: version}, Objects: []objects.SnapshotObject{{Path: "view.sql", SQL: "SELECT 1;"}}}, f.err
 }
 
-func (f *fakeObjects) Apply(ctx context.Context, files, _ []objects.File, schema, revision int64, force bool, goose migrations.Engine, preflight func(context.Context) error) ([]objects.Status, error) {
+func (f *fakeObjects) Apply(ctx context.Context, files, _ []objects.File, version string, force bool, goose migrations.Engine, preflight func(context.Context) error) ([]objects.Status, error) {
 	if err := preflight(ctx); err != nil {
 		return nil, err
 	}
 	f.command = "apply"
 	f.files = files
 	f.force = force
-	f.schema, f.revision = schema, revision
+	f.version = version
 	f.currentSet = true
-	f.current = fmt.Sprint(schema)
-	if revision > 0 {
-		f.current += fmt.Sprintf(".%d", revision)
-	}
+	f.current = version
 	return []objects.Status{{Path: files[0].Path, State: "applied", Checksum: files[0].Checksum}}, f.err
 }

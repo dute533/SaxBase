@@ -228,7 +228,11 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("EXEC dbo.saxbase_get_value", 1)
 	assertCount("SELECT dbo.saxbase_function()", 1)
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_objects')", 0)
-	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='2' AND schema_version=2 AND revision=0", 1)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='2'", 1)
+	assertCount("SELECT COUNT(*) FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.saxbase_releases')", 3)
+	assertCount("SELECT COUNT(*) FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.saxbase_releases') AND name IN (N'version',N'fingerprint',N'is_current')", 3)
+	assertCount("SELECT COUNT(*) FROM sys.indexes i JOIN sys.index_columns ic ON ic.object_id=i.object_id AND ic.index_id=i.index_id JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id WHERE i.object_id=OBJECT_ID(N'dbo.saxbase_releases') AND i.is_primary_key=1 AND c.name=N'version'", 1)
+	assertCount("SELECT COUNT(*) FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.saxbase_releases') AND name=N'UX_saxbase_releases_current' AND is_unique=1 AND has_filter=1", 1)
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_release_objects'", 0)
 	var originalFingerprint string
 	if err := db.QueryRowContext(ctx, "SELECT fingerprint FROM dbo.saxbase_releases WHERE version='2'").Scan(&originalFingerprint); err != nil {
@@ -263,7 +267,7 @@ func TestSQLServerMigration(t *testing.T) {
 	}
 	assertCount("SELECT value FROM dbo.saxbase_value", 2)
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_objects')", 0)
-	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='2.1' AND schema_version=2 AND revision=1", 1)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='2.1'", 1)
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_release_objects'", 0)
 	if output := run("plan"); !strings.Contains(output, "Ready:") || strings.Count(output, "unchanged") != 1 {
 		t.Fatalf("unchanged plan: %s", output)

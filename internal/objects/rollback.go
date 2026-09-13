@@ -9,6 +9,7 @@ import (
 
 	"saxbase/internal/deploymentlock"
 	"saxbase/internal/migrations"
+	"saxbase/internal/releaseversion"
 )
 
 type Rollback struct {
@@ -62,6 +63,14 @@ func (s *store) Rollbacks(ctx context.Context) ([]Rollback, error) {
 
 func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose migrations.Engine) (result Rollback, err error) {
 	version := target.Version
+	targetNumber, err := releaseversion.Parse(target.Version)
+	if err != nil {
+		return result, err
+	}
+	sourceNumber, err := releaseversion.Parse(source.Version)
+	if err != nil {
+		return result, err
+	}
 	targetFiles, targetIDs, err := snapshotFiles(target)
 	if err != nil {
 		return result, err
@@ -80,7 +89,7 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 		if err != nil {
 			return result, err
 		}
-		if recorded.Fingerprint == "" || recorded.Fingerprint != supplied.Fingerprint || recorded.SchemaVersion != supplied.SchemaVersion || recorded.Revision != supplied.Revision {
+		if recorded.Fingerprint == "" || recorded.Fingerprint != supplied.Fingerprint {
 			return result, fmt.Errorf("manifest for release %s does not match its recorded fingerprint", supplied.Version)
 		}
 	}
@@ -108,7 +117,7 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 	if source.Version != sourceVersion {
 		return result, fmt.Errorf("source manifest must describe release %s", sourceVersion)
 	}
-	if target.SchemaVersion > source.SchemaVersion || (target.SchemaVersion == source.SchemaVersion && target.Revision > source.Revision) {
+	if releaseversion.Compare(targetNumber, sourceNumber) > 0 {
 		return result, errors.New("rollback target is newer than the current release")
 	}
 	targetByName := map[string]identity{}
@@ -124,14 +133,14 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 	if err != nil {
 		return result, err
 	}
-	if !resuming && current != source.SchemaVersion {
+	if !resuming && current != sourceNumber.Schema {
 		return result, fmt.Errorf("Goose version %d does not match current release %s", current, sourceVersion)
 	}
-	if current < target.SchemaVersion || current > source.SchemaVersion {
-		return result, fmt.Errorf("Goose version %d is outside rollback range %d..%d", current, target.SchemaVersion, source.SchemaVersion)
+	if current < targetNumber.Schema || current > sourceNumber.Schema {
+		return result, fmt.Errorf("Goose version %d is outside rollback range %d..%d", current, targetNumber.Schema, sourceNumber.Schema)
 	}
-	if current > target.SchemaVersion {
-		if err := goose.ValidateDownTo(ctx, target.SchemaVersion); err != nil {
+	if current > targetNumber.Schema {
+		if err := goose.ValidateDownTo(ctx, targetNumber.Schema); err != nil {
 			return result, fmt.Errorf("rollback preflight: %w", err)
 		}
 	}
@@ -171,7 +180,7 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 		}
 		return nil
 	}
-	if source.SchemaVersion != target.SchemaVersion {
+	if sourceNumber.Schema != targetNumber.Schema {
 		if result.Phase == "started" {
 			err = rollbackTransaction(ctx, conn, func(tx *sql.Tx) error {
 				if err := dropExtra(tx); err != nil {
@@ -185,8 +194,8 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 			}
 			result.Phase = "objects_removed"
 		}
-		if current > target.SchemaVersion {
-			if err := goose.DownTo(ctx, target.SchemaVersion); err != nil {
+		if current > targetNumber.Schema {
+			if err := goose.DownTo(ctx, targetNumber.Schema); err != nil {
 				return result, fmt.Errorf("Goose rollback may be partially applied; repair the migration and retry rollback %s: %w", version, err)
 			}
 		}
@@ -196,7 +205,7 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 		result.Phase = "schema_rolled_back"
 	}
 	err = rollbackTransaction(ctx, conn, func(tx *sql.Tx) error {
-		if err := checkReleaseSchema(ctx, tx, target.SchemaVersion); err != nil {
+		if err := checkReleaseSchema(ctx, tx, targetNumber.Schema); err != nil {
 			return err
 		}
 		// Always restore the SQL resolved from the target manifest commits.
@@ -215,7 +224,7 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 		return err
 	})
 	if err != nil {
-		return result, fmt.Errorf("restore failed; schema may already be at %d; retry rollback %s after resolving the error: %w", target.SchemaVersion, version, err)
+		return result, fmt.Errorf("restore failed; schema may already be at %d; retry rollback %s after resolving the error: %w", targetNumber.Schema, version, err)
 	}
 	result.Phase = "restored"
 	result.Status = "completed"

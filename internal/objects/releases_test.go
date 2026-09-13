@@ -36,11 +36,11 @@ func expectReleaseStart(mock sqlmock.Sqlmock, schema int64) {
 	mock.ExpectQuery(`SELECT MAX\(version_id\) FROM goose_db_version`).WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow(schema))
 }
 
-func expectNewRelease(mock sqlmock.Sqlmock, version string, schema, revision int64, _ int) {
+func expectNewRelease(mock sqlmock.Sqlmock, version string) {
 	mock.ExpectExec("IF OBJECT_ID.*saxbase_releases").WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectQuery("SELECT id, fingerprint FROM dbo.saxbase_releases").WithArgs(version).WillReturnRows(sqlmock.NewRows([]string{"id"}))
-	mock.ExpectQuery("SELECT TOP.*schema_version, revision").WillReturnRows(sqlmock.NewRows([]string{"schema", "revision"}))
-	mock.ExpectQuery("INSERT INTO dbo.saxbase_releases").WithArgs(version, schema, revision, sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(7))
+	mock.ExpectQuery("SELECT fingerprint FROM dbo.saxbase_releases").WithArgs(version).WillReturnRows(sqlmock.NewRows([]string{"fingerprint"}))
+	mock.ExpectQuery("SELECT version FROM dbo.saxbase_releases").WillReturnRows(sqlmock.NewRows([]string{"version"}))
+	mock.ExpectExec("INSERT INTO dbo.saxbase_releases").WithArgs(version, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
 }
 
 func expectObjectApply(mock sqlmock.Sqlmock, file File) {
@@ -52,11 +52,11 @@ func TestReleaseCommitsFingerprintWithoutSQLSnapshot(t *testing.T) {
 	files := []File{objectFile("a.sql", "CREATE OR ALTER VIEW dbo.a AS SELECT N'Grüße' AS n;\r\n"), objectFile("b.sql", "CREATE OR ALTER VIEW dbo.b AS SELECT 2 AS n;")}
 	// The second file is already deployed but remains part of release identity.
 	expectReleaseStart(mock, 30)
-	expectNewRelease(mock, "30.1", 30, 1, 2)
+	expectNewRelease(mock, "30.1")
 	expectObjectApply(mock, files[0])
 	expectCurrent(mock, "30.1")
 	mock.ExpectCommit()
-	rows, err := s.apply(context.Background(), files, files[1:], &Release{Version: "30.1", SchemaVersion: 30, Revision: 1})
+	rows, err := s.apply(context.Background(), files, files[1:], &Release{Version: "30.1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestReleaseRollsBackOnObjectOrCommitFailure(t *testing.T) {
 			s, mock := mockStore(t)
 			file := objectFile("a.sql", "CREATE OR ALTER VIEW dbo.a AS SELECT 1 AS n;")
 			expectReleaseStart(mock, 30)
-			expectNewRelease(mock, "30", 30, 0, 1)
+			expectNewRelease(mock, "30")
 			object := mock.ExpectExec("CREATE OR ALTER VIEW")
 			if phase == "object" {
 				object.WillReturnError(failure)
@@ -85,7 +85,7 @@ func TestReleaseRollsBackOnObjectOrCommitFailure(t *testing.T) {
 			} else {
 				mock.ExpectRollback()
 			}
-			rows, err := s.apply(context.Background(), []File{file}, nil, &Release{Version: "30", SchemaVersion: 30})
+			rows, err := s.apply(context.Background(), []File{file}, nil, &Release{Version: "30"})
 			if !errors.Is(err, failure) || rows != nil {
 				t.Fatalf("result=%v error=%v", rows, err)
 			}
@@ -106,17 +106,17 @@ func TestReleaseIdentityAndOrdering(t *testing.T) {
 				definition += "\n"
 			}
 			fingerprint := Fingerprint([]File{objectFile(file.Path, definition)})
-			existing := sqlmock.NewRows([]string{"id", "fingerprint"})
+			existing := sqlmock.NewRows([]string{"fingerprint"})
 			if scenario != "older" {
-				existing.AddRow(7, fingerprint)
+				existing.AddRow(fingerprint)
 			}
-			mock.ExpectQuery("SELECT id, fingerprint FROM dbo.saxbase_releases").WithArgs("30.2").WillReturnRows(existing)
+			mock.ExpectQuery("SELECT fingerprint FROM dbo.saxbase_releases").WithArgs("30.2").WillReturnRows(existing)
 			if scenario == "older" {
-				mock.ExpectQuery("SELECT TOP.*schema_version, revision").WillReturnRows(sqlmock.NewRows([]string{"schema", "revision"}).AddRow(30, 10))
+				mock.ExpectQuery("SELECT version FROM dbo.saxbase_releases").WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow("30.10"))
 			}
 			if scenario == "retry" {
 				mock.ExpectQuery("SELECT OBJECT_ID.*saxbase_releases").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-				mock.ExpectQuery("SELECT TOP.*version FROM dbo.saxbase_releases WHERE is_current=1").WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow("30.2"))
+				mock.ExpectQuery("SELECT version FROM dbo.saxbase_releases WHERE is_current=1").WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow("30.2"))
 				expectCurrent(mock, "30.2")
 				mock.ExpectCommit()
 			} else {
@@ -126,7 +126,7 @@ func TestReleaseIdentityAndOrdering(t *testing.T) {
 			if scenario != "retry" {
 				baseline = []File{file}
 			}
-			rows, err := s.apply(context.Background(), []File{file}, baseline, &Release{Version: "30.2", SchemaVersion: 30, Revision: 2})
+			rows, err := s.apply(context.Background(), []File{file}, baseline, &Release{Version: "30.2"})
 			if scenario == "retry" {
 				if err != nil || rows[0].State != "unchanged" {
 					t.Fatalf("retry: %v %v", rows, err)
@@ -149,16 +149,16 @@ func TestForceApplyRewritesFingerprintAndEveryDeltaEntry(t *testing.T) {
 
 	expectReleaseStart(mock, 30)
 	mock.ExpectExec("IF OBJECT_ID.*saxbase_releases").WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectQuery("SELECT id, fingerprint FROM dbo.saxbase_releases").WithArgs("30.1").WillReturnRows(
-		sqlmock.NewRows([]string{"id", "fingerprint"}).AddRow(7, Fingerprint([]File{objectFile("old.sql", "SELECT 1;")})),
+	mock.ExpectQuery("SELECT fingerprint FROM dbo.saxbase_releases").WithArgs("30.1").WillReturnRows(
+		sqlmock.NewRows([]string{"fingerprint"}).AddRow(Fingerprint([]File{objectFile("old.sql", "SELECT 1;")})),
 	)
-	mock.ExpectExec("UPDATE dbo.saxbase_releases SET fingerprint").WithArgs(Fingerprint(files), int64(7)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE dbo.saxbase_releases SET fingerprint").WithArgs(Fingerprint(files), "30.1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("CREATE OR ALTER VIEW dbo.current_view").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec("DROP VIEW IF EXISTS.*removed_view").WillReturnResult(sqlmock.NewResult(0, 0))
 	expectCurrent(mock, "30.1")
 	mock.ExpectCommit()
 
-	rows, err := s.applyOn(context.Background(), s.db, files, nil, &Release{Version: "30.1", SchemaVersion: 30, Revision: 1}, true, true)
+	rows, err := s.applyOn(context.Background(), s.db, files, nil, &Release{Version: "30.1"}, true, true)
 	if err != nil || len(rows) != 2 || rows[0].State != "applied" || rows[1].State != "deleted" {
 		t.Fatalf("rows=%+v err=%v", rows, err)
 	}
@@ -194,7 +194,7 @@ func TestReleaseRechecksGooseVersionAndLock(t *testing.T) {
 				mock.ExpectQuery(`SELECT MAX\(version_id\) FROM goose_db_version`).WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow(31))
 			}
 			mock.ExpectRollback()
-			if _, err := s.apply(context.Background(), nil, nil, &Release{Version: "30.1", SchemaVersion: 30, Revision: 1}); err == nil {
+			if _, err := s.apply(context.Background(), nil, nil, &Release{Version: "30.1"}); err == nil {
 				t.Fatal("guard failed")
 			}
 		})
@@ -218,11 +218,33 @@ func TestReleaseHistoryBeforeFirstDeployment(t *testing.T) {
 	}
 }
 
+func TestReleaseHistoryUsesNumericVersionOrder(t *testing.T) {
+	s, mock := mockStore(t)
+	mock.ExpectQuery("SELECT OBJECT_ID.*saxbase_releases").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	mock.ExpectQuery("SELECT version FROM dbo.saxbase_releases").WillReturnRows(
+		sqlmock.NewRows([]string{"version"}).AddRow("2.2").AddRow("10").AddRow("2.10").AddRow("2"),
+	)
+
+	history, err := s.History(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"10", "2.10", "2.2", "2"}
+	if len(history) != len(want) {
+		t.Fatalf("history=%+v", history)
+	}
+	for i := range want {
+		if history[i].Version != want[i] {
+			t.Fatalf("history[%d]=%s, want %s", i, history[i].Version, want[i])
+		}
+	}
+}
+
 func TestStoredReleaseMetadata(t *testing.T) {
 	s, mock := mockStore(t)
 	file := objectFile("a.sql", "SELECT N'Grüße';\r\n")
 	mock.ExpectQuery("SELECT OBJECT_ID.*saxbase_releases").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-	mock.ExpectQuery("SELECT id, version, schema_version").WithArgs("30.1").WillReturnRows(sqlmock.NewRows([]string{"id", "version", "schema", "revision", "fingerprint"}).AddRow(7, "30.1", 30, 1, Fingerprint([]File{file})))
+	mock.ExpectQuery("SELECT version, fingerprint").WithArgs("30.1").WillReturnRows(sqlmock.NewRows([]string{"version", "fingerprint"}).AddRow("30.1", Fingerprint([]File{file})))
 
 	snapshot, err := s.Snapshot(context.Background(), "30.1")
 	if err != nil {
@@ -236,11 +258,11 @@ func TestStoredReleaseMetadata(t *testing.T) {
 func TestInvalidReleaseInput(t *testing.T) {
 	s, _ := mockStore(t)
 	file := objectFile("a.sql", "SELECT 1;")
-	if _, err := s.apply(context.Background(), []File{file, file}, nil, &Release{Version: "30.1", SchemaVersion: 30, Revision: 1}); err == nil {
+	if _, err := s.apply(context.Background(), []File{file, file}, nil, &Release{Version: "30.1"}); err == nil {
 		t.Fatal("duplicate accepted")
 	}
 	file.Checksum = "bad"
-	if _, err := s.apply(context.Background(), []File{file}, nil, &Release{Version: "30.1", SchemaVersion: 30, Revision: 1}); err == nil {
+	if _, err := s.apply(context.Background(), []File{file}, nil, &Release{Version: "30.1"}); err == nil {
 		t.Fatal("incorrect checksum accepted")
 	}
 }

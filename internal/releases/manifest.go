@@ -12,34 +12,18 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"saxbase/internal/objects"
+	"saxbase/internal/releaseversion"
 )
 
-var versionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)(\.([1-9][0-9]*))?$`)
 var commitPattern = regexp.MustCompile(`^(latest|[0-9a-f]{40}|[0-9a-f]{64})$`)
 
-type Version struct{ Schema, Revision int64 }
+type Version = releaseversion.Version
 
 func ParseVersion(value string) (Version, error) {
-	if !versionPattern.MatchString(value) {
-		return Version{}, fmt.Errorf("invalid release version %q: expected 30 or 30.1", value)
-	}
-	parts := strings.Split(value, ".")
-	schema, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
-		return Version{}, fmt.Errorf("schema version out of range: %w", err)
-	}
-	var revision int64
-	if len(parts) == 2 {
-		revision, err = strconv.ParseInt(parts[1], 10, 64)
-		if err != nil {
-			return Version{}, fmt.Errorf("release revision out of range: %w", err)
-		}
-	}
-	return Version{Schema: schema, Revision: revision}, nil
+	return releaseversion.Parse(value)
 }
 
 type Object struct {

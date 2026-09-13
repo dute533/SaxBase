@@ -19,7 +19,7 @@ func currentVersion(ctx context.Context, db reader) (string, error) {
 		return "", err
 	}
 	var version sql.NullString
-	err = db.QueryRowContext(ctx, "SELECT TOP (1) version FROM dbo.saxbase_releases WHERE is_current=1 ORDER BY schema_version DESC, revision DESC").Scan(&version)
+	err = db.QueryRowContext(ctx, "SELECT version FROM dbo.saxbase_releases WHERE is_current=1").Scan(&version)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}

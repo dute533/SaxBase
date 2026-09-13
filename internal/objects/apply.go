@@ -7,12 +7,14 @@ import (
 
 	"saxbase/internal/deploymentlock"
 	"saxbase/internal/migrations"
+	"saxbase/internal/releaseversion"
 )
 
 // Apply holds one session lock across preflight, Goose, and the object
 // transaction. Preflight must inspect the intended release without writing.
-func (s *store) Apply(ctx context.Context, files, baseline []File, schema, revision int64, force bool, goose migrations.Engine, preflight func(context.Context) error) (rows []Status, err error) {
-	if schema < 0 || revision < 0 || preflight == nil {
+func (s *store) Apply(ctx context.Context, files, baseline []File, version string, force bool, goose migrations.Engine, preflight func(context.Context) error) (rows []Status, err error) {
+	parsed, parseErr := releaseversion.Parse(version)
+	if parseErr != nil || preflight == nil {
 		return nil, errors.New("apply requires a valid release and preflight")
 	}
 	if err := validateFiles(files); err != nil {
@@ -36,16 +38,16 @@ func (s *store) Apply(ctx context.Context, files, baseline []File, schema, revis
 	if err != nil {
 		return nil, err
 	}
-	if inspection.Version > schema {
+	if inspection.Version > parsed.Schema {
 		return nil, errors.New("apply cannot downgrade the schema; use rollback")
 	}
-	if inspection.Version < schema {
+	if inspection.Version < parsed.Schema {
 		// Invalidate before Goose: even a failed nontransactional migration can
 		// change the database without advancing its recorded schema version.
 		if err := deploymentlock.Invalidate(ctx, conn); err != nil {
 			return nil, err
 		}
-		if err := goose.UpTo(ctx, schema); err != nil {
+		if err := goose.UpTo(ctx, parsed.Schema); err != nil {
 			return nil, fmt.Errorf("apply migrations: %w; completed migrations remain, fix the failure and retry apply", err)
 		}
 	}
@@ -53,16 +55,12 @@ func (s *store) Apply(ctx context.Context, files, baseline []File, schema, revis
 	if err != nil {
 		return nil, err
 	}
-	if actual != schema {
-		return nil, fmt.Errorf("apply expected Goose version %d, got %d", schema, actual)
+	if actual != parsed.Schema {
+		return nil, fmt.Errorf("apply expected Goose version %d, got %d", parsed.Schema, actual)
 	}
-	version := fmt.Sprint(schema)
-	if revision > 0 {
-		version += fmt.Sprintf(".%d", revision)
-	}
-	rows, err = s.applyOn(ctx, conn, files, baseline, &Release{Version: version, SchemaVersion: schema, Revision: revision}, force, false)
+	rows, err = s.applyOn(ctx, conn, files, baseline, &Release{Version: version}, force, false)
 	if err != nil {
-		return nil, fmt.Errorf("apply objects at Goose version %d: %w; release success was not confirmed; completed Goose migrations remain, inspect the failure and retry apply", schema, err)
+		return nil, fmt.Errorf("apply objects at Goose version %d: %w; release success was not confirmed; completed Goose migrations remain, inspect the failure and retry apply", parsed.Schema, err)
 	}
 	return rows, nil
 }

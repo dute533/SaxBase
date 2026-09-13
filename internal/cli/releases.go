@@ -260,8 +260,7 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 }
 
 func releaseSnapshot(release resolvedRelease) objects.Snapshot {
-	v, _ := releases.ParseVersion(release.manifest.Version)
-	result := objects.Snapshot{Release: objects.Release{Version: release.manifest.Version, SchemaVersion: v.Schema, Revision: v.Revision, Fingerprint: objects.Fingerprint(release.files)}}
+	result := objects.Snapshot{Release: objects.Release{Version: release.manifest.Version, Fingerprint: objects.Fingerprint(release.files)}}
 	for _, file := range release.state {
 		result.Objects = append(result.Objects, objects.SnapshotObject{Path: file.Path, SQL: file.SQL, Checksum: file.Checksum})
 	}

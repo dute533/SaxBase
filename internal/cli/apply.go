@@ -52,7 +52,7 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 	if err != nil {
 		return err
 	}
-	rows, err := db.Apply(ctx, files, baseline, version.Schema, version.Revision, force, goose, func(ctx context.Context) error {
+	rows, err := db.Apply(ctx, files, baseline, manifest.Version, force, goose, func(ctx context.Context) error {
 		plan, err := releases.BuildPlan(ctx, manifest, selected.delta, force, files, baseline, goose, db)
 		if err != nil {
 			return err

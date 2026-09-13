@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+
 	"saxbase/internal/deploymentlock"
+	"saxbase/internal/releaseversion"
 	"saxbase/internal/sqlserverdsn"
 
 	_ "github.com/microsoft/go-mssqldb"
@@ -72,7 +74,11 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files, basel
 		return nil, err
 	}
 	if release != nil {
-		if err := checkReleaseSchema(ctx, tx, release.SchemaVersion); err != nil {
+		version, err := releaseversion.Parse(release.Version)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkReleaseSchema(ctx, tx, version.Schema); err != nil {
 			return nil, err
 		}
 	}
@@ -90,7 +96,7 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files, basel
 	}
 	alreadyCurrent := false
 	if release != nil {
-		_, created, err := prepareRelease(ctx, tx, *release, files, force)
+		created, err := prepareRelease(ctx, tx, *release, files, force)
 		if err != nil {
 			return nil, err
 		}

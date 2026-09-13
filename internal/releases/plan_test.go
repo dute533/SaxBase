@@ -58,7 +58,7 @@ func TestPlanBlockers(t *testing.T) {
 		{name: "missing migration", want: "migration file", schema: migrations.Inspection{Version: 2, Migrations: []migrations.Status{{Version: 2, State: "missing"}}}, files: []objects.File{file}},
 		{name: "missing object", want: "omits object", schema: base, files: []objects.File{file}, baseline: []objects.File{{Path: "old.sql", Checksum: "old"}}},
 		{name: "rollback", want: "rollback to 2 is incomplete", schema: base, files: []objects.File{file}, db: planObjects{state: objects.Inspection{Rollbacks: []objects.Rollback{{TargetVersion: "2", Status: "failed"}}}}},
-		{name: "immutable", want: "immutable", schema: base, files: []objects.File{file}, db: planObjects{state: objects.Inspection{History: []objects.Release{{Version: "2.1", SchemaVersion: 2, Revision: 1}}}, snapshot: objects.Snapshot{Objects: []objects.SnapshotObject{{Path: file.Path, Checksum: file.Checksum, SQL: "different SQL"}}}}},
+		{name: "immutable", want: "immutable", schema: base, files: []objects.File{file}, db: planObjects{state: objects.Inspection{History: []objects.Release{{Version: "2.1"}}}, snapshot: objects.Snapshot{Objects: []objects.SnapshotObject{{Path: file.Path, Checksum: file.Checksum, SQL: "different SQL"}}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p, err := BuildPlan(context.Background(), manifest, false, false, tc.files, tc.baseline, planSchema{state: tc.schema}, tc.db)
@@ -74,13 +74,13 @@ func TestPlanBlockers(t *testing.T) {
 
 func TestPlanUnchangedAndNumericRevision(t *testing.T) {
 	m, _ := New("2.10", nil)
-	db := planObjects{state: objects.Inspection{Current: "2.2", History: []objects.Release{{Version: "2.2", SchemaVersion: 2, Revision: 2}}}}
+	db := planObjects{state: objects.Inspection{Current: "2.2", History: []objects.Release{{Version: "2.2"}}}}
 	schema := planSchema{state: migrations.Inspection{Version: 2, Migrations: []migrations.Status{{Version: 2, State: "applied"}}}}
 	p, err := BuildPlan(context.Background(), m, false, false, nil, nil, schema, db)
 	if err != nil || len(p.Blockers) != 0 {
 		t.Fatalf("%+v %v", p, err)
 	}
-	db.state.History = []objects.Release{{Version: "2.10", SchemaVersion: 2, Revision: 10}}
+	db.state.History = []objects.Release{{Version: "2.10"}}
 	db.snapshot = objects.Snapshot{Release: objects.Release{Fingerprint: objects.Fingerprint(nil)}, Objects: []objects.SnapshotObject{}}
 	p, err = BuildPlan(context.Background(), m, false, false, nil, nil, schema, db)
 	if err != nil || len(p.Blockers) != 0 || p.Migrations[0].Action != "applied" {
