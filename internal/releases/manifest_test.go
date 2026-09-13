@@ -103,6 +103,17 @@ func TestAppendStoresNewestReleaseFirst(t *testing.T) {
 	if err != nil || history[0].Version != "1" || history[1].Version != "2" {
 		t.Fatalf("chronological history=%+v err=%v", history, err)
 	}
+	replacement := Manifest{Version: "2", Objects: []Object{{Path: "a.sql", Commit: strings.Repeat("a", 40)}}}
+	if err := ReplaceLatest(filename, replacement); err != nil {
+		t.Fatal(err)
+	}
+	history, err = LoadAll(filename)
+	if err != nil || len(history[1].Objects) != 1 || history[1].Objects[0].Path != "a.sql" {
+		t.Fatalf("replaced history=%+v err=%v", history, err)
+	}
+	if err := ReplaceLatest(filename, Manifest{Version: "1", Objects: []Object{}}); err == nil {
+		t.Fatal("replaced a non-latest release")
+	}
 }
 
 func TestFirstReleaseCannotBeADeletion(t *testing.T) {

@@ -38,17 +38,44 @@ func runRelease(ctx context.Context, args []string, filename, dir string, out io
 
 	if args[0] == "create" {
 		var m releases.Manifest
-		_, loadErr := releases.Load(filename)
+		history, loadErr := releases.LoadAll(filename)
 		switch {
 		case loadErr == nil:
-			previous, resolveErr := releases.ResolveState(ctx, filename, dir)
-			if resolveErr != nil {
-				return fmt.Errorf("resolve existing manifest: %w", resolveErr)
+			latest := history[len(history)-1]
+			requestedVersion, parseErr := releases.ParseVersion(args[1])
+			if parseErr != nil {
+				return parseErr
 			}
-			if containsLatest(previous) {
-				return errors.New("cannot add a release after one containing latest references; commit object files to Git first")
+			latestVersion, _ := releases.ParseVersion(latest.Version)
+			sameVersion := requestedVersion == latestVersion
+			if requestedVersion.Schema < latestVersion.Schema ||
+				(requestedVersion.Schema == latestVersion.Schema && requestedVersion.Revision < latestVersion.Revision) {
+				return fmt.Errorf("release %s must be newer than existing release %s", args[1], latest.Version)
 			}
-			m, err = releases.NewDelta(args[1], files, previous)
+			var previous []objects.File
+			if sameVersion && len(history) == 1 {
+				m, err = releases.New(args[1], files)
+			} else {
+				previousVersion := latest.Version
+				if sameVersion {
+					previousVersion = history[len(history)-2].Version
+				}
+				previous, err = releases.ResolveStateVersion(ctx, filename, dir, previousVersion)
+				if err != nil {
+					return fmt.Errorf("resolve existing manifest: %w", err)
+				}
+				if containsLatest(previous) {
+					return errors.New("cannot add a release after one containing latest references; commit object files to Git first")
+				}
+				m, err = releases.NewDelta(args[1], files, previous)
+			}
+			if err == nil && sameVersion {
+				err = releases.ReplaceLatest(filename, m)
+				if err == nil {
+					_, err = fmt.Fprintf(out, "Updated release %s: %s\n", m.Version, filename)
+				}
+				return err
+			}
 		case errors.Is(loadErr, os.ErrNotExist):
 			m, err = releases.New(args[1], files)
 		default:

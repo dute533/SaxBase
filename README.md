@@ -67,7 +67,9 @@ working tree with the latest resolved state and adds only the changes at the top
 ```
 
 Move entries in the manifest to put dependencies before their consumers. A release
-version is immutable; use a new revision when SQL, paths, or order changes.
+recorded in a database is immutable; use a new revision when SQL, paths, or order
+changes after deployment. Before deployment, rerun `release create` with the
+newest version to refresh that entry while leaving older releases unchanged.
 
 ## Rollback
 

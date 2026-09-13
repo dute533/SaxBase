@@ -140,7 +140,8 @@ removes an object from the database and must use a historical commit hash.
 Versions use `SCHEMA` or `SCHEMA.REVISION`, such as `30`, `30.1`, and `31`. The
 schema component identifies the Goose version; the revision identifies another
 object state at that schema version. Use a new revision when object SQL, paths,
-or order changes. Release versions are immutable once recorded.
+or order changes after deployment. Release versions are immutable once recorded
+in a database.
 
 Create and check manifests with:
 
@@ -156,8 +157,13 @@ git commit -m "Update database objects"
 By default, `database/release.json` is a newest-first release history. Creating
 a newer version prepends a delta from the latest version while preserving all
 older versions. `plan` and `apply` advance chronologically one release at a
-time; rollback selects an older version from the same file. Rerunning an
-existing version or creating an older version is rejected.
+time; rollback selects an older version from the same file. Creating a version
+older than the newest manifest entry is rejected.
+
+Before the newest release is deployed, rerun `release create` with that same
+version to rebuild its entry from the current committed object files. Older
+entries remain unchanged. If that version was already recorded in a database,
+its stored fingerprint still prevents a changed definition from being applied.
 
 To prepend a delta containing only changes from the latest release:
 

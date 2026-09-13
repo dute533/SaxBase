@@ -99,8 +99,31 @@ func TestReleaseCreateAppendsReleaseHistory(t *testing.T) {
 		t.Fatalf("latest state=%+v err=%v", currentFiles, err)
 	}
 
-	if err := run(context.Background(), append(append([]string{}, args...), "2"), env(nil), &bytes.Buffer{}, nil, nil); err == nil {
-		t.Fatal("same release version was accepted twice")
+	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 3;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd = exec.Command("git", "-C", dir, "add", "view.sql")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v %s", err, out)
+	}
+	cmd = exec.Command("git", "-C", dir, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "refresh release 2")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v %s", err, out)
+	}
+	var out bytes.Buffer
+	if err := run(context.Background(), append(append([]string{}, args...), "2"), env(nil), &out, nil, nil); err != nil || !strings.Contains(out.String(), "Updated release 2") {
+		t.Fatalf("refresh release: %v %s", err, out.String())
+	}
+	history, err = releases.LoadAll(manifest)
+	if err != nil || len(history) != 2 || history[0].Version != "1" || history[1].Version != "2" {
+		t.Fatalf("refreshed history=%+v err=%v", history, err)
+	}
+	currentFiles, err = releases.ResolveState(context.Background(), manifest, dir)
+	if err != nil || len(currentFiles) != 1 || currentFiles[0].SQL != "SELECT 3;" {
+		t.Fatalf("refreshed state=%+v err=%v", currentFiles, err)
+	}
+	if err := run(context.Background(), append(append([]string{}, args...), "1"), env(nil), &bytes.Buffer{}, nil, nil); err == nil {
+		t.Fatal("older release version was accepted")
 	}
 }
 

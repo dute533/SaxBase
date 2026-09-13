@@ -265,6 +265,32 @@ func Append(filename string, m Manifest) error {
 	return replaceManifestFile(filename, append(data, '\n'))
 }
 
+// ReplaceLatest rewrites only the newest release while preserving every older
+// entry. It is used to correct a release before it has been recorded in a
+// database; recorded fingerprints still enforce deployment immutability.
+func ReplaceLatest(filename string, m Manifest) error {
+	if err := m.check(); err != nil {
+		return err
+	}
+	releases, err := LoadAll(filename)
+	if err != nil {
+		return err
+	}
+	latest := releases[len(releases)-1]
+	if latest.Version != m.Version {
+		return fmt.Errorf("release %s is not the latest release %s", m.Version, latest.Version)
+	}
+	releases[len(releases)-1] = m
+	if err := validateHistory(releases); err != nil {
+		return err
+	}
+	data, err := marshalHistory(releases)
+	if err != nil {
+		return err
+	}
+	return replaceManifestFile(filename, append(data, '\n'))
+}
+
 func replaceManifestFile(filename string, data []byte) error {
 	info, err := os.Stat(filename)
 	if err != nil {
