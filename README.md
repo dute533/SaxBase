@@ -20,6 +20,12 @@ database/objects/
 database/release.json
 ```
 
+Use the native form
+`sqlserver://USER:PASSWORD@HOST:PORT?database=DATABASE`. JDBC connection strings
+are rejected because the SQL Server Go driver does not interpret
+`databaseName`, which can otherwise cause a connection to the login's default
+database.
+
 Preview and apply the release:
 
 ```sh

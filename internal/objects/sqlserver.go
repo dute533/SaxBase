@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"saxbase/internal/deploymentlock"
+	"saxbase/internal/sqlserverdsn"
 
 	_ "github.com/microsoft/go-mssqldb"
 )
@@ -13,6 +14,9 @@ import (
 type store struct{ db *sql.DB }
 
 func Open(dsn string) (Engine, error) {
+	if err := sqlserverdsn.Validate(dsn); err != nil {
+		return nil, err
+	}
 	db, err := sql.Open("sqlserver", dsn)
 	if err != nil {
 		return nil, errors.New("open SQL Server connection: invalid connection string")

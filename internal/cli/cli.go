@@ -34,7 +34,7 @@ Commands:
 
 Environment:
   GOOSE_DRIVER    mssql (default) or sqlserver
-  GOOSE_DBSTRING  SQL Server connection string
+  GOOSE_DBSTRING  SQL Server connection string with an explicit database
   GOOSE_MIGRATION_DIR  Migration directory (default database/migrations)
   SAXBASE_OBJECTS_DIR  Object directory (default database/objects)
 

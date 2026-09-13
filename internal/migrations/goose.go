@@ -9,6 +9,7 @@ import (
 	_ "github.com/microsoft/go-mssqldb"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/database"
+	"saxbase/internal/sqlserverdsn"
 )
 
 type gooseEngine struct {
@@ -19,6 +20,9 @@ type gooseEngine struct {
 func Open(cfg Config) (Engine, error) {
 	if cfg.Driver != "mssql" && cfg.Driver != "sqlserver" {
 		return nil, fmt.Errorf("unsupported driver %q: use mssql or sqlserver", cfg.Driver)
+	}
+	if err := sqlserverdsn.Validate(cfg.DSN); err != nil {
+		return nil, err
 	}
 	info, err := os.Stat(cfg.Dir)
 	if err != nil {

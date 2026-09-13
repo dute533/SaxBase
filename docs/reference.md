@@ -47,6 +47,18 @@ SaxBase loads `.env` from the current working directory. Existing environment
 variables take precedence. Without a target config, use the `GOOSE_DBSTRING`
 environment variable.
 
+Use a native SQL Server URL or ADO connection string and always name the
+database explicitly:
+
+```text
+sqlserver://USER:PASSWORD@localhost:1433?database=ObjectStore
+server=localhost;user id=USER;password=PASSWORD;database=ObjectStore
+```
+
+JDBC strings such as `jdbc:sqlserver://...;databaseName=...` are not supported.
+SaxBase rejects missing database names and SQL Server system databases rather
+than allowing the driver to fall back to the login's default database.
+
 Only SQL Server is supported. The default driver is `mssql`.
 
 ## Everyday commands
