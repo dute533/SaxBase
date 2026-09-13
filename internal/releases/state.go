@@ -11,27 +11,46 @@ import (
 // ResolveState reconstructs the complete object set represented by a manifest
 // and its parent chain, preserving each manifest's explicit order.
 func ResolveState(ctx context.Context, filename, objectDir string) ([]objects.File, error) {
-	return resolveState(ctx, filename, objectDir, map[string]bool{})
+	return ResolveStateVersion(ctx, filename, objectDir, "")
 }
 
-func resolveState(ctx context.Context, filename, objectDir string, seen map[string]bool) ([]objects.File, error) {
+// ResolveStateVersion reconstructs a specific release from a manifest file
+// containing release history. An empty version selects the newest release.
+func ResolveStateVersion(ctx context.Context, filename, objectDir, version string) ([]objects.File, error) {
+	m, err := LoadVersion(filename, version)
+	if err != nil {
+		return nil, err
+	}
+	return resolveManifestState(ctx, filename, objectDir, m, map[string]bool{})
+}
+
+func resolveManifestState(ctx context.Context, filename, objectDir string, m Manifest, seen map[string]bool) ([]objects.File, error) {
 	absolute, err := filepath.Abs(filename)
 	if err != nil {
 		return nil, err
 	}
-	if seen[absolute] {
-		return nil, fmt.Errorf("manifest parent cycle includes %s", filename)
+	key := absolute + "#" + m.Version
+	if seen[key] {
+		return nil, fmt.Errorf("manifest parent cycle includes %s release %s", filename, m.Version)
 	}
-	seen[absolute] = true
-	defer delete(seen, absolute)
-	m, err := Load(filename)
-	if err != nil {
-		return nil, err
-	}
+	seen[key] = true
+	defer delete(seen, key)
 	var state []objects.File
 	if m.Parent != "" {
-		parent := filepath.Join(filepath.Dir(filename), filepath.FromSlash(m.Parent))
-		state, err = resolveState(ctx, parent, objectDir, seen)
+		if _, parseErr := ParseVersion(m.Parent); parseErr == nil {
+			parent, loadErr := LoadVersion(filename, m.Parent)
+			if loadErr != nil {
+				return nil, fmt.Errorf("load parent release: %w", loadErr)
+			}
+			state, err = resolveManifestState(ctx, filename, objectDir, parent, seen)
+		} else {
+			parent := filepath.Join(filepath.Dir(filename), filepath.FromSlash(m.Parent))
+			parentManifest, loadErr := Load(parent)
+			if loadErr != nil {
+				return nil, loadErr
+			}
+			state, err = resolveManifestState(ctx, parent, objectDir, parentManifest, seen)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -66,6 +85,12 @@ func resolveState(ctx context.Context, filename, objectDir string, seen map[stri
 func ParentVersion(filename string, manifest Manifest) (string, error) {
 	if manifest.Parent == "" {
 		return "", nil
+	}
+	if _, parseErr := ParseVersion(manifest.Parent); parseErr == nil {
+		if _, err := LoadVersion(filename, manifest.Parent); err != nil {
+			return "", fmt.Errorf("load parent release: %w", err)
+		}
+		return manifest.Parent, nil
 	}
 	parent, err := Load(filepath.Join(filepath.Dir(filename), filepath.FromSlash(manifest.Parent)))
 	if err != nil {

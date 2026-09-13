@@ -2,6 +2,7 @@
 package releases
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,6 +53,10 @@ type Manifest struct {
 	Objects []Object `json:"objects"`
 }
 
+type manifestDocument struct {
+	Releases []Manifest `json:"releases"`
+}
+
 func New(version string, files []objects.File) (Manifest, error) {
 	m := Manifest{Version: version, Objects: make([]Object, 0, len(files))}
 	for _, file := range files {
@@ -61,22 +66,97 @@ func New(version string, files []objects.File) (Manifest, error) {
 }
 
 func Load(filename string) (Manifest, error) {
-	file, err := os.Open(filename)
+	releases, err := LoadAll(filename)
 	if err != nil {
 		return Manifest{}, err
 	}
-	defer file.Close()
-	decoder := json.NewDecoder(file)
-	decoder.DisallowUnknownFields()
+	return releases[len(releases)-1], nil
+}
+
+// LoadAll reads both the legacy single-manifest format and the history format.
+// The returned manifests are ordered from oldest to newest.
+func LoadAll(filename string) ([]Manifest, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := decodeExactly(data, &fields); err != nil {
+		return nil, fmt.Errorf("decode manifest: %w", err)
+	}
+	if _, ok := fields["releases"]; ok {
+		var document manifestDocument
+		if err := decodeExactly(data, &document); err != nil {
+			return nil, fmt.Errorf("decode manifest: %w", err)
+		}
+		if len(document.Releases) == 0 {
+			return nil, errors.New("manifest releases must be a nonempty array")
+		}
+		if err := validateHistory(document.Releases); err != nil {
+			return nil, err
+		}
+		return document.Releases, nil
+	}
 	var m Manifest
-	if err := decoder.Decode(&m); err != nil {
-		return m, fmt.Errorf("decode manifest: %w", err)
+	if err := decodeExactly(data, &m); err != nil {
+		return nil, fmt.Errorf("decode manifest: %w", err)
+	}
+	if err := m.check(); err != nil {
+		return nil, err
+	}
+	return []Manifest{m}, nil
+}
+
+// LoadVersion returns a specific release from a manifest file. An empty
+// version selects the newest release.
+func LoadVersion(filename, version string) (Manifest, error) {
+	releases, err := LoadAll(filename)
+	if err != nil {
+		return Manifest{}, err
+	}
+	if version == "" {
+		return releases[len(releases)-1], nil
+	}
+	for _, m := range releases {
+		if m.Version == version {
+			return m, nil
+		}
+	}
+	return Manifest{}, fmt.Errorf("release %s not found in %s", version, filename)
+}
+
+func decodeExactly(data []byte, value any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(value); err != nil {
+		return err
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
-		return m, errors.New("manifest must contain exactly one JSON object")
+		return errors.New("manifest must contain exactly one JSON object")
 	}
-	return m, m.check()
+	return nil
+}
+
+func validateHistory(releases []Manifest) error {
+	seen := make(map[string]bool, len(releases))
+	var previous Version
+	for i, m := range releases {
+		if err := m.check(); err != nil {
+			return err
+		}
+		if seen[m.Version] {
+			return fmt.Errorf("duplicate release version %q", m.Version)
+		}
+		seen[m.Version] = true
+		version, _ := ParseVersion(m.Version)
+		if i > 0 && (version.Schema < previous.Schema ||
+			(version.Schema == previous.Schema && version.Revision <= previous.Revision)) {
+			return fmt.Errorf("release versions must be strictly increasing: %s follows %s", m.Version, releases[i-1].Version)
+		}
+		previous = version
+	}
+	return nil
 }
 
 func (m Manifest) check() error {
@@ -162,6 +242,41 @@ func (m Manifest) WriteReplace(filename string) error {
 	if err != nil {
 		return err
 	}
+	return replaceManifestFile(filename, append(data, '\n'))
+}
+
+// Append adds a newer release to filename. A legacy single-manifest file is
+// converted to the history format on the first append.
+func Append(filename string, m Manifest) error {
+	if err := m.check(); err != nil {
+		return err
+	}
+	releases, err := LoadAll(filename)
+	if errors.Is(err, os.ErrNotExist) {
+		return m.Write(filename)
+	}
+	if err != nil {
+		return err
+	}
+	if err := validateHistory(releases); err != nil {
+		return err
+	}
+	previous := releases[len(releases)-1]
+	previousVersion, _ := ParseVersion(previous.Version)
+	newVersion, _ := ParseVersion(m.Version)
+	if newVersion.Schema < previousVersion.Schema ||
+		(newVersion.Schema == previousVersion.Schema && newVersion.Revision <= previousVersion.Revision) {
+		return fmt.Errorf("release %s must be newer than existing release %s", m.Version, previous.Version)
+	}
+	releases = append(releases, m)
+	data, err := json.MarshalIndent(manifestDocument{Releases: releases}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return replaceManifestFile(filename, append(data, '\n'))
+}
+
+func replaceManifestFile(filename string, data []byte) error {
 	info, err := os.Stat(filename)
 	if err != nil {
 		return err
@@ -176,7 +291,7 @@ func (m Manifest) WriteReplace(filename string) error {
 		temp.Close()
 		return err
 	}
-	if _, err := temp.Write(append(data, '\n')); err != nil {
+	if _, err := temp.Write(data); err != nil {
 		temp.Close()
 		return err
 	}

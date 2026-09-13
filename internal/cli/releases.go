@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 
 	"saxbase/internal/migrations"
@@ -24,7 +25,7 @@ func runRelease(ctx context.Context, args []string, filename, dir, parentFilenam
 		if err != nil {
 			return err
 		}
-		files, err := m.Resolve(context.Background(), dir)
+		files, err := releases.ResolveStateVersion(ctx, filename, dir, m.Version)
 		if err != nil {
 			return err
 		}
@@ -43,21 +44,44 @@ func runRelease(ctx context.Context, args []string, filename, dir, parentFilenam
 			if err != nil {
 				return fmt.Errorf("resolve parent manifest: %w", err)
 			}
-			parentRef, err := filepath.Rel(filepath.Dir(filename), parentFilename)
-			if err != nil {
-				return err
+			parentRef := ""
+			manifestAbs, manifestErr := filepath.Abs(filename)
+			parentAbs, parentErr := filepath.Abs(parentFilename)
+			if manifestErr == nil && parentErr == nil && manifestAbs == parentAbs {
+				parent, err := releases.Load(filename)
+				if err != nil {
+					return err
+				}
+				parentRef = parent.Version
+			} else {
+				parentRef, err = filepath.Rel(filepath.Dir(filename), parentFilename)
+				if err != nil {
+					return err
+				}
 			}
 			m, err = releases.NewDelta(args[1], filepath.ToSlash(parentRef), files, previous)
 			if err != nil {
 				return err
 			}
 		} else {
-			m, err = releases.New(args[1], files)
+			previous, loadErr := releases.Load(filename)
+			switch {
+			case loadErr == nil:
+				oldFiles, resolveErr := releases.ResolveState(ctx, filename, dir)
+				if resolveErr != nil {
+					return fmt.Errorf("resolve existing manifest: %w", resolveErr)
+				}
+				m, err = releases.NewDelta(args[1], previous.Version, files, oldFiles)
+			case errors.Is(loadErr, os.ErrNotExist):
+				m, err = releases.New(args[1], files)
+			default:
+				return loadErr
+			}
 		}
 		if err != nil {
 			return err
 		}
-		if err := m.Write(filename); err != nil {
+		if err := releases.Append(filename, m); err != nil {
 			return err
 		}
 		_, err = fmt.Fprintf(out, "Created release %s: %s\n", m.Version, filename)
@@ -85,14 +109,14 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 	if sourceManifest == "" {
 		return errors.New("rollback requires -source-manifest for the active release and -manifest for the target release")
 	}
-	target, err := loadRollbackManifest(ctx, manifestPath, objectDir)
+	target, err := loadRollbackManifest(ctx, manifestPath, args[0], objectDir)
 	if err != nil {
 		return err
 	}
 	if target.Version != args[0] {
 		return errors.New("target manifest version does not match rollback version")
 	}
-	source, err := loadRollbackManifest(ctx, sourceManifest, objectDir)
+	source, err := loadRollbackManifest(ctx, sourceManifest, "", objectDir)
 	if err != nil {
 		return err
 	}
@@ -114,12 +138,12 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 	return err
 }
 
-func loadRollbackManifest(ctx context.Context, filename, objectDir string) (objects.Snapshot, error) {
-	m, err := releases.Load(filename)
+func loadRollbackManifest(ctx context.Context, filename, version, objectDir string) (objects.Snapshot, error) {
+	m, err := releases.LoadVersion(filename, version)
 	if err != nil {
 		return objects.Snapshot{}, err
 	}
-	files, err := releases.ResolveState(ctx, filename, objectDir)
+	files, err := releases.ResolveStateVersion(ctx, filename, objectDir, m.Version)
 	if err != nil {
 		return objects.Snapshot{}, err
 	}

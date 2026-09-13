@@ -44,6 +44,11 @@ git commit -m "Update database objects"
 ./saxbase apply
 ```
 
+The default `database/release.json` is a release history. Creating a newer
+release appends it to the file as a delta from the latest release, so
+`./saxbase release create 31` can be used again without choosing a new
+filename. Older releases remain available in the same file for rollback.
+
 Each object entry contains a path and either a full Git commit hash or `latest`.
 Full hashes make releases reproducible. `latest` reads the working tree and is useful
 for tests or projects without Git.

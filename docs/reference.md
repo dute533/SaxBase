@@ -116,6 +116,30 @@ A manifest records a release version and its ordered object entries:
 }
 ```
 
+The default history file can contain multiple releases. Later entries contain
+only their changes and use the earlier version as `parent`:
+
+```json
+{
+  "releases": [
+    {
+      "version": "1",
+      "objects": [
+        {"path": "database/objects/views/customer.sql", "commit": "..."}
+      ]
+    },
+    {
+      "version": "2",
+      "parent": "1",
+      "objects": [
+        {"path": "database/objects/views/customer.sql", "commit": "..."},
+        {"path": "database/objects/views/order.sql", "commit": "..."}
+      ]
+    }
+  ]
+}
+```
+
 Each entry has a repository-relative `path` and either a full Git commit hash or
 `"latest"`. A commit hash makes the release reproducible by resolving the file
 from that commit. `latest` reads the working tree and is useful for tests and
@@ -140,6 +164,12 @@ git commit -m "Update database objects"
 ./saxbase plan
 ./saxbase apply
 ```
+
+By default, `database/release.json` is a release history. Creating a newer
+version appends a delta from the latest version while preserving all older
+versions. Normal commands use the newest version; rollback can select an older
+version from the same file. Rerunning an existing version or creating an older
+version is rejected.
 
 To create a delta containing only changes from a previous release:
 
