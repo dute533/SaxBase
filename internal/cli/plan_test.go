@@ -44,7 +44,7 @@ func TestPlanCLI(t *testing.T) {
 		if err != nil || !goose.closed || !db.closed {
 			t.Fatalf("error=%v goose=%+v db=%+v", err, goose, db)
 		}
-		if goose.command != "" || db.command != "status" {
+		if goose.command != "" || db.command != "inspect" {
 			t.Fatal("planner called a migration/deployment operation")
 		}
 		if !strings.Contains(out.String(), "30 -> 30.1") || !strings.Contains(out.String(), "No database changes made") {

@@ -130,20 +130,6 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 	if current < target.SchemaVersion || current > source.SchemaVersion {
 		return result, fmt.Errorf("Goose version %d is outside rollback range %d..%d", current, target.SchemaVersion, source.SchemaVersion)
 	}
-	if !resuming || result.Phase == "started" {
-		deployed, err := read(ctx, conn)
-		if err != nil {
-			return result, err
-		}
-		if len(deployed) != len(sourceFiles) {
-			return result, errors.New("tracked object set differs from current release; apply a manifest first")
-		}
-		for _, file := range sourceFiles {
-			if deployed[file.Path] != file.Checksum {
-				return result, fmt.Errorf("tracked object %s differs from current release", file.Path)
-			}
-		}
-	}
 	if current > target.SchemaVersion {
 		if err := goose.ValidateDownTo(ctx, target.SchemaVersion); err != nil {
 			return result, fmt.Errorf("rollback preflight: %w", err)
@@ -222,13 +208,8 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 		if err := dropExtra(tx); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, "DELETE FROM dbo.saxbase_objects"); err != nil {
-			return err
-		}
-		for _, file := range targetFiles {
-			if _, err := tx.ExecContext(ctx, "INSERT INTO dbo.saxbase_objects(path,checksum) VALUES(@path,@checksum)", sql.Named("path", file.Path), sql.Named("checksum", file.Checksum)); err != nil {
-				return err
-			}
+		if _, err := tx.ExecContext(ctx, "DROP TABLE IF EXISTS dbo.saxbase_objects;"); err != nil {
+			return fmt.Errorf("remove legacy object metadata: %w", err)
 		}
 		if err := setCurrent(ctx, tx, version); err != nil {
 			return err

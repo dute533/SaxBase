@@ -73,12 +73,16 @@ func TestScanRejectsSymlinks(t *testing.T) {
 
 func TestCompare(t *testing.T) {
 	files := []File{{Path: "a.sql", Checksum: "new"}, {Path: "b.sql", Checksum: "changed"}, {Path: "c.sql", Checksum: "same"}}
-	deployed := map[string]string{"b.sql": "old", "c.sql": "same", "d.sql": "missing"}
+	baseline := []File{{Path: "b.sql", Checksum: "old"}, {Path: "c.sql", Checksum: "same"}, {Path: "d.sql", Checksum: "missing"}}
 	want := []Status{{Path: "a.sql", State: "new", Checksum: "new"}, {Path: "b.sql", State: "changed", Checksum: "changed"}, {Path: "c.sql", State: "unchanged", Checksum: "same"}, {Path: "d.sql", State: "missing", Checksum: "missing"}}
-	if got := compare(files, deployed); !reflect.DeepEqual(got, want) {
+	if got := Compare(files, baseline); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
-	if len(deployed) != 3 {
-		t.Fatal("comparison modified deployed state")
+	deleted := File{Path: "b.sql", Checksum: "old", Delete: true}
+	if got := Compare([]File{deleted}, baseline); got[0].State != "deleted" {
+		t.Fatalf("deletion status: %+v", got)
+	}
+	if got := Compare([]File{deleted}, nil); got[0].State != "missing" {
+		t.Fatalf("missing deletion status: %+v", got)
 	}
 }

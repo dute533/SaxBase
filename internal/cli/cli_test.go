@@ -53,7 +53,7 @@ func TestUnifiedStatus(t *testing.T) {
 	err := run(context.Background(), []string{"-objects-dir", dir, "status"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
 		func(migrations.Config) (migrations.Engine, error) { return goose, nil },
 		func(string) (objects.Engine, error) { return db, nil })
-	if err != nil || !goose.closed || !db.closed || db.command != "status" {
+	if err != nil || !goose.closed || !db.closed || db.command != "inspect" {
 		t.Fatalf("status: %v goose=%+v db=%+v", err, goose, db)
 	}
 	for _, value := range []string{"Goose version:", "Release:", "MIGRATION", "OBJECT", "view.sql"} {
@@ -80,11 +80,12 @@ func TestStatusResolvesCompleteManifestHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	db := &fakeObjects{}
-	err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "status"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &bytes.Buffer{},
+	var out bytes.Buffer
+	err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "status"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
 		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
 		func(string) (objects.Engine, error) { return db, nil })
-	if err != nil || len(db.files) != 2 {
-		t.Fatalf("status files=%+v err=%v", db.files, err)
+	if err != nil || !strings.Contains(out.String(), "a.sql") || !strings.Contains(out.String(), "b.sql") {
+		t.Fatalf("status output=%s err=%v", out.String(), err)
 	}
 }
 

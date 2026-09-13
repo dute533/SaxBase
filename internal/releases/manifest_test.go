@@ -106,3 +106,15 @@ func TestNewDeltaDetectsLatestContentChanges(t *testing.T) {
 		t.Fatalf("manifest=%+v", m)
 	}
 }
+
+func TestApplyDeltaDoesNotMutateParent(t *testing.T) {
+	parent := []objects.File{{Path: "a.sql", Checksum: "old-a"}, {Path: "b.sql", Checksum: "old-b"}}
+	delta := []objects.File{{Path: "a.sql", Checksum: "new-a"}, {Path: "b.sql", Checksum: "old-b", Delete: true}, {Path: "c.sql", Checksum: "new-c"}}
+	state := ApplyDelta(parent, delta)
+	if len(state) != 2 || state[0].Path != "a.sql" || state[0].Checksum != "new-a" || state[1].Path != "c.sql" {
+		t.Fatalf("state=%+v", state)
+	}
+	if len(parent) != 2 || parent[0].Checksum != "old-a" || parent[1].Path != "b.sql" {
+		t.Fatalf("parent mutated: %+v", parent)
+	}
+}

@@ -40,6 +40,10 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 		return err
 	}
 	manifest, files := selected.manifest, selected.files
+	baseline, err := releaseBaseline(manifestPath, history, selected, state.Current)
+	if err != nil {
+		return err
+	}
 	parentVersion, err := releases.ParentVersion(manifestPath, manifest)
 	if err != nil {
 		return err
@@ -48,8 +52,8 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 	if err != nil {
 		return err
 	}
-	rows, err := db.Apply(ctx, files, version.Schema, version.Revision, goose, func(ctx context.Context) error {
-		plan, err := releases.BuildPlan(ctx, manifest, files, goose, db)
+	rows, err := db.Apply(ctx, files, baseline, version.Schema, version.Revision, goose, func(ctx context.Context) error {
+		plan, err := releases.BuildPlan(ctx, manifest, files, baseline, goose, db)
 		if err != nil {
 			return err
 		}

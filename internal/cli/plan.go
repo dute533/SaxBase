@@ -39,11 +39,15 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 		return err
 	}
 	manifest, files := selected.manifest, selected.files
+	baseline, err := releaseBaseline(manifestPath, history, selected, state.Current)
+	if err != nil {
+		return err
+	}
 	parentVersion, err := releases.ParentVersion(manifestPath, manifest)
 	if err != nil {
 		return err
 	}
-	plan, err := releases.BuildPlan(ctx, manifest, files, goose, db)
+	plan, err := releases.BuildPlan(ctx, manifest, files, baseline, goose, db)
 	if err != nil {
 		return err
 	}

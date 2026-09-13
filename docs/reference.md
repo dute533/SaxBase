@@ -97,9 +97,10 @@ Object files must contain one SQL batch. Do not include Goose annotations, `GO`,
 and does not infer dependencies, so list dependencies before consumers in the
 manifest.
 
-`status` reports each object as `new`, `changed`, `unchanged`, or `missing`.
-Missing files are reported and are not automatically dropped. `apply` applies
-changed objects together with the manifest's migrations.
+`status` compares the selected object state with the active release manifest and
+reports each object as `new`, `changed`, `unchanged`, or `missing`. Missing files
+are reported and are not automatically dropped. `apply` applies changed objects
+together with the manifest's migrations.
 
 ## Release manifests
 
@@ -205,8 +206,10 @@ manifests, so the manifests and commits must still be available. Fix any failed
 deployment before requesting a rollback; rollback is for returning from a
 recorded release to an earlier one.
 
-SaxBase stores current object checksums and release history in its `dbo` metadata
-tables. Goose stores its migration version in `goose_db_version`.
+SaxBase resolves object state from release manifests and stores only release
+history and rollback progress in its `dbo` metadata tables. A successful apply
+or rollback removes the obsolete `dbo.saxbase_objects` table if an older SaxBase
+version created it. Goose stores its migration version in `goose_db_version`.
 
 ## Development
 

@@ -29,18 +29,11 @@ func mockStore(t *testing.T) (*store, sqlmock.Sqlmock) {
 	return &store{db: db}, mock
 }
 
-func expectReleaseStart(mock sqlmock.Sqlmock, schema int64, deployed []File) {
+func expectReleaseStart(mock sqlmock.Sqlmock, schema int64) {
 	mock.ExpectBegin()
 	mock.ExpectQuery("DECLARE @result int;").WillReturnRows(sqlmock.NewRows([]string{"result"}).AddRow(0))
 	mock.ExpectQuery("SELECT OBJECT_ID.*saxbase_rollbacks").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(nil))
 	mock.ExpectQuery(`SELECT MAX\(version_id\) FROM goose_db_version`).WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow(schema))
-	mock.ExpectExec("IF OBJECT_ID.*saxbase_objects").WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectQuery("SELECT OBJECT_ID.*saxbase_objects").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-	rows := sqlmock.NewRows([]string{"path", "checksum"})
-	for _, file := range deployed {
-		rows.AddRow(file.Path, file.Checksum)
-	}
-	mock.ExpectQuery("SELECT path, checksum FROM dbo.saxbase_objects").WillReturnRows(rows)
 }
 
 func expectNewRelease(mock sqlmock.Sqlmock, version string, schema, revision int64, _ int) {
@@ -52,19 +45,23 @@ func expectNewRelease(mock sqlmock.Sqlmock, version string, schema, revision int
 
 func expectObjectApply(mock sqlmock.Sqlmock, file File) {
 	mock.ExpectExec("CREATE OR ALTER VIEW").WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec("UPDATE dbo.saxbase_objects").WithArgs(file.Path, file.Checksum).WillReturnResult(sqlmock.NewResult(0, 1))
+}
+
+func expectLegacyObjectCleanup(mock sqlmock.Sqlmock) {
+	mock.ExpectExec("DROP TABLE IF EXISTS dbo.saxbase_objects").WillReturnResult(sqlmock.NewResult(0, 0))
 }
 
 func TestReleaseCommitsFingerprintWithoutSQLSnapshot(t *testing.T) {
 	s, mock := mockStore(t)
 	files := []File{objectFile("a.sql", "CREATE OR ALTER VIEW dbo.a AS SELECT N'Grüße' AS n;\r\n"), objectFile("b.sql", "CREATE OR ALTER VIEW dbo.b AS SELECT 2 AS n;")}
 	// The second file is already deployed but remains part of release identity.
-	expectReleaseStart(mock, 30, files[1:])
+	expectReleaseStart(mock, 30)
 	expectNewRelease(mock, "30.1", 30, 1, 2)
 	expectObjectApply(mock, files[0])
 	expectCurrent(mock, "30.1")
+	expectLegacyObjectCleanup(mock)
 	mock.ExpectCommit()
-	rows, err := s.apply(context.Background(), files, &Release{Version: "30.1", SchemaVersion: 30, Revision: 1})
+	rows, err := s.apply(context.Background(), files, files[1:], &Release{Version: "30.1", SchemaVersion: 30, Revision: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,34 +70,33 @@ func TestReleaseCommitsFingerprintWithoutSQLSnapshot(t *testing.T) {
 	}
 }
 
-func TestReleaseRollsBackOnSQLOrChecksumFailure(t *testing.T) {
+func TestReleaseRollsBackOnSQLCleanupOrCommitFailure(t *testing.T) {
 	failure := errors.New("injected database failure")
-	for _, phase := range []string{"object", "checksum", "commit"} {
+	for _, phase := range []string{"object", "cleanup", "commit"} {
 		t.Run(phase, func(t *testing.T) {
 			s, mock := mockStore(t)
 			file := objectFile("a.sql", "CREATE OR ALTER VIEW dbo.a AS SELECT 1 AS n;")
-			expectReleaseStart(mock, 30, nil)
+			expectReleaseStart(mock, 30)
 			expectNewRelease(mock, "30", 30, 0, 1)
 			object := mock.ExpectExec("CREATE OR ALTER VIEW")
 			if phase == "object" {
 				object.WillReturnError(failure)
 			} else {
 				object.WillReturnResult(sqlmock.NewResult(0, 0))
-				checksum := mock.ExpectExec("UPDATE dbo.saxbase_objects").WithArgs(file.Path, file.Checksum)
-				if phase == "checksum" {
-					checksum.WillReturnError(failure)
+				expectCurrent(mock, "30")
+				cleanup := mock.ExpectExec("DROP TABLE IF EXISTS dbo.saxbase_objects")
+				if phase == "cleanup" {
+					cleanup.WillReturnError(failure)
 				} else {
-					checksum.WillReturnResult(sqlmock.NewResult(0, 1))
-
+					cleanup.WillReturnResult(sqlmock.NewResult(0, 0))
 				}
 			}
 			if phase == "commit" {
-				expectCurrent(mock, "30")
 				mock.ExpectCommit().WillReturnError(failure)
 			} else {
 				mock.ExpectRollback()
 			}
-			rows, err := s.apply(context.Background(), []File{file}, &Release{Version: "30", SchemaVersion: 30})
+			rows, err := s.apply(context.Background(), []File{file}, nil, &Release{Version: "30", SchemaVersion: 30})
 			if !errors.Is(err, failure) || rows != nil {
 				t.Fatalf("result=%v error=%v", rows, err)
 			}
@@ -113,7 +109,7 @@ func TestReleaseIdentityAndOrdering(t *testing.T) {
 	for _, scenario := range []string{"retry", "changed", "older"} {
 		t.Run(scenario, func(t *testing.T) {
 			s, mock := mockStore(t)
-			expectReleaseStart(mock, 30, []File{file})
+			expectReleaseStart(mock, 30)
 			mock.ExpectExec("IF OBJECT_ID.*saxbase_releases").WillReturnResult(sqlmock.NewResult(0, 0))
 
 			definition := file.SQL
@@ -130,12 +126,19 @@ func TestReleaseIdentityAndOrdering(t *testing.T) {
 				mock.ExpectQuery("SELECT TOP.*schema_version, revision").WillReturnRows(sqlmock.NewRows([]string{"schema", "revision"}).AddRow(30, revision))
 			}
 			if scenario == "retry" {
+				mock.ExpectQuery("SELECT OBJECT_ID.*saxbase_releases").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+				mock.ExpectQuery("SELECT TOP.*version FROM dbo.saxbase_releases WHERE is_current=1").WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow("30.2"))
 				expectCurrent(mock, "30.2")
+				expectLegacyObjectCleanup(mock)
 				mock.ExpectCommit()
 			} else {
 				mock.ExpectRollback()
 			}
-			rows, err := s.apply(context.Background(), []File{file}, &Release{Version: "30.2", SchemaVersion: 30, Revision: 2})
+			var baseline []File
+			if scenario != "retry" {
+				baseline = []File{file}
+			}
+			rows, err := s.apply(context.Background(), []File{file}, baseline, &Release{Version: "30.2", SchemaVersion: 30, Revision: 2})
 			if scenario == "retry" {
 				if err != nil || rows[0].State != "unchanged" {
 					t.Fatalf("retry: %v %v", rows, err)
@@ -164,7 +167,7 @@ func TestReleaseRechecksGooseVersionAndLock(t *testing.T) {
 				mock.ExpectQuery(`SELECT MAX\(version_id\) FROM goose_db_version`).WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow(31))
 			}
 			mock.ExpectRollback()
-			if _, err := s.apply(context.Background(), nil, &Release{Version: "30.1", SchemaVersion: 30, Revision: 1}); err == nil {
+			if _, err := s.apply(context.Background(), nil, nil, &Release{Version: "30.1", SchemaVersion: 30, Revision: 1}); err == nil {
 				t.Fatal("guard failed")
 			}
 		})
@@ -206,11 +209,11 @@ func TestStoredReleaseMetadata(t *testing.T) {
 func TestInvalidReleaseInput(t *testing.T) {
 	s, _ := mockStore(t)
 	file := objectFile("a.sql", "SELECT 1;")
-	if _, err := s.apply(context.Background(), []File{file, file}, &Release{Version: "30.1", SchemaVersion: 30, Revision: 1}); err == nil {
+	if _, err := s.apply(context.Background(), []File{file, file}, nil, &Release{Version: "30.1", SchemaVersion: 30, Revision: 1}); err == nil {
 		t.Fatal("duplicate accepted")
 	}
 	file.Checksum = "bad"
-	if _, err := s.apply(context.Background(), []File{file}, &Release{Version: "30.1", SchemaVersion: 30, Revision: 1}); err == nil {
+	if _, err := s.apply(context.Background(), []File{file}, nil, &Release{Version: "30.1", SchemaVersion: 30, Revision: 1}); err == nil {
 		t.Fatal("incorrect checksum accepted")
 	}
 }

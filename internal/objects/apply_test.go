@@ -35,7 +35,7 @@ func TestApplyReleasesLockOnPreflightOrMigrationFailure(t *testing.T) {
 				mock.ExpectExec("UPDATE dbo.saxbase_releases").WillReturnResult(sqlmock.NewResult(0, 1))
 			}
 			mock.ExpectQuery("DECLARE.*sp_releaseapplock").WillReturnRows(sqlmock.NewRows([]string{"code"}).AddRow(0))
-			_, err := s.Apply(context.Background(), nil, 3, 0, g, func(context.Context) error {
+			_, err := s.Apply(context.Background(), nil, nil, 3, 0, g, func(context.Context) error {
 				if phase == "preflight" {
 					return failure
 				}

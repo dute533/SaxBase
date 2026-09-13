@@ -24,6 +24,19 @@ func ResolveStateVersion(ctx context.Context, filename, objectDir, version strin
 	return resolveManifestState(ctx, filename, objectDir, m, map[string]bool{})
 }
 
+// ResolveParentState reconstructs the state immediately before m. It is used
+// as the comparison baseline when a delta release is planned or applied.
+func ResolveParentState(ctx context.Context, filename, objectDir string, m Manifest) ([]objects.File, error) {
+	if m.Parent == "" {
+		return nil, nil
+	}
+	if _, err := ParseVersion(m.Parent); err == nil {
+		return ResolveStateVersion(ctx, filename, objectDir, m.Parent)
+	}
+	parent := filepath.Join(filepath.Dir(filename), filepath.FromSlash(m.Parent))
+	return ResolveState(ctx, parent, objectDir)
+}
+
 func resolveManifestState(ctx context.Context, filename, objectDir string, m Manifest, seen map[string]bool) ([]objects.File, error) {
 	absolute, err := filepath.Abs(filename)
 	if err != nil {
@@ -59,6 +72,13 @@ func resolveManifestState(ctx context.Context, filename, objectDir string, m Man
 	if err != nil {
 		return nil, err
 	}
+	return ApplyDelta(state, delta), nil
+}
+
+// ApplyDelta returns the complete object state produced by applying an ordered
+// release delta to its parent's complete state.
+func ApplyDelta(state, delta []objects.File) []objects.File {
+	state = append([]objects.File(nil), state...)
 	byPath := make(map[string]int, len(state))
 	for i, file := range state {
 		byPath[file.Path] = i
@@ -78,7 +98,7 @@ func resolveManifestState(ctx context.Context, filename, objectDir string, m Man
 			state = append(state, file)
 		}
 	}
-	return state, nil
+	return state
 }
 
 // ParentVersion returns the version named by a manifest's parent reference.

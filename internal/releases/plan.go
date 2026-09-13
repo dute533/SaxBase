@@ -27,11 +27,10 @@ type MigrationInspector interface {
 }
 type ObjectInspector interface {
 	Inspect(context.Context) (objects.Inspection, error)
-	Status(context.Context, []objects.File) ([]objects.Status, error)
 	Snapshot(context.Context, string) (objects.Snapshot, error)
 }
 
-func BuildPlan(ctx context.Context, manifest Manifest, files []objects.File, goose MigrationInspector, db ObjectInspector) (Plan, error) {
+func BuildPlan(ctx context.Context, manifest Manifest, files, baseline []objects.File, goose MigrationInspector, db ObjectInspector) (Plan, error) {
 	p := Plan{TargetRelease: manifest.Version, Migrations: make([]MigrationPlan, 0), Blockers: make([]string, 0)}
 	version, err := ParseVersion(manifest.Version)
 	if err != nil {
@@ -55,10 +54,7 @@ func BuildPlan(ctx context.Context, manifest Manifest, files []objects.File, goo
 		return p, fmt.Errorf("inspect releases: %w", err)
 	}
 	p.CurrentRelease = state.Current
-	p.Objects, err = db.Status(ctx, files)
-	if err != nil {
-		return p, fmt.Errorf("inspect objects: %w", err)
-	}
+	p.Objects = objects.Compare(files, baseline)
 	if manifest.Parent != "" && len(p.Objects) > len(files) {
 		p.Objects = p.Objects[:len(files)]
 	}
@@ -90,7 +86,7 @@ func BuildPlan(ctx context.Context, manifest Manifest, files []objects.File, goo
 	}
 	for _, row := range p.Objects {
 		if row.State == "missing" && manifest.Parent == "" {
-			p.Blockers = append(p.Blockers, fmt.Sprintf("release omits tracked object %s; object removal must be handled explicitly", row.Path))
+			p.Blockers = append(p.Blockers, fmt.Sprintf("release omits object %s from the active manifest; object removal must be handled explicitly", row.Path))
 		}
 	}
 	for _, rollback := range state.Rollbacks {

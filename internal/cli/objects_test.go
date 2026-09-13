@@ -23,16 +23,9 @@ type fakeObjects struct {
 	rollbacks      []objects.Rollback
 }
 
-func (f *fakeObjects) Status(_ context.Context, files []objects.File) ([]objects.Status, error) {
-	f.command = "status"
-	f.files = files
-	if len(files) == 0 {
-		return nil, f.err
-	}
-	return []objects.Status{{Path: files[0].Path, State: "new", Checksum: files[0].Checksum}}, f.err
-}
 func (f *fakeObjects) Close() error { f.closed = true; return nil }
 func (f *fakeObjects) Inspect(context.Context) (objects.Inspection, error) {
+	f.command = "inspect"
 	if f.currentSet {
 		return objects.Inspection{Current: f.current, Rollbacks: f.rollbacks}, f.err
 	}
@@ -64,7 +57,7 @@ func (f *fakeObjects) Snapshot(_ context.Context, version string) (objects.Snaps
 	return objects.Snapshot{Release: objects.Release{Version: version}, Objects: []objects.SnapshotObject{{Path: "view.sql", SQL: "SELECT 1;"}}}, f.err
 }
 
-func (f *fakeObjects) Apply(ctx context.Context, files []objects.File, schema, revision int64, goose migrations.Engine, preflight func(context.Context) error) ([]objects.Status, error) {
+func (f *fakeObjects) Apply(ctx context.Context, files, _ []objects.File, schema, revision int64, goose migrations.Engine, preflight func(context.Context) error) ([]objects.Status, error) {
 	if err := preflight(ctx); err != nil {
 		return nil, err
 	}

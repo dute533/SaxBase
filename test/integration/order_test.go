@@ -88,7 +88,7 @@ func TestSQLServerManifestOrder(t *testing.T) {
 	}
 }
 
-func TestSQLServerNoSnapshotTable(t *testing.T) {
+func TestSQLServerNoRedundantObjectMetadataTables(t *testing.T) {
 	ctx, db, _, _, run := integrationDatabase(t)
 	run("apply")
 	run("plan")
@@ -98,5 +98,8 @@ func TestSQLServerNoSnapshotTable(t *testing.T) {
 	}
 	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_release_state'").Scan(&count); err != nil || count != 0 {
 		t.Fatalf("release-state table: %d %v", count, err)
+	}
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_objects'").Scan(&count); err != nil || count != 0 {
+		t.Fatalf("object-state table: %d %v", count, err)
 	}
 }

@@ -106,8 +106,10 @@ func containsLatest(files []objects.File) bool {
 }
 
 type resolvedRelease struct {
-	manifest releases.Manifest
-	files    []objects.File
+	manifest    releases.Manifest
+	files       []objects.File
+	state       []objects.File
+	parentState []objects.File
 }
 
 // resolveReleaseHistory resolves every release before a database is opened, so
@@ -118,6 +120,7 @@ func resolveReleaseHistory(ctx context.Context, filename, objectDir string) ([]r
 		return nil, err
 	}
 	result := make([]resolvedRelease, 0, len(history))
+	states := make(map[string][]objects.File, len(history))
 	for _, manifest := range history {
 		files, err := manifest.Resolve(ctx, objectDir)
 		if err != nil {
@@ -127,9 +130,54 @@ func resolveReleaseHistory(ctx context.Context, filename, objectDir string) ([]r
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, resolvedRelease{manifest: manifest, files: files})
+		var parentState []objects.File
+		if manifest.Parent != "" {
+			if _, parseErr := releases.ParseVersion(manifest.Parent); parseErr == nil {
+				var ok bool
+				parentState, ok = states[manifest.Parent]
+				if !ok {
+					return nil, fmt.Errorf("release %s refers to parent %s before it is defined", manifest.Version, manifest.Parent)
+				}
+			} else {
+				parentState, err = releases.ResolveParentState(ctx, filename, objectDir, manifest)
+				if err != nil {
+					return nil, fmt.Errorf("resolve parent state for release %s: %w", manifest.Version, err)
+				}
+			}
+		}
+		state := releases.ApplyDelta(parentState, files)
+		states[manifest.Version] = state
+		result = append(result, resolvedRelease{manifest: manifest, files: files, state: state, parentState: parentState})
 	}
 	return result, nil
+}
+
+// releaseBaseline returns the complete manifest state represented by the
+// active database release. All possible states were resolved before opening
+// the database, preserving the no-partial-deployment Git safety check.
+func releaseBaseline(filename string, history []resolvedRelease, selected resolvedRelease, current string) ([]objects.File, error) {
+	if current == "" {
+		return nil, nil
+	}
+	for _, release := range history {
+		if release.manifest.Version == current {
+			return release.state, nil
+		}
+	}
+	parent, err := releases.ParentVersion(filename, selected.manifest)
+	if err != nil {
+		return nil, err
+	}
+	if parent == current {
+		return selected.parentState, nil
+	}
+	// A standalone full-state manifest has no historical baseline to resolve.
+	// Applying all of its definitions remains safe, but omitted objects cannot
+	// be inferred and therefore are not removed.
+	if selected.manifest.Parent == "" {
+		return nil, nil
+	}
+	return nil, fmt.Errorf("current release %s is not resolvable from manifest history", current)
 }
 
 // selectNextRelease advances one history entry at a time. If the newest entry

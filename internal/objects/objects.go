@@ -20,14 +20,13 @@ type File struct {
 }
 type Status struct{ Path, State, Checksum string }
 type Engine interface {
-	Apply(context.Context, []File, int64, int64, migrations.Engine, func(context.Context) error) ([]Status, error)
+	Apply(context.Context, []File, []File, int64, int64, migrations.Engine, func(context.Context) error) ([]Status, error)
 	History(context.Context) ([]Release, error)
 	Snapshot(context.Context, string) (Snapshot, error)
 	Rollback(context.Context, Snapshot, Snapshot, migrations.Engine) (Rollback, error)
 	Rollbacks(context.Context) ([]Rollback, error)
 	Current(context.Context) (string, error)
 	Inspect(context.Context) (Inspection, error)
-	Status(context.Context, []File) ([]Status, error)
 	Close() error
 }
 
@@ -105,10 +104,28 @@ func Scan(root string) ([]File, error) {
 	return files, nil
 }
 
-func compare(files []File, deployed map[string]string) []Status {
+// Compare reports how an intended file set differs from a manifest-resolved
+// baseline. The database stores only the active release; object state belongs
+// in the release manifests.
+func Compare(files, baseline []File) []Status {
+	deployed := make(map[string]string, len(baseline))
+	for _, file := range baseline {
+		if !file.Delete {
+			deployed[file.Path] = file.Checksum
+		}
+	}
 	result := make([]Status, 0, len(files))
 	seen := make(map[string]bool)
 	for _, file := range files {
+		if file.Delete {
+			state := "missing"
+			if _, exists := deployed[file.Path]; exists {
+				state = "deleted"
+			}
+			result = append(result, Status{Path: file.Path, State: state, Checksum: file.Checksum})
+			seen[file.Path] = true
+			continue
+		}
 		state := "new"
 		if sum, exists := deployed[file.Path]; exists {
 			state = "changed"

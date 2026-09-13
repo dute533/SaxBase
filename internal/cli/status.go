@@ -21,8 +21,12 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 		manifestPath = "database/release.json"
 	}
 	var files []objects.File
-	if manifest, loadErr := releases.Load(manifestPath); loadErr == nil {
-		files, err = releases.ResolveStateVersion(ctx, manifestPath, objectDir, manifest.Version)
+	var history []resolvedRelease
+	if _, loadErr := releases.Load(manifestPath); loadErr == nil {
+		history, err = resolveReleaseHistory(ctx, manifestPath, objectDir)
+		if err == nil {
+			files = history[len(history)-1].state
+		}
 	} else if explicitManifest || !errors.Is(loadErr, os.ErrNotExist) {
 		return loadErr
 	} else {
@@ -49,10 +53,14 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 	if err != nil {
 		return fmt.Errorf("inspect releases: %w", err)
 	}
-	objectRows, err := db.Status(ctx, files)
-	if err != nil {
-		return fmt.Errorf("inspect objects: %w", err)
+	var baseline []objects.File
+	if len(history) > 0 {
+		baseline, err = releaseBaseline(manifestPath, history, history[len(history)-1], databaseState.Current)
+		if err != nil {
+			return fmt.Errorf("resolve current object state: %w", err)
+		}
 	}
+	objectRows := objects.Compare(files, baseline)
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(w, "Goose version:\t%d\nRelease:\t%s\n\n", migrationsState.Version, statusValue(databaseState.Current))
 	fmt.Fprintln(w, "MIGRATION\tSTATE\tFILE")

@@ -32,6 +32,14 @@ func TestSQLServerManifestHistoryWorkflow(t *testing.T) {
 			t.Fatalf("view value = %d, want %d", got, want)
 		}
 	}
+	assertView := func(name string, want int) {
+		t.Helper()
+		var got int
+		query := "SELECT COUNT(*) FROM sys.views WHERE object_id=OBJECT_ID(N'dbo." + name + "')"
+		if err := db.QueryRowContext(ctx, query).Scan(&got); err != nil || got != want {
+			t.Fatalf("view %s count = %d, want %d: %v", name, got, want, err)
+		}
+	}
 
 	// Append a delta before provisioning this fresh database. Apply must start
 	// with the oldest release rather than trying to deploy the delta directly.
@@ -55,9 +63,27 @@ func TestSQLServerManifestHistoryWorkflow(t *testing.T) {
 		t.Fatalf("repeat apply was not idempotent: %s", output)
 	}
 
+	// Forward deletion is derived from the manifest parent, without a database
+	// object-checksum table.
+	extraPath := filepath.Join(workDir, "database", "objects", "views", "temporary.sql")
+	if err := os.WriteFile(extraPath, []byte("CREATE VIEW dbo.saxbase_temporary AS SELECT 1 AS value;\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	run("release", "create", "2.2")
+	run("apply")
+	assertView("saxbase_temporary", 1)
+	if err := os.Remove(extraPath); err != nil {
+		t.Fatal(err)
+	}
+	run("release", "create", "2.3")
+	if output := run("apply"); !strings.Contains(output, "deleted") {
+		t.Fatalf("deletion was not reported: %s", output)
+	}
+	assertView("saxbase_temporary", 0)
+
 	// A newer, undeployed entry must not be mistaken for the rollback source.
 	writeView("3")
-	run("release", "create", "2.2")
+	run("release", "create", "2.4")
 	run("rollback", "2")
 	assertValue(1)
 }
