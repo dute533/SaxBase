@@ -26,10 +26,10 @@ Usage:
 
 Commands:
   plan      Preview Goose migrations and objects without changing the database
-  apply     Migrate to the manifest schema, apply objects, and record the release
+  apply     Advance to the next manifest release, apply it, and record it
   status    Show Goose, release, and object state together
   rollback  Restore a recorded release using its manifest
-  release create VERSION  Write a new manifest from current object files
+  release create VERSION  Append a release from current object files
   release validate        Check the manifest against current object files
 
 Environment:
@@ -44,7 +44,7 @@ Configuration:
   -objects-dir PATH  Object directory (default database/objects)
   -manifest PATH Release manifest (default database/release.json)
   -parent-manifest PATH  Previous release manifest when creating a delta
-  -source-manifest PATH  Active release manifest for rollback
+  -source-manifest PATH  Separate active release manifest for rollback
   -target NAME   Database target (defaults to default_target in config)
   -yes           Confirm database writes to targets requiring confirmation
   .env           Loaded from the working directory; environment takes precedence

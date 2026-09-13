@@ -2,18 +2,25 @@ package cli
 
 import (
 	"context"
+	"fmt"
 
 	"saxbase/internal/migrations"
 	"saxbase/internal/objects"
 )
 
 type fakeObjects struct {
-	command  string
-	files    []objects.File
-	closed   bool
-	err      error
-	schema   int64
-	revision int64
+	command        string
+	files          []objects.File
+	closed         bool
+	err            error
+	rollbackErr    error
+	schema         int64
+	revision       int64
+	current        string
+	currentSet     bool
+	rollbackSource string
+	rollbackTarget string
+	rollbacks      []objects.Rollback
 }
 
 func (f *fakeObjects) Status(_ context.Context, files []objects.File) ([]objects.Status, error) {
@@ -26,11 +33,15 @@ func (f *fakeObjects) Status(_ context.Context, files []objects.File) ([]objects
 }
 func (f *fakeObjects) Close() error { f.closed = true; return nil }
 func (f *fakeObjects) Inspect(context.Context) (objects.Inspection, error) {
+	if f.currentSet {
+		return objects.Inspection{Current: f.current, Rollbacks: f.rollbacks}, f.err
+	}
 	return objects.Inspection{Current: "30"}, f.err
 }
 func (f *fakeObjects) Rollback(_ context.Context, target, source objects.Snapshot, _ migrations.Engine) (objects.Rollback, error) {
 	f.command = "rollback"
-	return objects.Rollback{SourceVersion: "30.2", TargetVersion: target.Version, Status: "completed"}, f.err
+	f.rollbackSource, f.rollbackTarget = source.Version, target.Version
+	return objects.Rollback{SourceVersion: source.Version, TargetVersion: target.Version, Status: "completed"}, f.rollbackErr
 }
 func (f *fakeObjects) Rollbacks(context.Context) ([]objects.Rollback, error) {
 	f.command = "rollbacks"
@@ -38,6 +49,9 @@ func (f *fakeObjects) Rollbacks(context.Context) ([]objects.Rollback, error) {
 }
 func (f *fakeObjects) Current(context.Context) (string, error) {
 	f.command = "current"
+	if f.currentSet {
+		return f.current, f.err
+	}
 	return "30.1", f.err
 }
 
@@ -57,5 +71,10 @@ func (f *fakeObjects) Apply(ctx context.Context, files []objects.File, schema, r
 	f.command = "apply"
 	f.files = files
 	f.schema, f.revision = schema, revision
+	f.currentSet = true
+	f.current = fmt.Sprint(schema)
+	if revision > 0 {
+		f.current += fmt.Sprintf(".%d", revision)
+	}
 	return []objects.Status{{Path: files[0].Path, State: "applied", Checksum: files[0].Checksum}}, f.err
 }

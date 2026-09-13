@@ -34,7 +34,7 @@ func TestRollbackCommand(t *testing.T) {
 	}
 	for _, failure := range []error{nil, errors.New("rollback failed")} {
 		goose := &fakeEngine{}
-		store := &fakeObjects{err: failure}
+		store := &fakeObjects{rollbackErr: failure, current: "30.2", currentSet: true}
 		var out bytes.Buffer
 		err := run(context.Background(), []string{"-manifest", targetPath, "-source-manifest", sourcePath, "rollback", "30.1"}, env(map[string]string{"GOOSE_DBSTRING": "dsn", "SAXBASE_OBJECTS_DIR": "absent"}), &out, func(migrations.Config) (migrations.Engine, error) { return goose, nil }, func(string) (objects.Engine, error) { return store, nil })
 		if !errors.Is(err, failure) || !goose.closed || !store.closed || store.command != "rollback" {
@@ -45,6 +45,38 @@ func TestRollbackCommand(t *testing.T) {
 		}
 		if failure != nil && out.Len() != 0 {
 			t.Fatal("printed success after failure")
+		}
+	}
+}
+
+func TestRollbackSelectsCurrentReleaseFromHistory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("CREATE OR ALTER VIEW dbo.v AS SELECT 1 AS n;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "release.json")
+	base := releases.Manifest{Version: "30", Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	if err := base.Write(path); err != nil {
+		t.Fatal(err)
+	}
+	for _, manifest := range []releases.Manifest{
+		{Version: "30.1", Parent: "30", Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}},
+		{Version: "30.2", Parent: "30.1", Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}},
+	} {
+		if err := releases.Append(path, manifest); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, store := range []*fakeObjects{
+		{current: "30.1", currentSet: true},
+		{currentSet: true, rollbacks: []objects.Rollback{{SourceVersion: "30.1", TargetVersion: "30", Status: "failed"}}},
+	} {
+		var out bytes.Buffer
+		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "rollback", "30"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
+			func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
+			func(string) (objects.Engine, error) { return store, nil })
+		if err != nil || store.rollbackSource != "30.1" || store.rollbackTarget != "30" {
+			t.Fatalf("rollback source=%q target=%q err=%v output=%s", store.rollbackSource, store.rollbackTarget, err, out.String())
 		}
 	}
 }

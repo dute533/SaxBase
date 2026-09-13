@@ -17,23 +17,7 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 	if manifestPath == "" {
 		manifestPath = "database/release.json"
 	}
-	manifest, err := releases.Load(manifestPath)
-	if err != nil {
-		return err
-	}
-	parentVersion, err := releases.ParentVersion(manifestPath, manifest)
-	if err != nil {
-		return err
-	}
-	files, err := manifest.Resolve(ctx, objectDir)
-	if err != nil {
-		return fmt.Errorf("scan objects: %w", err)
-	}
-	files, err = manifest.OrderedFiles(files)
-	if err != nil {
-		return err
-	}
-	version, err := releases.ParseVersion(manifest.Version)
+	history, err := resolveReleaseHistory(ctx, manifestPath, objectDir)
 	if err != nil {
 		return err
 	}
@@ -47,6 +31,23 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 		return err
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
+	state, err := db.Inspect(ctx)
+	if err != nil {
+		return fmt.Errorf("inspect releases: %w", err)
+	}
+	selected, err := selectNextRelease(manifestPath, history, state.Current)
+	if err != nil {
+		return err
+	}
+	manifest, files := selected.manifest, selected.files
+	parentVersion, err := releases.ParentVersion(manifestPath, manifest)
+	if err != nil {
+		return err
+	}
+	version, err := releases.ParseVersion(manifest.Version)
+	if err != nil {
+		return err
+	}
 	rows, err := db.Apply(ctx, files, version.Schema, version.Revision, goose, func(ctx context.Context) error {
 		plan, err := releases.BuildPlan(ctx, manifest, files, goose, db)
 		if err != nil {
@@ -55,7 +56,7 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 		if len(plan.Blockers) > 0 {
 			return fmt.Errorf("apply blocked:\n- %s", strings.Join(plan.Blockers, "\n- "))
 		}
-		if parentVersion != "" && plan.CurrentRelease != parentVersion {
+		if parentVersion != "" && plan.CurrentRelease != parentVersion && plan.CurrentRelease != manifest.Version {
 			return fmt.Errorf("release %s must follow current release %s", manifest.Version, parentVersion)
 		}
 		return nil

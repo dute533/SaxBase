@@ -28,9 +28,11 @@ Preview and apply the release:
 ./saxbase status
 ```
 
-`apply` migrates Goose to the manifest’s schema version, applies changed objects
-in manifest order, and records the release. Use `-target NAME` for a configured
-target and `-yes` for unattended protected deployments.
+`apply` advances one entry in the manifest history, migrates Goose to that
+entry's schema version, applies its changed objects in manifest order, and
+records the release. Run it again while more releases are pending. Use
+`-target NAME` for a configured target and `-yes` for unattended protected
+deployments.
 
 ## Create a release
 
@@ -50,8 +52,9 @@ release appends it to the file as a delta from the latest release, so
 filename. Older releases remain available in the same file for rollback.
 
 Each object entry contains a path and either a full Git commit hash or `latest`.
-Full hashes make releases reproducible. `latest` reads the working tree and is useful
-for tests or projects without Git.
+Full hashes make releases reproducible. `latest` reads the working tree and is
+useful for a standalone release in tests or projects without Git; appending a
+delta requires Git-backed references so previous contents remain available.
 
 For a later object revision, create a delta from its parent:
 
@@ -67,7 +70,13 @@ version is immutable; use a new revision when SQL, paths, or order changes.
 
 ## Rollback
 
-Keep the target and active manifests available:
+With release history in the default manifest, roll back directly by version:
+
+```sh
+./saxbase rollback 30
+```
+
+For separate legacy manifests, provide the target and active files:
 
 ```sh
 ./saxbase -manifest database/release-30.json \

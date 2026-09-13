@@ -44,6 +44,9 @@ func runRelease(ctx context.Context, args []string, filename, dir, parentFilenam
 			if err != nil {
 				return fmt.Errorf("resolve parent manifest: %w", err)
 			}
+			if containsLatest(previous) {
+				return errors.New("cannot create a delta from a release containing latest references; commit object files to Git first")
+			}
 			parentRef := ""
 			manifestAbs, manifestErr := filepath.Abs(filename)
 			parentAbs, parentErr := filepath.Abs(parentFilename)
@@ -71,6 +74,9 @@ func runRelease(ctx context.Context, args []string, filename, dir, parentFilenam
 				if resolveErr != nil {
 					return fmt.Errorf("resolve existing manifest: %w", resolveErr)
 				}
+				if containsLatest(oldFiles) {
+					return errors.New("cannot append a delta to a release containing latest references; commit object files to Git first")
+				}
 				m, err = releases.NewDelta(args[1], previous.Version, files, oldFiles)
 			case errors.Is(loadErr, os.ErrNotExist):
 				m, err = releases.New(args[1], files)
@@ -90,6 +96,71 @@ func runRelease(ctx context.Context, args []string, filename, dir, parentFilenam
 	return errors.New("unsupported local release command")
 }
 
+func containsLatest(files []objects.File) bool {
+	for _, file := range files {
+		if file.Commit == "latest" {
+			return true
+		}
+	}
+	return false
+}
+
+type resolvedRelease struct {
+	manifest releases.Manifest
+	files    []objects.File
+}
+
+// resolveReleaseHistory resolves every release before a database is opened, so
+// a missing Git commit cannot leave a deployment partially started.
+func resolveReleaseHistory(ctx context.Context, filename, objectDir string) ([]resolvedRelease, error) {
+	history, err := releases.LoadAll(filename)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]resolvedRelease, 0, len(history))
+	for _, manifest := range history {
+		files, err := manifest.Resolve(ctx, objectDir)
+		if err != nil {
+			return nil, fmt.Errorf("scan objects for release %s: %w", manifest.Version, err)
+		}
+		files, err = manifest.OrderedFiles(files)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, resolvedRelease{manifest: manifest, files: files})
+	}
+	return result, nil
+}
+
+// selectNextRelease advances one history entry at a time. If the newest entry
+// is already current, it is selected again so plan/apply remain idempotent.
+func selectNextRelease(filename string, history []resolvedRelease, current string) (resolvedRelease, error) {
+	if len(history) == 0 {
+		return resolvedRelease{}, errors.New("manifest contains no releases")
+	}
+	if len(history) == 1 {
+		return history[0], nil
+	}
+	for i, release := range history {
+		if release.manifest.Version != current {
+			continue
+		}
+		if i+1 < len(history) {
+			return history[i+1], nil
+		}
+		return release, nil
+	}
+	first := history[0]
+	parent, err := releases.ParentVersion(filename, first.manifest)
+	if err != nil {
+		return resolvedRelease{}, err
+	}
+	if parent == "" || parent == current {
+		return first, nil
+	}
+	return resolvedRelease{}, fmt.Errorf("current release %s is not in manifest history", current)
+}
+
 func runRollback(ctx context.Context, args []string, cfg migrations.Config, manifestPath, sourceManifest, objectDir string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {
 	if len(args) != 1 {
 		return errors.New("expected rollback VERSION")
@@ -107,7 +178,7 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 		manifestPath = "database/release.json"
 	}
 	if sourceManifest == "" {
-		return errors.New("rollback requires -source-manifest for the active release and -manifest for the target release")
+		sourceManifest = manifestPath
 	}
 	target, err := loadRollbackManifest(ctx, manifestPath, args[0], objectDir)
 	if err != nil {
@@ -116,15 +187,38 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 	if target.Version != args[0] {
 		return errors.New("target manifest version does not match rollback version")
 	}
-	source, err := loadRollbackManifest(ctx, sourceManifest, "", objectDir)
+	sourceHistory, err := releases.LoadAll(sourceManifest)
 	if err != nil {
 		return err
+	}
+	sources := make(map[string]objects.Snapshot, len(sourceHistory))
+	for _, manifest := range sourceHistory {
+		source, err := loadRollbackManifest(ctx, sourceManifest, manifest.Version, objectDir)
+		if err != nil {
+			return err
+		}
+		sources[manifest.Version] = source
 	}
 	engine, err := openObjects(cfg.DSN)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, engine.Close()) }()
+	inspection, err := engine.Inspect(ctx)
+	if err != nil {
+		return fmt.Errorf("inspect current release: %w", err)
+	}
+	sourceVersion := inspection.Current
+	for _, rollback := range inspection.Rollbacks {
+		if rollback.Status != "completed" {
+			sourceVersion = rollback.SourceVersion
+			break
+		}
+	}
+	source, ok := sources[sourceVersion]
+	if !ok {
+		return fmt.Errorf("current release %s not found in source manifest %s", sourceVersion, sourceManifest)
+	}
 	goose, err := open(cfg)
 	if err != nil {
 		return err

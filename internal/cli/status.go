@@ -22,7 +22,7 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 	}
 	var files []objects.File
 	if manifest, loadErr := releases.Load(manifestPath); loadErr == nil {
-		files, err = manifest.Resolve(ctx, objectDir)
+		files, err = releases.ResolveStateVersion(ctx, manifestPath, objectDir, manifest.Version)
 	} else if explicitManifest || !errors.Is(loadErr, os.ErrNotExist) {
 		return loadErr
 	} else {

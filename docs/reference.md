@@ -57,9 +57,11 @@ Only SQL Server is supported. The default driver is `mssql`.
 ./saxbase status     # Show migration, release, and object state
 ```
 
-`apply` brings Goose to the schema version in the manifest, then applies the
-manifest's object entries from top to bottom. It records the release after a
-successful deployment. Run `plan` again after changing a migration or object.
+`plan` and `apply` select the next entry after the database's current release.
+For an unversioned database they select the oldest entry, and when the newest
+entry is already current they safely recheck it. `apply` brings Goose to that
+release's schema version, then applies its object entries from top to bottom.
+Run it again while more releases are pending.
 
 ## Structural migrations
 
@@ -125,15 +127,15 @@ only their changes and use the earlier version as `parent`:
     {
       "version": "1",
       "objects": [
-        {"path": "database/objects/views/customer.sql", "commit": "..."}
+        {"path": "database/objects/views/customer.sql", "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
       ]
     },
     {
       "version": "2",
       "parent": "1",
       "objects": [
-        {"path": "database/objects/views/customer.sql", "commit": "..."},
-        {"path": "database/objects/views/order.sql", "commit": "..."}
+        {"path": "database/objects/views/customer.sql", "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+        {"path": "database/objects/views/order.sql", "commit": "cccccccccccccccccccccccccccccccccccccccc"}
       ]
     }
   ]
@@ -142,8 +144,9 @@ only their changes and use the earlier version as `parent`:
 
 Each entry has a repository-relative `path` and either a full Git commit hash or
 `"latest"`. A commit hash makes the release reproducible by resolving the file
-from that commit. `latest` reads the working tree and is useful for tests and
-projects that do not use Git.
+from that commit. `latest` reads the working tree and is useful for standalone
+test manifests, but it cannot be used as the parent of an appended delta because
+its previous contents are not recoverable.
 
 Entries execute from top to bottom. Edit the array when dependencies require a
 different order. A `delete` entry removes an object from the database and must
@@ -167,9 +170,9 @@ git commit -m "Update database objects"
 
 By default, `database/release.json` is a release history. Creating a newer
 version appends a delta from the latest version while preserving all older
-versions. Normal commands use the newest version; rollback can select an older
-version from the same file. Rerunning an existing version or creating an older
-version is rejected.
+versions. `plan` and `apply` advance one release at a time; rollback selects an
+older version from the same file. Rerunning an existing version or creating an
+older version is rejected.
 
 To create a delta containing only changes from a previous release:
 
@@ -182,7 +185,14 @@ Keep manifests and their referenced Git commits available for rollback.
 
 ## Rollback
 
-Rollback needs the target manifest and the manifest for the active release:
+When target and current releases are in the same history file, only the target
+version is needed:
+
+```sh
+./saxbase rollback 30
+```
+
+When releases are stored in separate legacy files, provide both paths:
 
 ```sh
 ./saxbase -manifest database/release-30.json \

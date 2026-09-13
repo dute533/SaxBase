@@ -16,17 +16,9 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 	if manifestPath == "" {
 		manifestPath = "database/release.json"
 	}
-	manifest, err := releases.Load(manifestPath)
+	history, err := resolveReleaseHistory(ctx, manifestPath, objectDir)
 	if err != nil {
 		return err
-	}
-	parentVersion, err := releases.ParentVersion(manifestPath, manifest)
-	if err != nil {
-		return err
-	}
-	files, err := manifest.Resolve(ctx, objectDir)
-	if err != nil {
-		return fmt.Errorf("scan objects: %w", err)
 	}
 	goose, err := open(cfg)
 	if err != nil {
@@ -38,11 +30,24 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 		return err
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
+	state, err := db.Inspect(ctx)
+	if err != nil {
+		return fmt.Errorf("inspect releases: %w", err)
+	}
+	selected, err := selectNextRelease(manifestPath, history, state.Current)
+	if err != nil {
+		return err
+	}
+	manifest, files := selected.manifest, selected.files
+	parentVersion, err := releases.ParentVersion(manifestPath, manifest)
+	if err != nil {
+		return err
+	}
 	plan, err := releases.BuildPlan(ctx, manifest, files, goose, db)
 	if err != nil {
 		return err
 	}
-	if parentVersion != "" && plan.CurrentRelease != parentVersion {
+	if parentVersion != "" && plan.CurrentRelease != parentVersion && plan.CurrentRelease != manifest.Version {
 		plan.Blockers = append(plan.Blockers, fmt.Sprintf("release %s must follow current release %s", manifest.Version, parentVersion))
 	}
 	current := plan.CurrentRelease

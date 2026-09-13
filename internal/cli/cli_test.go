@@ -11,6 +11,7 @@ import (
 
 	"saxbase/internal/migrations"
 	"saxbase/internal/objects"
+	"saxbase/internal/releases"
 )
 
 type fakeEngine struct {
@@ -59,6 +60,31 @@ func TestUnifiedStatus(t *testing.T) {
 		if !strings.Contains(out.String(), value) {
 			t.Fatalf("status output missing %q: %s", value, out.String())
 		}
+	}
+}
+
+func TestStatusResolvesCompleteManifestHistory(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.sql", "b.sql"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("SELECT 1;"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(dir, "release.json")
+	base := releases.Manifest{Version: "30", Objects: []releases.Object{{Path: "a.sql", Commit: "latest"}, {Path: "b.sql", Commit: "latest"}}}
+	if err := base.Write(path); err != nil {
+		t.Fatal(err)
+	}
+	delta := releases.Manifest{Version: "30.1", Parent: "30", Objects: []releases.Object{{Path: "a.sql", Commit: "latest"}}}
+	if err := releases.Append(path, delta); err != nil {
+		t.Fatal(err)
+	}
+	db := &fakeObjects{}
+	err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "status"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &bytes.Buffer{},
+		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
+		func(string) (objects.Engine, error) { return db, nil })
+	if err != nil || len(db.files) != 2 {
+		t.Fatalf("status files=%+v err=%v", db.files, err)
 	}
 }
 

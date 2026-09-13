@@ -123,4 +123,15 @@ func TestReleaseCreateWithoutGitUsesLatest(t *testing.T) {
 	if len(m.Objects) != 1 || m.Objects[0].Commit != "latest" {
 		t.Fatalf("manifest=%+v", m)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 2;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	err = run(context.Background(), []string{"-objects-dir", dir, "-manifest", manifestPath, "release", "create", "2"}, env(nil), &bytes.Buffer{}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "latest") {
+		t.Fatalf("append with latest references: %v", err)
+	}
+	history, err := releases.LoadAll(manifestPath)
+	if err != nil || len(history) != 1 {
+		t.Fatalf("manifest changed after rejected append: %+v %v", history, err)
+	}
 }

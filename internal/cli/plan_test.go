@@ -55,3 +55,29 @@ func TestPlanCLI(t *testing.T) {
 		}
 	}
 }
+
+func TestPlanSelectsNextManifestHistoryRelease(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 1;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "release.json")
+	base := releases.Manifest{Version: "30", Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	if err := base.Write(path); err != nil {
+		t.Fatal(err)
+	}
+	delta := releases.Manifest{Version: "30.1", Parent: "30", Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	if err := releases.Append(path, delta); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct{ current, target string }{{"", "30"}, {"30", "30.1"}, {"30.1", "30.1"}} {
+		db := &fakeObjects{current: test.current, currentSet: true}
+		var out bytes.Buffer
+		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "plan"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
+			func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
+			func(string) (objects.Engine, error) { return db, nil })
+		if err != nil || !strings.Contains(out.String(), "-> "+test.target) || strings.Contains(out.String(), "BLOCKERS") {
+			t.Fatalf("current %q target %q: err=%v output=%s", test.current, test.target, err, out.String())
+		}
+	}
+}
