@@ -124,7 +124,7 @@ func TestReleaseCreateWithoutGitUsesLatest(t *testing.T) {
 	}
 	err = run(context.Background(), []string{"-objects-dir", dir, "-manifest", manifestPath, "release", "create", "2"}, env(nil), &bytes.Buffer{}, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "latest") {
-		t.Fatalf("append with latest references: %v", err)
+		t.Fatalf("new release with latest references: %v", err)
 	}
 	history, err := releases.LoadAll(manifestPath)
 	if err != nil || len(history) != 1 {

@@ -89,10 +89,10 @@ func TestDotEnvAndLocalCommands(t *testing.T) {
 	if err := os.MkdirAll("database/objects", 0700); err != nil {
 		t.Fatal(err)
 	}
-	writeConfigFixture(t, ".env", "GOOSE_DBSTRING='legacy-secret'\n")
+	writeConfigFixture(t, ".env", "GOOSE_DBSTRING='dotenv-secret'\n")
 	var out bytes.Buffer
 	if err := run(context.Background(), []string{"status"}, env(nil), &out, func(cfg migrations.Config) (migrations.Engine, error) {
-		if cfg.DSN != "legacy-secret" {
+		if cfg.DSN != "dotenv-secret" {
 			t.Fatal("dotenv not loaded")
 		}
 		return &fakeEngine{}, nil

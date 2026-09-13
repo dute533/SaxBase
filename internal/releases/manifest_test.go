@@ -1,6 +1,7 @@
 package releases
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,6 +63,7 @@ func TestInvalidManifests(t *testing.T) {
 		`{"releases":[{"version":"30","objects":null}]}`,
 		`{"releases":[{"version":"30","objects":[],"typo":true}]}`,
 		`{"releases":[{"version":"30","parent":"29","objects":[]}]}`,
+		`{"releases":[{"version":"1","objects":[]},{"version":"2","objects":[]}]}`,
 		`{"releases":[{"version":"30","objects":[]}]} {}`,
 		`{"releases":[{"version":"30","objects":[{"path":"../a.sql","commit":"` + sum + `"}]}]}`,
 		`{"releases":[{"version":"30","objects":[{"path":"a.sql","commit":"bad"}]}]}`,
@@ -75,6 +77,31 @@ func TestInvalidManifests(t *testing.T) {
 		if _, err := Load(file); err == nil {
 			t.Errorf("accepted %s", body)
 		}
+	}
+}
+
+func TestAppendStoresNewestReleaseFirst(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "release.json")
+	if err := (Manifest{Version: "1", Objects: []Object{}}).Write(filename); err != nil {
+		t.Fatal(err)
+	}
+	if err := Append(filename, Manifest{Version: "2", Objects: []Object{}}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored manifestDocument
+	if err := json.Unmarshal(data, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.Releases) != 2 || stored.Releases[0].Version != "2" || stored.Releases[1].Version != "1" {
+		t.Fatalf("stored history=%+v", stored.Releases)
+	}
+	history, err := LoadAll(filename)
+	if err != nil || history[0].Version != "1" || history[1].Version != "2" {
+		t.Fatalf("chronological history=%+v err=%v", history, err)
 	}
 }
 

@@ -208,9 +208,6 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 		if err := dropExtra(tx); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, "DROP TABLE IF EXISTS dbo.saxbase_objects;"); err != nil {
-			return fmt.Errorf("remove legacy object metadata: %w", err)
-		}
 		if err := setCurrent(ctx, tx, version); err != nil {
 			return err
 		}

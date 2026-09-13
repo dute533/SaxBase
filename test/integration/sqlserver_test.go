@@ -215,11 +215,6 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT COUNT(*) FROM dbo.goose_db_version WHERE version_id IN (1, 2) AND is_applied = 1", 2)
 
 	// The insert and CREATE TABLE would fail if Goose reran the first migration.
-	// A retry also removes object metadata left by older SaxBase versions.
-	if _, err := db.ExecContext(ctx, `CREATE TABLE dbo.saxbase_objects(
- path nvarchar(450) NOT NULL PRIMARY KEY, checksum char(64) NOT NULL);`); err != nil {
-		t.Fatal(err)
-	}
 	run("apply")
 	assertVersion("2")
 	assertCount("SELECT COUNT(*) FROM dbo.customers", 1)

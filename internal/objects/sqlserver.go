@@ -137,12 +137,6 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files, basel
 			}
 		}
 	}
-	// Older SaxBase versions duplicated manifest object checksums in SQL Server.
-	// Drop that cache only after the release work has succeeded; the transaction
-	// restores it as well if anything below fails.
-	if _, err := tx.ExecContext(ctx, "DROP TABLE IF EXISTS dbo.saxbase_objects;"); err != nil {
-		return nil, fmt.Errorf("remove legacy object metadata: %w", err)
-	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}

@@ -58,7 +58,8 @@ Edit `database/objects/views/value.sql`, then inspect the change:
 ../../saxbase apply
 ```
 
-To record the change as release `2.1`, commit the SQL and append a delta:
+To record the change as release `2.1`, commit the SQL and add a delta at the top
+of the manifest:
 
 ```sh
 git add database/objects

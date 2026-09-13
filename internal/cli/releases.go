@@ -46,7 +46,7 @@ func runRelease(ctx context.Context, args []string, filename, dir string, out io
 				return fmt.Errorf("resolve existing manifest: %w", resolveErr)
 			}
 			if containsLatest(previous) {
-				return errors.New("cannot append a delta to a release containing latest references; commit object files to Git first")
+				return errors.New("cannot add a release after one containing latest references; commit object files to Git first")
 			}
 			m, err = releases.NewDelta(args[1], files, previous)
 		case errors.Is(loadErr, os.ErrNotExist):

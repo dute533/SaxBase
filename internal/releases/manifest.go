@@ -72,7 +72,8 @@ func Load(filename string) (Manifest, error) {
 	return releases[len(releases)-1], nil
 }
 
-// LoadAll reads the release history from oldest to newest.
+// LoadAll returns the release history from oldest to newest. The JSON stores
+// releases newest-first so its most relevant entry is visible at the top.
 func LoadAll(filename string) ([]Manifest, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
@@ -85,10 +86,23 @@ func LoadAll(filename string) ([]Manifest, error) {
 	if len(document.Releases) == 0 {
 		return nil, errors.New("manifest releases must be a nonempty array")
 	}
-	if err := validateHistory(document.Releases); err != nil {
+	history := reverseHistory(document.Releases)
+	if err := validateHistory(history); err != nil {
 		return nil, err
 	}
-	return document.Releases, nil
+	return history, nil
+}
+
+func reverseHistory(releases []Manifest) []Manifest {
+	reversed := make([]Manifest, len(releases))
+	for i := range releases {
+		reversed[len(releases)-1-i] = releases[i]
+	}
+	return reversed
+}
+
+func marshalHistory(releases []Manifest) ([]byte, error) {
+	return json.MarshalIndent(manifestDocument{Releases: reverseHistory(releases)}, "", "  ")
 }
 
 // LoadVersion returns a specific release from a manifest file. An empty
@@ -209,7 +223,7 @@ func (m Manifest) Write(filename string) error {
 	if err := validateHistory([]Manifest{m}); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(manifestDocument{Releases: []Manifest{m}}, "", "  ")
+	data, err := marshalHistory([]Manifest{m})
 	if err != nil {
 		return err
 	}
@@ -221,7 +235,7 @@ func (m Manifest) Write(filename string) error {
 	return errors.Join(writeErr, file.Close())
 }
 
-// Append adds a newer release to the history in filename.
+// Append adds a newer release to the history and writes it first in filename.
 func Append(filename string, m Manifest) error {
 	if err := m.check(); err != nil {
 		return err
@@ -244,7 +258,7 @@ func Append(filename string, m Manifest) error {
 		return fmt.Errorf("release %s must be newer than existing release %s", m.Version, previous.Version)
 	}
 	releases = append(releases, m)
-	data, err := json.MarshalIndent(manifestDocument{Releases: releases}, "", "  ")
+	data, err := marshalHistory(releases)
 	if err != nil {
 		return err
 	}

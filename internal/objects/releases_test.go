@@ -47,10 +47,6 @@ func expectObjectApply(mock sqlmock.Sqlmock, file File) {
 	mock.ExpectExec("CREATE OR ALTER VIEW").WillReturnResult(sqlmock.NewResult(0, 0))
 }
 
-func expectLegacyObjectCleanup(mock sqlmock.Sqlmock) {
-	mock.ExpectExec("DROP TABLE IF EXISTS dbo.saxbase_objects").WillReturnResult(sqlmock.NewResult(0, 0))
-}
-
 func TestReleaseCommitsFingerprintWithoutSQLSnapshot(t *testing.T) {
 	s, mock := mockStore(t)
 	files := []File{objectFile("a.sql", "CREATE OR ALTER VIEW dbo.a AS SELECT N'Grüße' AS n;\r\n"), objectFile("b.sql", "CREATE OR ALTER VIEW dbo.b AS SELECT 2 AS n;")}
@@ -59,7 +55,6 @@ func TestReleaseCommitsFingerprintWithoutSQLSnapshot(t *testing.T) {
 	expectNewRelease(mock, "30.1", 30, 1, 2)
 	expectObjectApply(mock, files[0])
 	expectCurrent(mock, "30.1")
-	expectLegacyObjectCleanup(mock)
 	mock.ExpectCommit()
 	rows, err := s.apply(context.Background(), files, files[1:], &Release{Version: "30.1", SchemaVersion: 30, Revision: 1})
 	if err != nil {
@@ -70,9 +65,9 @@ func TestReleaseCommitsFingerprintWithoutSQLSnapshot(t *testing.T) {
 	}
 }
 
-func TestReleaseRollsBackOnSQLCleanupOrCommitFailure(t *testing.T) {
+func TestReleaseRollsBackOnObjectOrCommitFailure(t *testing.T) {
 	failure := errors.New("injected database failure")
-	for _, phase := range []string{"object", "cleanup", "commit"} {
+	for _, phase := range []string{"object", "commit"} {
 		t.Run(phase, func(t *testing.T) {
 			s, mock := mockStore(t)
 			file := objectFile("a.sql", "CREATE OR ALTER VIEW dbo.a AS SELECT 1 AS n;")
@@ -84,12 +79,6 @@ func TestReleaseRollsBackOnSQLCleanupOrCommitFailure(t *testing.T) {
 			} else {
 				object.WillReturnResult(sqlmock.NewResult(0, 0))
 				expectCurrent(mock, "30")
-				cleanup := mock.ExpectExec("DROP TABLE IF EXISTS dbo.saxbase_objects")
-				if phase == "cleanup" {
-					cleanup.WillReturnError(failure)
-				} else {
-					cleanup.WillReturnResult(sqlmock.NewResult(0, 0))
-				}
 			}
 			if phase == "commit" {
 				mock.ExpectCommit().WillReturnError(failure)
@@ -129,7 +118,6 @@ func TestReleaseIdentityAndOrdering(t *testing.T) {
 				mock.ExpectQuery("SELECT OBJECT_ID.*saxbase_releases").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 				mock.ExpectQuery("SELECT TOP.*version FROM dbo.saxbase_releases WHERE is_current=1").WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow("30.2"))
 				expectCurrent(mock, "30.2")
-				expectLegacyObjectCleanup(mock)
 				mock.ExpectCommit()
 			} else {
 				mock.ExpectRollback()
