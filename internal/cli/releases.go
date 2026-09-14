@@ -177,25 +177,50 @@ func effectiveCurrent(history []resolvedRelease, state objects.Inspection) (stri
 	return "", errors.New("recorded database releases are not present in manifest history")
 }
 
-// selectNextRelease advances one history entry at a time. If the newest entry
-// is already current, it is selected again so plan/apply remain idempotent.
-func selectNextRelease(history []resolvedRelease, current string) (resolvedRelease, error) {
+// pendingReleases returns the releases apply must visit, in order. If the
+// newest entry is already current, it is returned so plan/apply remain
+// idempotent and can recheck that release.
+func pendingReleases(history []resolvedRelease, current string) ([]resolvedRelease, error) {
 	if len(history) == 0 {
-		return resolvedRelease{}, errors.New("manifest contains no releases")
+		return nil, errors.New("manifest contains no releases")
 	}
 	if current == "" {
-		return history[0], nil
+		return history, nil
 	}
 	for i, release := range history {
 		if release.manifest.Version != current {
 			continue
 		}
 		if i+1 < len(history) {
-			return history[i+1], nil
+			return history[i+1:], nil
 		}
-		return release, nil
+		return history[i : i+1], nil
 	}
-	return resolvedRelease{}, fmt.Errorf("current release %s is not in manifest history", current)
+	return nil, fmt.Errorf("current release %s is not in manifest history", current)
+}
+
+// selectNextRelease returns only the immediate step for plan output.
+func selectNextRelease(history []resolvedRelease, current string) (resolvedRelease, error) {
+	pending, err := pendingReleases(history, current)
+	if err != nil {
+		return resolvedRelease{}, err
+	}
+	return pending[0], nil
+}
+
+// pendingReleaseVersions returns the releases that apply will visit, in order.
+// The current release is omitted unless it is already the newest release, in
+// which case it is returned so an idempotent plan can still describe its target.
+func pendingReleaseVersions(history []resolvedRelease, current string) ([]string, error) {
+	pending, err := pendingReleases(history, current)
+	if err != nil {
+		return nil, err
+	}
+	versions := make([]string, 0, len(pending))
+	for _, release := range pending {
+		versions = append(versions, release.manifest.Version)
+	}
+	return versions, nil
 }
 
 func runRollback(ctx context.Context, args []string, cfg migrations.Config, manifestPath, objectDir string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {

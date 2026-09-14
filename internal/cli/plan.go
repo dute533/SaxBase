@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"text/tabwriter"
 
 	"saxbase/internal/migrations"
@@ -42,6 +43,10 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 	if err != nil {
 		return err
 	}
+	pending, err := pendingReleaseVersions(history, current)
+	if err != nil {
+		return err
+	}
 	manifest, files := selected.manifest, selected.files
 	baseline, err := releaseBaseline(history, current)
 	if err != nil {
@@ -63,6 +68,9 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 	}
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(w, "Release:\t%s -> %s\nGoose:\t%d -> %d\n\n", current, plan.TargetRelease, plan.CurrentSchema, plan.TargetSchema)
+	if len(pending) > 1 {
+		fmt.Fprintf(w, "Pending releases:\t%s\n\n", strings.Join(pending, " -> "))
+	}
 	fmt.Fprintln(w, "MIGRATION\tACTION\tFILE")
 	for _, row := range plan.Migrations {
 		fmt.Fprintf(w, "%d\t%s\t%s\n", row.Version, row.Action, row.Path)

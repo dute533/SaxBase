@@ -41,8 +41,8 @@ func TestSQLServerManifestHistoryWorkflow(t *testing.T) {
 		}
 	}
 
-	// Append a delta before provisioning this fresh database. Apply must start
-	// with the oldest release rather than trying to deploy the delta directly.
+	// Append a delta before provisioning this fresh database. Apply must visit
+	// the oldest release first and continue through the newest release.
 	writeView("2")
 	run("release", "create", "2.1")
 	history, err := releases.LoadAll(manifestPath)
@@ -52,12 +52,9 @@ func TestSQLServerManifestHistoryWorkflow(t *testing.T) {
 	if output := run("plan"); !strings.Contains(output, "-> 2") {
 		t.Fatalf("fresh plan did not select release 2: %s", output)
 	}
-	run("apply")
-	assertValue(1)
-	if output := run("plan"); !strings.Contains(output, "2 -> 2.1") {
-		t.Fatalf("next plan did not select release 2.1: %s", output)
+	if output := run("apply"); !strings.Contains(output, "Applied release 2 ") || !strings.Contains(output, "Applied release 2.1 ") {
+		t.Fatalf("fresh apply did not deploy the full release chain: %s", output)
 	}
-	run("apply")
 	assertValue(2)
 	if output := run("apply"); !strings.Contains(output, "unchanged") {
 		t.Fatalf("repeat apply was not idempotent: %s", output)

@@ -34,11 +34,11 @@ Preview and apply the release:
 ./saxbase status
 ```
 
-`apply` advances one entry in the manifest history, migrates Goose to that
-entry's schema version, applies its changed objects in manifest order, and
-records the release. Run it again while more releases are pending. Use
-`-target NAME` for a configured target and `-yes` for unattended protected
-deployments.
+`plan` shows the next entry and, when needed, the full pending release chain.
+`apply` advances through every pending manifest entry in order, migrating Goose,
+applying changed objects, and recording each release as a separate deployment
+step. Use `-target NAME` for a configured target and `-yes` for unattended
+protected deployments.
 
 ## Create a release
 

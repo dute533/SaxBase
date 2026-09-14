@@ -69,11 +69,11 @@ Only SQL Server is supported. The default driver is `mssql`.
 ./saxbase status     # Show migration, release, and object state
 ```
 
-`plan` and `apply` select the next entry after the database's current release.
-For an unversioned database they select the oldest entry, and when the newest
-entry is already current they safely recheck it. `apply` brings Goose to that
-release's schema version, then applies its object entries from top to bottom.
-Run it again while more releases are pending.
+`plan` selects the next entry after the database's current release and prints
+the complete pending release chain. `apply` visits that entire chain in order,
+bringing Goose to each release's schema version, applying its object entries
+from top to bottom, and recording the release before advancing. When the newest
+entry is already current, both commands safely recheck it.
 
 ## Structural migrations
 
@@ -168,9 +168,10 @@ git commit -m "Update database objects"
 
 By default, `database/release.json` is a newest-first release history. Creating
 a newer version prepends a delta from the latest version while preserving all
-older versions. `plan` and `apply` advance chronologically one release at a
-time; rollback selects an older version from the same file. Creating a version
-older than the newest manifest entry is rejected.
+older versions. `plan` previews the pending chain and `apply` deploys it
+chronologically, one recorded release step at a time; rollback selects an older
+version from the same file. Creating a version older than the newest manifest
+entry is rejected.
 
 Before the newest release is deployed, rerun `release create` with that same
 version to rebuild its entry from the current committed object files. Older

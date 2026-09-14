@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,7 +50,7 @@ func TestApplyCLI(t *testing.T) {
 	}
 }
 
-func TestApplyAdvancesManifestHistoryAndIsIdempotent(t *testing.T) {
+func TestApplyAdvancesEntireManifestHistoryAndIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 1;"), 0600); err != nil {
 		t.Fatal(err)
@@ -64,21 +65,64 @@ func TestApplyAdvancesManifestHistoryAndIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	goose := &fakeEngine{}
-	db := &fakeObjects{currentSet: true}
-	apply := func(want string) {
+	apply := func(db *fakeObjects) string {
 		t.Helper()
 		var out bytes.Buffer
 		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
-			func(migrations.Config) (migrations.Engine, error) { return goose, nil },
+			func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
 			func(string) (objects.Engine, error) { return db, nil })
-		if err != nil || db.current != want || !strings.Contains(out.String(), "Applied release "+want) {
-			t.Fatalf("apply %s: err=%v current=%q output=%s", want, err, db.current, out.String())
+		if err != nil {
+			t.Fatalf("apply: err=%v current=%q output=%s", err, db.current, out.String())
 		}
+		return out.String()
 	}
-	apply("30")
-	apply("30.1")
-	apply("30.1")
+
+	fresh := &fakeObjects{currentSet: true}
+	output := apply(fresh)
+	if fresh.current != "30.1" || strings.Join(fresh.appliedVersions, ",") != "30,30.1" ||
+		!strings.Contains(output, "Applied release 30") || !strings.Contains(output, "Applied release 30.1") {
+		t.Fatalf("fresh apply: current=%q applied=%v output=%s", fresh.current, fresh.appliedVersions, output)
+	}
+
+	current := &fakeObjects{current: "30", currentSet: true}
+	output = apply(current)
+	if current.current != "30.1" || strings.Join(current.appliedVersions, ",") != "30.1" || !strings.Contains(output, "Applied release 30.1") {
+		t.Fatalf("partial apply: current=%q applied=%v output=%s", current.current, current.appliedVersions, output)
+	}
+
+	current.appliedVersions = nil
+	output = apply(current)
+	if strings.Join(current.appliedVersions, ",") != "30.1" || !strings.Contains(output, "Applied release 30.1") {
+		t.Fatalf("idempotent apply: applied=%v output=%s", current.appliedVersions, output)
+	}
+}
+
+func TestApplyStopsAtFailedRelease(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 1;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "release.json")
+	base := releases.Manifest{Version: "30", Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	if err := base.Write(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := releases.Append(path, releases.Manifest{Version: "30.1", Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	failure := errors.New("object deployment failed")
+	db := &fakeObjects{currentSet: true, applyErrAt: "30.1", applyErr: failure}
+	var out bytes.Buffer
+	err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
+		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
+		func(string) (objects.Engine, error) { return db, nil })
+	if !errors.Is(err, failure) || db.current != "30" || strings.Join(db.appliedVersions, ",") != "30" {
+		t.Fatalf("failed apply: err=%v current=%q applied=%v", err, db.current, db.appliedVersions)
+	}
+	if !strings.Contains(out.String(), "Applied release 30") || strings.Contains(out.String(), "Applied release 30.1") {
+		t.Fatalf("failed apply output: %s", out.String())
+	}
 }
 
 func TestForceApplyReappliesCurrentRelease(t *testing.T) {

@@ -79,5 +79,8 @@ func TestPlanSelectsNextManifestHistoryRelease(t *testing.T) {
 		if err != nil || !strings.Contains(out.String(), "-> "+test.target) || strings.Contains(out.String(), "BLOCKERS") {
 			t.Fatalf("current %q target %q: err=%v output=%s", test.current, test.target, err, out.String())
 		}
+		if test.current == "" && !strings.Contains(out.String(), "Pending releases:  30 -> 30.1") {
+			t.Fatalf("fresh plan omitted pending release chain: %s", out.String())
+		}
 	}
 }

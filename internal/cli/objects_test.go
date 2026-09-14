@@ -8,19 +8,22 @@ import (
 )
 
 type fakeObjects struct {
-	command        string
-	files          []objects.File
-	closed         bool
-	err            error
-	rollbackErr    error
-	version        string
-	current        string
-	currentSet     bool
-	rollbackSource string
-	rollbackTarget string
-	rollbacks      []objects.Rollback
-	history        []objects.Release
-	force          bool
+	command         string
+	files           []objects.File
+	closed          bool
+	err             error
+	rollbackErr     error
+	version         string
+	current         string
+	currentSet      bool
+	rollbackSource  string
+	rollbackTarget  string
+	rollbacks       []objects.Rollback
+	history         []objects.Release
+	force           bool
+	appliedVersions []string
+	applyErrAt      string
+	applyErr        error
 }
 
 func (f *fakeObjects) Close() error { f.closed = true; return nil }
@@ -61,11 +64,19 @@ func (f *fakeObjects) Apply(ctx context.Context, files, _ []objects.File, versio
 	if err := preflight(ctx); err != nil {
 		return nil, err
 	}
+	if version == f.applyErrAt {
+		return nil, f.applyErr
+	}
 	f.command = "apply"
 	f.files = files
 	f.force = force
 	f.version = version
 	f.currentSet = true
 	f.current = version
-	return []objects.Status{{Path: files[0].Path, State: "applied", Checksum: files[0].Checksum}}, f.err
+	f.appliedVersions = append(f.appliedVersions, version)
+	rows := make([]objects.Status, 0, len(files))
+	for _, file := range files {
+		rows = append(rows, objects.Status{Path: file.Path, State: "applied", Checksum: file.Checksum})
+	}
+	return rows, f.err
 }
