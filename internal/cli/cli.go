@@ -22,6 +22,7 @@ Usage:
   saxbase [-manifest database/release.json] plan|status
   saxbase [-f] [-manifest database/release.json] apply
   saxbase rollback VERSION
+  saxbase [-dir database/migrations] migration create NAME
   saxbase [-manifest database/release.json] release create VERSION
   saxbase [-manifest database/release.json] release validate
 
@@ -30,6 +31,7 @@ Commands:
   apply     Advance to the next manifest release, apply it, and record it
   status    Show Goose, release, and object state together
   rollback  Restore a recorded release using its manifest
+  migration create NAME  Create the next sequential Goose SQL migration
   release create VERSION  Add or refresh a release from current object files
   release validate        Check the manifest against current object files
 
@@ -152,6 +154,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 			return err
 		}
 		return runRollback(ctx, pos[1:], cfg, manifestPath, objectDir, out, open, openObjects)
+	}
+	if len(pos) > 0 && pos[0] == "migration" {
+		return runMigration(pos[1:], cfg.Dir, out)
 	}
 	if len(pos) > 0 && pos[0] == "release" {
 		return runRelease(ctx, pos[1:], manifestPath, objectDir, out)

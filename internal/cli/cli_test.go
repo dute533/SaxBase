@@ -114,7 +114,7 @@ func TestConfigurationPrecedence(t *testing.T) {
 }
 
 func TestValidationBeforeOpeningDatabase(t *testing.T) {
-	for _, args := range [][]string{{"deploy"}, {"migration", "status"}, {"migration", "version"}, {"objects", "apply"}, {"mssql", "dsn", "apply"}, {"-unknown"}, {"-f", "plan"}, {"-force", "status"}, {"-dir"}, {"migration", "up", "extra"}, {"migration", "up", "-dir", "custom"}} {
+	for _, args := range [][]string{{"deploy"}, {"migration", "status"}, {"migration", "version"}, {"migration", "create"}, {"migration", "create", "one", "extra"}, {"objects", "apply"}, {"mssql", "dsn", "apply"}, {"-unknown"}, {"-f", "plan"}, {"-force", "status"}, {"-dir"}, {"migration", "up", "extra"}, {"migration", "up", "-dir", "custom"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			err := Run(context.Background(), args, env(nil), &bytes.Buffer{}, func(migrations.Config) (migrations.Engine, error) {
 				t.Fatal("opened database for invalid input")
@@ -137,6 +137,23 @@ func TestHelpWithoutDatabase(t *testing.T) {
 		if err != nil || !strings.Contains(out.String(), "SaxBase") {
 			t.Fatalf("help: %q, %v", out.String(), err)
 		}
+	}
+}
+
+func TestMigrationCreateWithoutDatabase(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(t.TempDir())
+	var out bytes.Buffer
+	err := Run(context.Background(), []string{"-dir", dir, "migration", "create", "add_customer_email"}, env(nil), &out, func(migrations.Config) (migrations.Engine, error) {
+		t.Fatal("opened database for migration create")
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "00001_add_customer_email.sql")
+	if _, err := os.Stat(path); err != nil || !strings.Contains(out.String(), path) {
+		t.Fatalf("path=%s output=%q err=%v", path, out.String(), err)
 	}
 }
 

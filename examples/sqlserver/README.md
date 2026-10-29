@@ -80,6 +80,17 @@ Restore release `2` from the manifest history:
 Rollback resolves the target objects from their historical Git commits. Keep the
 manifest and referenced commits available.
 
+## Add a migration
+
+Create the next sequential Goose SQL migration through SaxBase:
+
+```sh
+../../saxbase migration create add_customer_email
+```
+
+Edit the generated file, commit it, and create a release whose schema component
+matches the migration version before running `plan` and `apply`.
+
 ## Verify locally
 
 From the repository root, run the disposable SQL Server integration test:

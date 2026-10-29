@@ -42,6 +42,16 @@ protected deployments.
 
 ## Create a release
 
+Create a sequential Goose SQL migration without installing the Goose CLI:
+
+```sh
+./saxbase migration create add_customer_email
+```
+
+Edit the generated migration file, including both its Up and Down sections.
+SaxBase chooses the next available five-digit migration number and respects
+`-dir` when migrations live elsewhere.
+
 Commit object SQL, create a manifest, review its order, then apply it:
 
 ```sh
@@ -108,6 +118,7 @@ Rollback restores historical objects and runs the required Goose Down migrations
 | `apply` | Apply a manifest release |
 | `status` | Show migration, release, and object state |
 | `rollback VERSION` | Restore a recorded release |
+| `migration create NAME` | Create a sequential Goose SQL migration |
 | `release create/validate` | Manage manifests |
 
 Run `./saxbase -h` for the complete option list.

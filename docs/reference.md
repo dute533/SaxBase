@@ -77,7 +77,18 @@ entry is already current, both commands safely recheck it.
 
 ## Structural migrations
 
-Create Goose migrations in `database/migrations`, for example:
+Create the next sequential SQL migration with SaxBase:
+
+```sh
+./saxbase migration create add_customer_email
+```
+
+This command works without a database connection and creates a file such as
+`database/migrations/00003_add_customer_email.sql`. Use `-dir` before the
+command to select another migration directory. Names use lowercase letters,
+numbers, and single underscores.
+
+Edit the generated Goose migration, for example:
 
 ```sql
 -- +goose Up
