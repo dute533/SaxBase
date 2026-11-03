@@ -69,7 +69,7 @@ func TestSQLServerApply(t *testing.T) {
 	if output := strings.Join(strings.Fields(run("-manifest", "database/target.json", "status")), " "); !strings.Contains(output, "Release: 2") {
 		t.Fatalf("current release missing from status: %s", output)
 	}
-	if out := apply(); strings.Count(out, "unchanged") != 4 {
+	if out := apply(); strings.Count(out, "current") != 4 {
 		t.Fatal(out)
 	}
 	count("SELECT COUNT(*) FROM dbo.saxbase_releases", 1)

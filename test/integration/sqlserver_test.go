@@ -185,7 +185,7 @@ func TestSQLServerMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	planOutput := strings.Join(strings.Fields(run("plan")), " ")
-	for _, want := range []string{"Goose: 0 -> 2", "1 apply", "2 apply", "99 deferred", "Ready:"} {
+	for _, want := range []string{"Goose: 0 -> 2", "1 apply", "2 apply", "99 waiting", "Ready:"} {
 		if !strings.Contains(planOutput, want) {
 			t.Fatalf("plan missing %q: %s", want, planOutput)
 		}
@@ -221,7 +221,7 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT COUNT(*) FROM dbo.goose_db_version WHERE version_id IN (1, 2) AND is_applied = 1", 2)
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_objects')", 0)
 
-	if output := run("-manifest", "database/release.json", "apply"); strings.Count(output, "unchanged") != 3 {
+	if output := run("-manifest", "database/release.json", "apply"); strings.Count(output, "current") != 3 {
 		t.Fatalf("repeat objects: %s", output)
 	}
 	assertCount("SELECT value FROM dbo.saxbase_value", 1)
@@ -247,7 +247,7 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 1)
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_release_objects'", 0)
 	assertVersion("2")
-	if output := run("apply"); strings.Count(output, "unchanged") != 3 {
+	if output := run("apply"); strings.Count(output, "current") != 3 {
 		t.Fatalf("repeat objects: %s", output)
 	}
 	updated := []byte("CREATE OR ALTER VIEW dbo.saxbase_value AS SELECT 2 AS value;\n")
@@ -259,18 +259,18 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT value FROM dbo.saxbase_value", 1)
 	run("release", "create", "2.1")
 	run("release", "validate")
-	if output := run("status"); strings.Count(output, "changed") != 3 || strings.Count(output, "unchanged") != 2 {
+	if output := run("status"); strings.Count(output, "changed") != 1 || strings.Count(output, "current") != 2 {
 		t.Fatalf("changed status: %s", output)
 	}
-	if output := run("apply"); strings.Count(output, "applied") != 1 || strings.Contains(output, "unchanged") {
+	if output := run("apply"); strings.Count(output, "applied") != 1 || strings.Contains(output, "current") {
 		t.Fatalf("changed apply: %s", output)
 	}
 	assertCount("SELECT value FROM dbo.saxbase_value", 2)
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_objects')", 0)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='2.1'", 1)
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_release_objects'", 0)
-	if output := run("plan"); !strings.Contains(output, "Ready:") || strings.Count(output, "unchanged") != 1 {
-		t.Fatalf("unchanged plan: %s", output)
+	if output := run("plan"); !strings.Contains(output, "Ready:") || strings.Count(output, "current") != 1 {
+		t.Fatalf("current plan: %s", output)
 	}
 	var retainedFingerprint string
 	if err := db.QueryRowContext(ctx, "SELECT fingerprint FROM dbo.saxbase_releases WHERE version='2'").Scan(&retainedFingerprint); err != nil {

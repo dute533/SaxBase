@@ -121,7 +121,9 @@ and does not infer dependencies, so list dependencies before consumers in the
 manifest.
 
 `status` compares the selected object state with the active release manifest and
-reports each object as `new`, `changed`, `unchanged`, or `missing`. Missing files
+reports each object as `new`, `changed`, `current`, or `missing`. A planned
+deletion is shown as `delete`, and migrations above the target schema are shown
+as `waiting`. Missing files
 are reported and are not automatically dropped. `apply` applies changed objects
 together with the manifest's migrations.
 

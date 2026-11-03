@@ -87,7 +87,7 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 		}
 		fmt.Fprintf(w, "%s release %s (Goose %d)\nSTATE\tFILE\tSHA256\n", action, manifest.Version, version.Schema)
 		for _, row := range rows {
-			fmt.Fprintf(w, "%s\t%s\t%s\n", row.State, row.Path, row.Checksum)
+			fmt.Fprintf(w, "%s\t%s\t%s\n", displayState(row.State), row.Path, row.Checksum)
 		}
 		current = manifest.Version
 		baseline = selected.state

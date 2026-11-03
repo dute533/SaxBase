@@ -76,11 +76,11 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 	}
 	fmt.Fprintln(w, "MIGRATION\tACTION\tFILE")
 	for _, row := range plan.Migrations {
-		fmt.Fprintf(w, "%d\t%s\t%s\n", row.Version, row.Action, row.Path)
+		fmt.Fprintf(w, "%d\t%s\t%s\n", row.Version, displayState(row.Action), row.Path)
 	}
 	fmt.Fprintln(w, "\nOBJECT\tSTATE\tSHA256")
 	for _, row := range plan.Objects {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", row.Path, row.State, row.Checksum)
+		fmt.Fprintf(w, "%s\t%s\t%s\n", row.Path, displayState(row.State), row.Checksum)
 	}
 	if len(plan.Blockers) > 0 {
 		fmt.Fprintln(w, "\nBLOCKERS")
