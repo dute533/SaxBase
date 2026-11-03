@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"saxbase/internal/releases"
 	"strings"
 	"testing"
@@ -49,7 +50,7 @@ func TestRollbackCommand(t *testing.T) {
 	}
 }
 
-func TestRollbackSelectsCurrentReleaseFromHistory(t *testing.T) {
+func TestRollbackWalksRecordedReleasesOneStepAtATime(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("CREATE OR ALTER VIEW dbo.v AS SELECT 1 AS n;"), 0600); err != nil {
 		t.Fatal(err)
@@ -67,16 +68,19 @@ func TestRollbackSelectsCurrentReleaseFromHistory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, store := range []*fakeObjects{
-		{current: "30.1", currentSet: true},
-		{currentSet: true, rollbacks: []objects.Rollback{{SourceVersion: "30.1", TargetVersion: "30", Status: "failed"}}},
+	for _, tc := range []struct {
+		store *fakeObjects
+		steps []string
+	}{
+		{store: &fakeObjects{current: "30.1", currentSet: true}, steps: []string{"30.1->30"}},
+		{store: &fakeObjects{current: "30.2", currentSet: true}, steps: []string{"30.2->30.1", "30.1->30"}},
 	} {
 		var out bytes.Buffer
 		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "rollback", "30"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
 			func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
-			func(string) (objects.Engine, error) { return store, nil })
-		if err != nil || store.rollbackSource != "30.1" || store.rollbackTarget != "30" {
-			t.Fatalf("rollback source=%q target=%q err=%v output=%s", store.rollbackSource, store.rollbackTarget, err, out.String())
+			func(string) (objects.Engine, error) { return tc.store, nil })
+		if err != nil || !reflect.DeepEqual(tc.store.rollbackSteps, tc.steps) {
+			t.Fatalf("rollback steps=%v, want %v: err=%v output=%s", tc.store.rollbackSteps, tc.steps, err, out.String())
 		}
 	}
 }

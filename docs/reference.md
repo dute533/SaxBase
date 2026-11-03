@@ -222,15 +222,21 @@ Only the target version is needed:
 
 The target and active releases must both be present in the history. SaxBase
 resolves historical object files from the commits in the manifest, so the
-manifest and commits must still be available. Fix any failed
-deployment before requesting a rollback; rollback is for returning from a
-recorded release to an earlier one.
+manifest and commits must still be available. Rollback visits every intervening
+release in descending order and records each one as the current release before
+continuing. Object-only steps are atomic. For a structural step, SaxBase removes
+blocking objects and moves the current-release marker to the target atomically,
+then runs Goose Down and restores the target definitions. Retry the same command
+after repairing a failed migration or definition; SaxBase reconciles that
+checkpoint before continuing.
 
 SaxBase resolves object state from release manifests. Its
 `dbo.saxbase_releases` table stores only the canonical release `version`, its
 `fingerprint`, and the `is_current` marker; schema and revision numbers are
-derived from the version when needed. Rollback progress uses a separate `dbo`
-metadata table. Goose stores its migration version in `goose_db_version`.
+derived from the version when needed. Goose stores its migration version in
+`goose_db_version`; rollback does not create another metadata table. Successful
+rollback or reconciliation also removes the obsolete `dbo.saxbase_rollbacks`
+table left by older SaxBase versions.
 
 ## Development
 

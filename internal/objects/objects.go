@@ -24,16 +24,16 @@ type Engine interface {
 	History(context.Context) ([]Release, error)
 	Snapshot(context.Context, string) (Snapshot, error)
 	Rollback(context.Context, Snapshot, Snapshot, migrations.Engine) (Rollback, error)
-	Rollbacks(context.Context) ([]Rollback, error)
+	Reconcile(context.Context, Snapshot, migrations.Engine) error
+	Reconciled(context.Context, Snapshot) (bool, error)
 	Current(context.Context) (string, error)
 	Inspect(context.Context) (Inspection, error)
 	Close() error
 }
 
 type Inspection struct {
-	Current   string
-	History   []Release
-	Rollbacks []Rollback
+	Current string
+	History []Release
 }
 
 type Release struct {

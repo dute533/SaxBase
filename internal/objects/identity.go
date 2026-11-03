@@ -9,6 +9,9 @@ import (
 type identity struct{ kind, schema, name string }
 
 func (i identity) key() string { return strings.ToLower(i.schema + "\x00" + i.name) }
+func (i identity) qualified() string {
+	return "[" + strings.ReplaceAll(i.schema, "]", "]]") + "].[" + strings.ReplaceAll(i.name, "]", "]]") + "]"
+}
 func (i identity) drop() string {
 	return "DROP " + i.kind + " IF EXISTS [" + strings.ReplaceAll(i.schema, "]", "]]") + "].[" + strings.ReplaceAll(i.name, "]", "]]") + "];"
 }

@@ -39,6 +39,9 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 	if err != nil {
 		return err
 	}
+	if err := requireReconciledCurrent(ctx, history, state, goose, db); err != nil {
+		return err
+	}
 	pending, err := pendingReleases(history, current)
 	if err != nil {
 		return err

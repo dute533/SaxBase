@@ -108,7 +108,10 @@ Roll back directly to any earlier version in the manifest history:
 ./saxbase rollback 30
 ```
 
-Rollback restores historical objects and runs the required Goose Down migrations.
+Rollback walks the manifest history one release at a time, restoring historical
+objects and running the required Goose Down migrations. Each completed release
+is a durable checkpoint, so retry the same command after repairing a failed Down
+migration or object definition.
 
 ## Commands
 

@@ -28,9 +28,6 @@ func (s *store) Apply(ctx context.Context, files, baseline []File, version strin
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, unlock()) }()
-	if err := deploymentlock.CheckPending(ctx, conn); err != nil {
-		return nil, err
-	}
 	if err := preflight(ctx); err != nil {
 		return nil, err
 	}

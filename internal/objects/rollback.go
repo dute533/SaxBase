@@ -5,64 +5,115 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
+	"strings"
 
 	"saxbase/internal/deploymentlock"
 	"saxbase/internal/migrations"
 	"saxbase/internal/releaseversion"
 )
 
+// Rollback describes one completed transition between adjacent releases.
 type Rollback struct {
-	ID            int64      `json:"id"`
-	SourceVersion string     `json:"source"`
-	TargetVersion string     `json:"target"`
-	Phase         string     `json:"phase"`
-	Status        string     `json:"status"`
-	LastError     string     `json:"error,omitempty"`
-	StartedAt     time.Time  `json:"started_at"`
-	CompletedAt   *time.Time `json:"completed_at,omitempty"`
+	SourceVersion string
+	TargetVersion string
 }
 
-const rollbackTable = `IF OBJECT_ID(N'dbo.saxbase_rollbacks',N'U') IS NULL
- CREATE TABLE dbo.saxbase_rollbacks(
- id bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
- source_version varchar(39) NOT NULL,target_version varchar(39) NOT NULL,
- phase varchar(32) NOT NULL,status varchar(16) NOT NULL,
- last_error nvarchar(max) NULL,started_at datetime2 NOT NULL DEFAULT SYSUTCDATETIME(),completed_at datetime2 NULL);`
-const rollbackColumns = "id,source_version,target_version,phase,status,COALESCE(last_error,N''),started_at,completed_at"
-
-func scanRollback(row interface{ Scan(...any) error }) (Rollback, error) {
-	var r Rollback
-	err := row.Scan(&r.ID, &r.SourceVersion, &r.TargetVersion, &r.Phase, &r.Status, &r.LastError, &r.StartedAt, &r.CompletedAt)
-	return r, err
-}
-
-func (s *store) Rollbacks(ctx context.Context) ([]Rollback, error) {
-	result := make([]Rollback, 0)
-	var id sql.NullInt64
-	if err := s.db.QueryRowContext(ctx, "SELECT OBJECT_ID(N'dbo.saxbase_rollbacks',N'U')").Scan(&id); err != nil {
-		return nil, err
-	}
-	if !id.Valid {
-		return result, nil
-	}
-	rows, err := s.db.QueryContext(ctx, "SELECT "+rollbackColumns+" FROM dbo.saxbase_rollbacks ORDER BY id DESC")
+// Reconciled verifies the durable release pointer against the target manifest
+// and the definitions currently stored in SQL Server. This distinguishes a
+// completed rollback step from a process failure after Goose reached its target
+// but before the target objects were restored.
+func (s *store) Reconciled(ctx context.Context, target Snapshot) (bool, error) {
+	files, ids, err := snapshotFiles(target)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		r, err := scanRollback(rows)
-		if err != nil {
-			return nil, err
+	current, err := currentVersion(ctx, s.db)
+	if err != nil || current != target.Version {
+		return false, err
+	}
+	for i, id := range ids {
+		var definition sql.NullString
+		if err := s.db.QueryRowContext(ctx, "SELECT OBJECT_DEFINITION(OBJECT_ID(@name))", sql.Named("name", id.qualified())).Scan(&definition); err != nil {
+			return false, err
 		}
-		result = append(result, r)
+		if !definition.Valid {
+			return false, nil
+		}
+		if canonicalDefinition(definition.String) != canonicalDefinition(files[i].SQL) {
+			return false, nil
+		}
+		actualID, err := objectIdentity(definition.String)
+		if err != nil || actualID.kind != id.kind || actualID.key() != id.key() {
+			return false, nil
+		}
 	}
-	return result, rows.Err()
+	return true, nil
 }
 
+// Reconcile completes a rollback step whose target release was made current
+// before Goose or object restoration finished. Repeating it is safe: Goose
+// resumes from its recorded version and CREATE OR ALTER restores target state.
+func (s *store) Reconcile(ctx context.Context, target Snapshot, goose migrations.Engine) (err error) {
+	version, err := releaseversion.Parse(target.Version)
+	if err != nil {
+		return err
+	}
+	targetFiles, _, err := snapshotFiles(target)
+	if err != nil {
+		return err
+	}
+	conn, unlock, err := deploymentlock.Acquire(ctx, s.db)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
+	if err := s.verifySnapshot(ctx, target); err != nil {
+		return err
+	}
+	currentRelease, err := currentVersion(ctx, conn)
+	if err != nil {
+		return err
+	}
+	if currentRelease != target.Version {
+		return fmt.Errorf("current release is %s, cannot reconcile %s", currentRelease, target.Version)
+	}
+	currentSchema, err := goose.Version(ctx)
+	if err != nil {
+		return err
+	}
+	if currentSchema < version.Schema {
+		return fmt.Errorf("Goose version %d is below current release %s", currentSchema, target.Version)
+	}
+	if currentSchema > version.Schema {
+		if err := goose.ValidateDownTo(ctx, version.Schema); err != nil {
+			return fmt.Errorf("rollback preflight: %w", err)
+		}
+		if err := goose.DownTo(ctx, version.Schema); err != nil {
+			return fmt.Errorf("Goose rollback may be partially applied; repair the migration and retry rollback %s: %w", target.Version, err)
+		}
+	}
+	if err := rollbackTransaction(ctx, conn, func(tx *sql.Tx) error {
+		if err := checkReleaseSchema(ctx, tx, version.Schema); err != nil {
+			return err
+		}
+		if err := restoreFiles(ctx, tx, targetFiles); err != nil {
+			return err
+		}
+		if err := setCurrent(ctx, tx, target.Version); err != nil {
+			return err
+		}
+		return removeLegacyRollbackTable(ctx, tx)
+	}); err != nil {
+		return fmt.Errorf("reconcile release %s: %w", target.Version, err)
+	}
+	return nil
+}
+
+// Rollback performs one transition between adjacent releases. The caller walks
+// longer rollback chains one release at a time, making every completed release
+// a durable checkpoint.
 func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose migrations.Engine) (result Rollback, err error) {
-	version := target.Version
+	result = Rollback{SourceVersion: source.Version, TargetVersion: target.Version}
 	targetNumber, err := releaseversion.Parse(target.Version)
 	if err != nil {
 		return result, err
@@ -70,6 +121,9 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 	sourceNumber, err := releaseversion.Parse(source.Version)
 	if err != nil {
 		return result, err
+	}
+	if releaseversion.Compare(targetNumber, sourceNumber) >= 0 {
+		return result, errors.New("rollback target must be older than the current release")
 	}
 	targetFiles, targetIDs, err := snapshotFiles(target)
 	if err != nil {
@@ -79,48 +133,7 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 	if err != nil {
 		return result, err
 	}
-	conn, unlock, err := deploymentlock.Acquire(ctx, s.db)
-	if err != nil {
-		return result, err
-	}
-	defer func() { err = errors.Join(err, unlock()) }()
-	for _, supplied := range []Snapshot{target, source} {
-		recorded, err := s.Snapshot(ctx, supplied.Version)
-		if err != nil {
-			return result, err
-		}
-		if recorded.Fingerprint == "" || recorded.Fingerprint != supplied.Fingerprint {
-			return result, fmt.Errorf("manifest for release %s does not match its recorded fingerprint", supplied.Version)
-		}
-	}
-	if _, err := conn.ExecContext(ctx, rollbackTable); err != nil {
-		return result, err
-	}
-	result, err = scanRollback(conn.QueryRowContext(ctx, "SELECT TOP (1) "+rollbackColumns+" FROM dbo.saxbase_rollbacks WHERE status <> 'completed' ORDER BY id DESC"))
-	resuming := err == nil
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return result, err
-	}
-	if resuming && result.TargetVersion != version {
-		return result, fmt.Errorf("rollback to %s is incomplete; retry that target first", result.TargetVersion)
-	}
-	sourceVersion := result.SourceVersion
-	if !resuming {
-		sourceVersion, err = currentVersion(ctx, conn)
-		if err != nil {
-			return result, err
-		}
-		if sourceVersion == "" {
-			return result, errors.New("current state is unversioned; apply a manifest before rolling back")
-		}
-	}
-	if source.Version != sourceVersion {
-		return result, fmt.Errorf("source manifest must describe release %s", sourceVersion)
-	}
-	if releaseversion.Compare(targetNumber, sourceNumber) > 0 {
-		return result, errors.New("rollback target is newer than the current release")
-	}
-	targetByName := map[string]identity{}
+	targetByName := make(map[string]identity, len(targetIDs))
 	for _, id := range targetIDs {
 		targetByName[id.key()] = id
 	}
@@ -129,46 +142,38 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 			return result, fmt.Errorf("object type changed for %s.%s; automatic rollback is unsupported", id.schema, id.name)
 		}
 	}
-	current, err := goose.Version(ctx)
+	conn, unlock, err := deploymentlock.Acquire(ctx, s.db)
 	if err != nil {
 		return result, err
 	}
-	if !resuming && current != sourceNumber.Schema {
-		return result, fmt.Errorf("Goose version %d does not match current release %s", current, sourceVersion)
+	defer func() { err = errors.Join(err, unlock()) }()
+	for _, supplied := range []Snapshot{target, source} {
+		if err := s.verifySnapshot(ctx, supplied); err != nil {
+			return result, err
+		}
 	}
-	if current < targetNumber.Schema || current > sourceNumber.Schema {
-		return result, fmt.Errorf("Goose version %d is outside rollback range %d..%d", current, targetNumber.Schema, sourceNumber.Schema)
+	currentRelease, err := currentVersion(ctx, conn)
+	if err != nil {
+		return result, err
 	}
-	if current > targetNumber.Schema {
+	if currentRelease == "" {
+		return result, errors.New("current state is unversioned; apply a manifest first")
+	}
+	if currentRelease != source.Version {
+		return result, fmt.Errorf("source manifest must describe current release %s", currentRelease)
+	}
+	currentSchema, err := goose.Version(ctx)
+	if err != nil {
+		return result, err
+	}
+	if currentSchema != sourceNumber.Schema {
+		return result, fmt.Errorf("Goose version %d does not match current release %s", currentSchema, source.Version)
+	}
+	if sourceNumber.Schema != targetNumber.Schema {
 		if err := goose.ValidateDownTo(ctx, targetNumber.Schema); err != nil {
 			return result, fmt.Errorf("rollback preflight: %w", err)
 		}
 	}
-	if !resuming {
-		result = Rollback{SourceVersion: sourceVersion, TargetVersion: version, Phase: "started", Status: "running"}
-		err = conn.QueryRowContext(ctx, `INSERT INTO dbo.saxbase_rollbacks(source_version,target_version,phase,status)
- OUTPUT INSERTED.id,INSERTED.started_at VALUES(@source,@target,'started','running');`, sql.Named("source", sourceVersion), sql.Named("target", version)).Scan(&result.ID, &result.StartedAt)
-		if err != nil {
-			return result, err
-		}
-	} else {
-		if _, err := conn.ExecContext(ctx, "UPDATE dbo.saxbase_rollbacks SET status='running',last_error=NULL WHERE id=@id", sql.Named("id", result.ID)); err != nil {
-			return result, err
-		}
-		result.Status = "running"
-		result.LastError = ""
-	}
-	defer func() {
-		if err != nil {
-			cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_, recordErr := conn.ExecContext(cleanup, "UPDATE dbo.saxbase_rollbacks SET status='failed',last_error=@error WHERE id=@id", sql.Named("error", err.Error()), sql.Named("id", result.ID))
-			result.Status = "failed"
-			result.LastError = err.Error()
-			err = errors.Join(err, recordErr)
-		}
-	}()
-	// Remove only objects absent from the target; retained objects keep permissions.
 	dropExtra := func(tx *sql.Tx) error {
 		for i := len(sourceIDs) - 1; i >= 0; i-- {
 			if _, keep := targetByName[sourceIDs[i].key()]; keep {
@@ -181,55 +186,89 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 		return nil
 	}
 	if sourceNumber.Schema != targetNumber.Schema {
-		if result.Phase == "started" {
-			err = rollbackTransaction(ctx, conn, func(tx *sql.Tx) error {
-				if err := dropExtra(tx); err != nil {
-					return err
-				}
-				_, err := tx.ExecContext(ctx, "UPDATE dbo.saxbase_rollbacks SET phase='objects_removed',status='running',last_error=NULL WHERE id=@id", sql.Named("id", result.ID))
+		// The target pointer and blocker removal commit together. A crash before
+		// this transaction leaves the source intact; a crash after it is visible
+		// as target release + source Goose version.
+		if err := rollbackTransaction(ctx, conn, func(tx *sql.Tx) error {
+			if err := dropExtra(tx); err != nil {
 				return err
-			})
-			if err != nil {
-				return result, fmt.Errorf("rollback object-removal phase: %w", err)
 			}
-			result.Phase = "objects_removed"
+			return setCurrent(ctx, tx, target.Version)
+		}); err != nil {
+			return result, fmt.Errorf("prepare rollback to %s: %w", target.Version, err)
 		}
-		if current > targetNumber.Schema {
-			if err := goose.DownTo(ctx, targetNumber.Schema); err != nil {
-				return result, fmt.Errorf("Goose rollback may be partially applied; repair the migration and retry rollback %s: %w", version, err)
-			}
+		if err := goose.DownTo(ctx, targetNumber.Schema); err != nil {
+			return result, fmt.Errorf("Goose rollback may be partially applied; repair the migration and retry rollback %s: %w", target.Version, err)
 		}
-		if _, err := conn.ExecContext(ctx, "UPDATE dbo.saxbase_rollbacks SET phase='schema_rolled_back',status='running',last_error=NULL WHERE id=@id", sql.Named("id", result.ID)); err != nil {
-			return result, err
-		}
-		result.Phase = "schema_rolled_back"
 	}
-	err = rollbackTransaction(ctx, conn, func(tx *sql.Tx) error {
+	if err := rollbackTransaction(ctx, conn, func(tx *sql.Tx) error {
 		if err := checkReleaseSchema(ctx, tx, targetNumber.Schema); err != nil {
 			return err
 		}
-		// Always restore the SQL resolved from the target manifest commits.
-		for _, file := range targetFiles {
-			if _, err := tx.ExecContext(ctx, restoreDefinition(file.SQL)); err != nil {
-				return fmt.Errorf("restore %s: %w", file.Path, err)
-			}
+		if err := restoreFiles(ctx, tx, targetFiles); err != nil {
+			return err
 		}
 		if err := dropExtra(tx); err != nil {
 			return err
 		}
-		if err := setCurrent(ctx, tx, version); err != nil {
+		if err := setCurrent(ctx, tx, target.Version); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, "UPDATE dbo.saxbase_rollbacks SET phase='restored',status='completed',last_error=NULL,completed_at=SYSUTCDATETIME() WHERE id=@id", sql.Named("id", result.ID))
-		return err
-	})
-	if err != nil {
-		return result, fmt.Errorf("restore failed; schema may already be at %d; retry rollback %s after resolving the error: %w", targetNumber.Schema, version, err)
+		return removeLegacyRollbackTable(ctx, tx)
+	}); err != nil {
+		return result, fmt.Errorf("restore release %s: %w", target.Version, err)
 	}
-	result.Phase = "restored"
-	result.Status = "completed"
-	result.LastError = ""
 	return result, nil
+}
+
+func (s *store) verifySnapshot(ctx context.Context, supplied Snapshot) error {
+	recorded, err := s.Snapshot(ctx, supplied.Version)
+	if err != nil {
+		return err
+	}
+	if recorded.Fingerprint == "" || recorded.Fingerprint != supplied.Fingerprint {
+		return fmt.Errorf("manifest for release %s does not match its recorded fingerprint", supplied.Version)
+	}
+	return nil
+}
+
+func restoreFiles(ctx context.Context, tx *sql.Tx, files []File) error {
+	for _, file := range files {
+		if _, err := tx.ExecContext(ctx, restoreDefinition(file.SQL)); err != nil {
+			return fmt.Errorf("restore %s: %w", file.Path, err)
+		}
+	}
+	return nil
+}
+
+func canonicalDefinition(definition string) string {
+	definition = strings.TrimPrefix(definition, "\ufeff")
+	definition = strings.ReplaceAll(definition, "\r\n", "\n")
+	definition = restoreDefinition(definition)
+	runes := []rune(definition)
+	lexer := headerLexer{input: runes}
+	for _, want := range []string{"CREATE", "OR", "ALTER"} {
+		token, _, err := lexer.next()
+		if err != nil || !strings.EqualFold(token, want) {
+			return strings.TrimSpace(definition)
+		}
+	}
+	afterAlter := lexer.pos
+	next := afterAlter
+	for next < len(runes) && (runes[next] == ' ' || runes[next] == '\t' || runes[next] == '\n' || runes[next] == '\r') {
+		next++
+	}
+	if next > afterAlter {
+		definition = string(runes[:afterAlter]) + " " + string(runes[next:])
+	}
+	return strings.TrimSpace(definition)
+}
+
+// Old SaxBase versions created a persistent rollback journal. Successful work
+// with the new state machine removes that obsolete internal table.
+func removeLegacyRollbackTable(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, "IF OBJECT_ID(N'dbo.saxbase_rollbacks',N'U') IS NOT NULL DROP TABLE dbo.saxbase_rollbacks;")
+	return err
 }
 
 func rollbackTransaction(ctx context.Context, conn *sql.Conn, fn func(*sql.Tx) error) error {

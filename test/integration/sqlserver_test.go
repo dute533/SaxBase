@@ -351,7 +351,11 @@ func TestSQLServerMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A historical plain CREATE definition can be restored over an existing view.
+	if _, err := db.ExecContext(ctx, "CREATE TABLE dbo.saxbase_rollbacks(id int NOT NULL)"); err != nil {
+		t.Fatal(err)
+	}
 	run("rollback", "2.3")
+	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_rollbacks')", 0)
 	assertCount("SELECT value FROM dbo.saxbase_later", 2)
 	run("rollback", "2")
 	assertCount("SELECT COUNT(*) FROM sys.views WHERE object_id=OBJECT_ID(N'dbo.saxbase_later')", 0)
@@ -387,7 +391,7 @@ func TestSQLServerMigration(t *testing.T) {
 		t.Fatalf("missing migration preflight: %v %s", err, output)
 	}
 	assertCount("SELECT COUNT(*) FROM sys.views WHERE object_id=OBJECT_ID(N'dbo.saxbase_later')", 1)
-	assertCount("SELECT COUNT(*) FROM dbo.saxbase_rollbacks WHERE status <> 'completed'", 0)
+	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_rollbacks')", 0)
 	if err := os.Rename(migrationPath+".disabled", migrationPath); err != nil {
 		t.Fatal(err)
 	}
@@ -395,9 +399,12 @@ func TestSQLServerMigration(t *testing.T) {
 		t.Fatalf("expected Goose rollback failure: %v %s", err, output)
 	}
 	assertVersion("3")
-	assertCount("SELECT COUNT(*) FROM dbo.saxbase_rollbacks WHERE status='failed' AND phase='objects_removed'", 1)
+	if output := strings.Join(strings.Fields(run("status")), " "); !strings.Contains(output, "Release: 2.3") {
+		t.Fatalf("rollback checkpoint was not advanced before Goose: %s", output)
+	}
+	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_rollbacks')", 0)
 	for _, args := range [][]string{{"plan"}, {"apply"}} {
-		if output, err := execute(args...); err == nil || !strings.Contains(output, "incomplete") {
+		if output, err := execute(args...); err == nil || !strings.Contains(output, "not fully reconciled") {
 			t.Fatalf("pending rollback did not block %v: %v %s", args, err, output)
 		}
 	}
@@ -424,7 +431,10 @@ func TestSQLServerMigration(t *testing.T) {
 		t.Fatalf("expected restore failure: %v %s", err, output)
 	}
 	assertCount("SELECT value FROM dbo.saxbase_value", 2)
-	assertCount("SELECT COUNT(*) FROM dbo.saxbase_rollbacks WHERE status='failed' AND phase='started'", 1)
+	if output := strings.Join(strings.Fields(run("status")), " "); !strings.Contains(output, "Release: 2.1") {
+		t.Fatalf("object-only rollback changed current release after failure: %s", output)
+	}
+	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_rollbacks')", 0)
 	if _, err := db.ExecContext(ctx, "DROP TRIGGER saxbase_block_restore ON DATABASE"); err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +442,7 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT value FROM dbo.saxbase_value", 1)
 	assertCount("EXEC dbo.saxbase_get_value", 1)
 	assertCount("SELECT dbo.saxbase_function()", 1)
-	assertCount("SELECT COUNT(*) FROM dbo.saxbase_rollbacks WHERE status <> 'completed'", 0)
+	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_rollbacks')", 0)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 5)
 	if output := strings.Join(strings.Fields(run("status")), " "); !strings.Contains(output, "Release: 2") {
 		t.Fatalf("current release missing from status: %s", output)

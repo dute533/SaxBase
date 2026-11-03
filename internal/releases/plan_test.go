@@ -57,7 +57,6 @@ func TestPlanBlockers(t *testing.T) {
 		{name: "out of order", want: "pending below", schema: migrations.Inspection{Version: 2, Migrations: []migrations.Status{{Version: 1, State: "pending"}, {Version: 2, State: "applied"}}}, files: []objects.File{file}},
 		{name: "missing migration", want: "migration file", schema: migrations.Inspection{Version: 2, Migrations: []migrations.Status{{Version: 2, State: "missing"}}}, files: []objects.File{file}},
 		{name: "missing object", want: "omits object", schema: base, files: []objects.File{file}, baseline: []objects.File{{Path: "old.sql", Checksum: "old"}}},
-		{name: "rollback", want: "rollback to 2 is incomplete", schema: base, files: []objects.File{file}, db: planObjects{state: objects.Inspection{Rollbacks: []objects.Rollback{{TargetVersion: "2", Status: "failed"}}}}},
 		{name: "immutable", want: "immutable", schema: base, files: []objects.File{file}, db: planObjects{state: objects.Inspection{History: []objects.Release{{Version: "2.1"}}}, snapshot: objects.Snapshot{Objects: []objects.SnapshotObject{{Path: file.Path, Checksum: file.Checksum, SQL: "different SQL"}}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

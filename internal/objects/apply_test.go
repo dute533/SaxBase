@@ -30,7 +30,6 @@ func TestApplyReleasesLockOnPreflightOrMigrationFailure(t *testing.T) {
 			failure := errors.New("injected failure")
 			g := &applyGoose{failure: failure}
 			mock.ExpectQuery("DECLARE.*sp_getapplock").WillReturnRows(sqlmock.NewRows([]string{"code"}).AddRow(0))
-			mock.ExpectQuery("SELECT OBJECT_ID.*saxbase_rollbacks").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(nil))
 			if phase == "migration" {
 				mock.ExpectExec("UPDATE dbo.saxbase_releases").WillReturnResult(sqlmock.NewResult(0, 1))
 			}

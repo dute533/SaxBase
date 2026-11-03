@@ -51,25 +51,6 @@ func Acquire(ctx context.Context, db *sql.DB) (*sql.Conn, func() error, error) {
 	return conn, release, nil
 }
 
-func CheckPending(ctx context.Context, db Reader) error {
-	var id sql.NullInt64
-	if err := db.QueryRowContext(ctx, "SELECT OBJECT_ID(N'dbo.saxbase_rollbacks', N'U')").Scan(&id); err != nil {
-		return err
-	}
-	if !id.Valid {
-		return nil
-	}
-	var target string
-	err := db.QueryRowContext(ctx, "SELECT TOP (1) target_version FROM dbo.saxbase_rollbacks WHERE status <> 'completed' ORDER BY id DESC").Scan(&target)
-	if err == sql.ErrNoRows {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	return fmt.Errorf("rollback to %s is incomplete; retry rollback %s before other applications", target, target)
-}
-
 func Invalidate(ctx context.Context, db Reader) error {
 	_, err := db.ExecContext(ctx, "IF OBJECT_ID(N'dbo.saxbase_releases', N'U') IS NOT NULL UPDATE dbo.saxbase_releases SET is_current=0")
 	return err

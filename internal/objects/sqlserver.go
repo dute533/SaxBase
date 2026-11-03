@@ -70,9 +70,6 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files, basel
 			return nil, fmt.Errorf("lock object deployment failed (code %d)", lock)
 		}
 	}
-	if err := deploymentlock.CheckPending(ctx, tx); err != nil {
-		return nil, err
-	}
 	if release != nil {
 		version, err := releaseversion.Parse(release.Version)
 		if err != nil {

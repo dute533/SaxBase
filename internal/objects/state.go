@@ -30,9 +30,6 @@ func currentVersion(ctx context.Context, db reader) (string, error) {
 }
 
 func (s *store) Current(ctx context.Context) (string, error) {
-	if err := deploymentlock.CheckPending(ctx, s.db); err != nil {
-		return "", err
-	}
 	version, err := currentVersion(ctx, s.db)
 	if err != nil {
 		return "", err

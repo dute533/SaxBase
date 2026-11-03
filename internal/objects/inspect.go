@@ -2,8 +2,7 @@ package objects
 
 import "context"
 
-// Inspect reports unversioned state and pending rollback without treating them
-// as query failures, so the planner can explain them alongside other changes.
+// Inspect reports the recorded release position without changing database state.
 func (s *store) Inspect(ctx context.Context) (Inspection, error) {
 	var result Inspection
 	var err error
@@ -12,9 +11,5 @@ func (s *store) Inspect(ctx context.Context) (Inspection, error) {
 		return result, err
 	}
 	result.History, err = s.History(ctx)
-	if err != nil {
-		return result, err
-	}
-	result.Rollbacks, err = s.Rollbacks(ctx)
 	return result, err
 }

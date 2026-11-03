@@ -223,6 +223,55 @@ func pendingReleaseVersions(history []resolvedRelease, current string) ([]string
 	return versions, nil
 }
 
+func releaseIndex(history []resolvedRelease, version string) int {
+	for i := range history {
+		if history[i].manifest.Version == version {
+			return i
+		}
+	}
+	return -1
+}
+
+func requireReconciledCurrent(ctx context.Context, history []resolvedRelease, state objects.Inspection, goose migrations.Engine, db objects.Engine) error {
+	if state.Current == "" {
+		return nil
+	}
+	index := releaseIndex(history, state.Current)
+	if index < 0 {
+		return fmt.Errorf("current release %s is not in manifest history", state.Current)
+	}
+	version, err := releases.ParseVersion(state.Current)
+	if err != nil {
+		return err
+	}
+	schema, err := goose.Inspect(ctx)
+	if err != nil {
+		return fmt.Errorf("inspect migrations: %w", err)
+	}
+	retry := fmt.Sprintf("current release %s is not fully reconciled; retry rollback %s", state.Current, state.Current)
+	if schema.Version != version.Schema {
+		return fmt.Errorf("%s (Goose is %d, expected %d)", retry, schema.Version, version.Schema)
+	}
+	current := releaseSnapshot(history[index])
+	recorded, err := db.Snapshot(ctx, state.Current)
+	if err != nil {
+		return fmt.Errorf("inspect current release fingerprint: %w", err)
+	}
+	// A deliberately changed manifest is handled by the normal immutable
+	// release checks. It is not evidence of an interrupted rollback.
+	if recorded.Fingerprint != current.Fingerprint {
+		return nil
+	}
+	ok, err := db.Reconciled(ctx, current)
+	if err != nil {
+		return fmt.Errorf("inspect current release objects: %w", err)
+	}
+	if !ok {
+		return errors.New(retry)
+	}
+	return nil
+}
+
 func runRollback(ctx context.Context, args []string, cfg migrations.Config, manifestPath, objectDir string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {
 	if len(args) != 1 {
 		return errors.New("expected rollback VERSION")
@@ -243,12 +292,8 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 	if err != nil {
 		return err
 	}
-	snapshots := make(map[string]objects.Snapshot, len(history))
-	for _, release := range history {
-		snapshots[release.manifest.Version] = releaseSnapshot(release)
-	}
-	target, ok := snapshots[args[0]]
-	if !ok {
+	targetIndex := releaseIndex(history, args[0])
+	if targetIndex < 0 {
 		return fmt.Errorf("release %s not found in %s", args[0], manifestPath)
 	}
 	engine, err := openObjects(cfg.DSN)
@@ -260,28 +305,54 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 	if err != nil {
 		return fmt.Errorf("inspect current release: %w", err)
 	}
-	sourceVersion := inspection.Current
-	for _, rollback := range inspection.Rollbacks {
-		if rollback.Status != "completed" {
-			sourceVersion = rollback.SourceVersion
-			break
-		}
+	if inspection.Current == "" {
+		return errors.New("current state is unversioned; apply a manifest first")
 	}
-	source, ok := snapshots[sourceVersion]
-	if !ok {
-		return fmt.Errorf("current release %s not found in manifest %s", sourceVersion, manifestPath)
+	currentIndex := releaseIndex(history, inspection.Current)
+	if currentIndex < 0 {
+		return fmt.Errorf("current release %s not found in manifest %s", inspection.Current, manifestPath)
+	}
+	if targetIndex > currentIndex {
+		return errors.New("rollback target is newer than the current release")
 	}
 	goose, err := open(cfg)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, goose.Close()) }()
-	result, err := engine.Rollback(ctx, target, source, goose)
+	current := releaseSnapshot(history[currentIndex])
+	currentVersion, err := releases.ParseVersion(current.Version)
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(out, "Rolled back release %s to %s\n", result.SourceVersion, result.TargetVersion)
-	return err
+	schema, err := goose.Inspect(ctx)
+	if err != nil {
+		return fmt.Errorf("inspect migrations: %w", err)
+	}
+	reconciled, err := engine.Reconciled(ctx, current)
+	if err != nil {
+		return fmt.Errorf("inspect current release objects: %w", err)
+	}
+	if currentIndex == targetIndex || schema.Version != currentVersion.Schema || !reconciled {
+		if err := engine.Reconcile(ctx, current, goose); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(out, "Reconciled release %s (Goose %d)\n", current.Version, currentVersion.Schema); err != nil {
+			return err
+		}
+	}
+	for i := currentIndex; i > targetIndex; i-- {
+		source := releaseSnapshot(history[i])
+		target := releaseSnapshot(history[i-1])
+		result, err := engine.Rollback(ctx, target, source, goose)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(out, "Rolled back release %s to %s\n", result.SourceVersion, result.TargetVersion); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func releaseSnapshot(release resolvedRelease) objects.Snapshot {

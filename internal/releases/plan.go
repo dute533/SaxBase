@@ -89,11 +89,6 @@ func BuildPlan(ctx context.Context, manifest Manifest, delta, force bool, files,
 			p.Blockers = append(p.Blockers, fmt.Sprintf("release omits object %s from the active manifest; object removal must be handled explicitly", row.Path))
 		}
 	}
-	for _, rollback := range state.Rollbacks {
-		if rollback.Status != "completed" {
-			p.Blockers = append(p.Blockers, fmt.Sprintf("rollback to %s is incomplete; retry rollback %s", rollback.TargetVersion, rollback.TargetVersion))
-		}
-	}
 	for _, record := range state.History {
 		if record.Version == manifest.Version {
 			snapshot, err := db.Snapshot(ctx, manifest.Version)

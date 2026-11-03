@@ -18,7 +18,9 @@ type fakeObjects struct {
 	currentSet      bool
 	rollbackSource  string
 	rollbackTarget  string
-	rollbacks       []objects.Rollback
+	rollbackSteps   []string
+	unreconciled    bool
+	reconciled      int
 	history         []objects.Release
 	force           bool
 	appliedVersions []string
@@ -30,18 +32,27 @@ func (f *fakeObjects) Close() error { f.closed = true; return nil }
 func (f *fakeObjects) Inspect(context.Context) (objects.Inspection, error) {
 	f.command = "inspect"
 	if f.currentSet {
-		return objects.Inspection{Current: f.current, History: f.history, Rollbacks: f.rollbacks}, f.err
+		return objects.Inspection{Current: f.current, History: f.history}, f.err
 	}
 	return objects.Inspection{Current: "30"}, f.err
 }
 func (f *fakeObjects) Rollback(_ context.Context, target, source objects.Snapshot, _ migrations.Engine) (objects.Rollback, error) {
 	f.command = "rollback"
 	f.rollbackSource, f.rollbackTarget = source.Version, target.Version
-	return objects.Rollback{SourceVersion: source.Version, TargetVersion: target.Version, Status: "completed"}, f.rollbackErr
+	f.rollbackSteps = append(f.rollbackSteps, source.Version+"->"+target.Version)
+	f.currentSet = true
+	f.current = target.Version
+	return objects.Rollback{SourceVersion: source.Version, TargetVersion: target.Version}, f.rollbackErr
 }
-func (f *fakeObjects) Rollbacks(context.Context) ([]objects.Rollback, error) {
-	f.command = "rollbacks"
-	return []objects.Rollback{}, f.err
+func (f *fakeObjects) Reconcile(_ context.Context, target objects.Snapshot, _ migrations.Engine) error {
+	f.command = "reconcile"
+	f.reconciled++
+	f.currentSet = true
+	f.current = target.Version
+	return f.err
+}
+func (f *fakeObjects) Reconciled(context.Context, objects.Snapshot) (bool, error) {
+	return !f.unreconciled, f.err
 }
 func (f *fakeObjects) Current(context.Context) (string, error) {
 	f.command = "current"

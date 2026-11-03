@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,13 +103,9 @@ func TestSQLServerNoRedundantObjectMetadataTables(t *testing.T) {
 	run("apply")
 	run("plan")
 	var count int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_release_objects'").Scan(&count); err != nil || count != 0 {
-		t.Fatalf("snapshot table: %d %v", count, err)
-	}
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_release_state'").Scan(&count); err != nil || count != 0 {
-		t.Fatalf("release-state table: %d %v", count, err)
-	}
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_objects'").Scan(&count); err != nil || count != 0 {
-		t.Fatalf("object-state table: %d %v", count, err)
+	for _, table := range []string{"saxbase_release_objects", "saxbase_release_state", "saxbase_objects", "saxbase_rollbacks"} {
+		if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.tables WHERE name=@name", sql.Named("name", table)).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("redundant table %s: %d %v", table, count, err)
+		}
 	}
 }
