@@ -98,9 +98,9 @@ CREATE TABLE dbo.customers (id INT NOT NULL PRIMARY KEY);
 DROP TABLE dbo.customers;
 ```
 
-`apply` advances Goose to the schema version declared by the release manifest.
-`rollback` runs the required Goose down migrations for the target release. Use
-`status` to inspect migration state and the current Goose version.
+`apply` advances the database schema to the version declared by the release
+manifest. `rollback` runs the required Goose down migrations for the target
+release. Use `status` to inspect migration state and the current database schema.
 
 Use Goose annotations and transaction rules. Do not include SQL Server `GO` batch
 separators in migration files.
@@ -122,8 +122,9 @@ manifest.
 
 `status` compares the selected object state with the active release manifest and
 reports each object as `new`, `changed`, `current`, or `missing`. A planned
-deletion is shown as `delete`, and migrations above the target schema are shown
-as `waiting`. Missing files
+deletion is shown as `delete`. In `plan`, migrations above the target schema are
+listed under `NOT INCLUDED` with the release and target schema that excluded
+them. Missing files
 are reported and are not automatically dropped. `apply` applies changed objects
 together with the manifest's migrations.
 
@@ -163,7 +164,8 @@ Objects within a release execute from top to bottom. Edit that release's
 removes an object from the database and must use a historical commit hash.
 
 Versions use `SCHEMA` or `SCHEMA.REVISION`, such as `30`, `30.1`, and `31`. The
-schema component identifies the Goose version; the revision identifies another
+whole-number portion of a release selects its schema migration, so releases
+`30.1` and `30.2` reuse database schema `30`; the revision identifies another
 object state at that schema version. Use a new revision when object SQL, paths,
 or order changes after deployment. Release versions are immutable once recorded
 in a database.
@@ -235,10 +237,10 @@ checkpoint before continuing.
 SaxBase resolves object state from release manifests. Its
 `dbo.saxbase_releases` table stores only the canonical release `version`, its
 `fingerprint`, and the `is_current` marker; schema and revision numbers are
-derived from the version when needed. Goose stores its migration version in
-`goose_db_version`; rollback does not create another metadata table. Successful
-rollback or reconciliation also removes the obsolete `dbo.saxbase_rollbacks`
-table left by older SaxBase versions.
+derived from the version when needed. Goose stores the migration history used by
+SaxBase in `dbo.saxbase_schema_version`; rollback does not create another
+metadata table. Successful rollback or reconciliation also removes the obsolete
+`dbo.saxbase_rollbacks` table left by older SaxBase versions.
 
 ## Development
 

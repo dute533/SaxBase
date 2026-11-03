@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"sort"
 
-	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/database"
 )
 
@@ -13,12 +12,12 @@ import (
 func (g *gooseEngine) Inspect(ctx context.Context) (Inspection, error) {
 	result := Inspection{Migrations: make([]Status, 0)}
 	var table sql.NullInt64
-	if err := g.db.QueryRowContext(ctx, "SELECT OBJECT_ID(N'dbo.goose_db_version',N'U')").Scan(&table); err != nil {
+	if err := g.db.QueryRowContext(ctx, "SELECT OBJECT_ID(N'dbo.saxbase_schema_version',N'U')").Scan(&table); err != nil {
 		return result, err
 	}
 	applied := map[int64]bool{}
 	if table.Valid {
-		store, err := database.NewStore(database.DialectMSSQL, goose.DefaultTablename)
+		store, err := database.NewStore(database.DialectMSSQL, schemaVersionTable)
 		if err != nil {
 			return result, err
 		}

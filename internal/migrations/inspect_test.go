@@ -27,7 +27,7 @@ func TestInspectDoesNotInitializeGoose(t *testing.T) {
 		}
 		mock.ExpectQuery("SELECT OBJECT_ID").WillReturnRows(table)
 		if existing {
-			mock.ExpectQuery("SELECT version_id, is_applied FROM goose_db_version").WillReturnRows(sqlmock.NewRows([]string{"version_id", "is_applied"}).AddRow(2, true).AddRow(1, true).AddRow(0, true))
+			mock.ExpectQuery(`SELECT version_id, is_applied FROM dbo\.saxbase_schema_version`).WillReturnRows(sqlmock.NewRows([]string{"version_id", "is_applied"}).AddRow(2, true).AddRow(1, true).AddRow(0, true))
 		}
 		state, err := (&gooseEngine{db: db, provider: p}).Inspect(context.Background())
 		if err != nil {

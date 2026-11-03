@@ -56,7 +56,7 @@ func TestUnifiedStatus(t *testing.T) {
 	if err != nil || !goose.closed || !db.closed || db.command != "inspect" {
 		t.Fatalf("status: %v goose=%+v db=%+v", err, goose, db)
 	}
-	for _, value := range []string{"Goose version:", "Release:", "MIGRATION", "OBJECT", "view.sql"} {
+	for _, value := range []string{"Database schema:", "Release:", "MIGRATION", "OBJECT", "view.sql"} {
 		if !strings.Contains(out.String(), value) {
 			t.Fatalf("status output missing %q: %s", value, out.String())
 		}

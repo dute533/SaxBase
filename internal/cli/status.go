@@ -66,7 +66,7 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 	}
 	objectRows := objects.Compare(files, baseline)
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(w, "Goose version:\t%d\nRelease:\t%s\n\n", migrationsState.Version, statusValue(databaseState.Current))
+	fmt.Fprintf(w, "Database schema:\t%d\nRelease:\t%s\n\n", migrationsState.Version, statusValue(databaseState.Current))
 	fmt.Fprintln(w, "MIGRATION\tSTATE\tFILE")
 	for _, row := range migrationsState.Migrations {
 		fmt.Fprintf(w, "%d\t%s\t%s\n", row.Version, displayState(row.State), row.Path)

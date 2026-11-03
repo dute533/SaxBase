@@ -59,7 +59,7 @@ func BuildPlan(ctx context.Context, manifest Manifest, delta, force bool, files,
 		p.Objects = p.Objects[:len(files)]
 	}
 	if version.Schema < schema.Version {
-		p.Blockers = append(p.Blockers, fmt.Sprintf("target Goose version %d is below current %d; use rollback", version.Schema, schema.Version))
+		p.Blockers = append(p.Blockers, fmt.Sprintf("target database schema %d is below current %d; use rollback", version.Schema, schema.Version))
 	}
 	targetKnown := version.Schema == 0
 	for _, migration := range schema.Migrations {
@@ -74,7 +74,7 @@ func BuildPlan(ctx context.Context, manifest Manifest, delta, force bool, files,
 				action = "deferred"
 			} else if migration.Version < schema.Version {
 				action = "out-of-order"
-				p.Blockers = append(p.Blockers, fmt.Sprintf("migration %d is pending below current Goose version %d", migration.Version, schema.Version))
+				p.Blockers = append(p.Blockers, fmt.Sprintf("migration %d is pending below current database schema %d", migration.Version, schema.Version))
 			}
 		case "missing":
 			p.Blockers = append(p.Blockers, fmt.Sprintf("migration file for applied version %d is missing", migration.Version))
@@ -82,7 +82,7 @@ func BuildPlan(ctx context.Context, manifest Manifest, delta, force bool, files,
 		p.Migrations = append(p.Migrations, MigrationPlan{Version: migration.Version, Path: migration.Path, Action: action})
 	}
 	if !targetKnown {
-		p.Blockers = append(p.Blockers, fmt.Sprintf("target Goose version %d has no migration file or applied record", version.Schema))
+		p.Blockers = append(p.Blockers, fmt.Sprintf("target database schema %d has no migration file or applied record", version.Schema))
 	}
 	for _, row := range p.Objects {
 		if row.State == "missing" && !delta {

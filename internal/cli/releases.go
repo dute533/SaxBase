@@ -250,7 +250,7 @@ func requireReconciledCurrent(ctx context.Context, history []resolvedRelease, st
 	}
 	retry := fmt.Sprintf("current release %s is not fully reconciled; retry rollback %s", state.Current, state.Current)
 	if schema.Version != version.Schema {
-		return fmt.Errorf("%s (Goose is %d, expected %d)", retry, schema.Version, version.Schema)
+		return fmt.Errorf("%s (database schema is %d, expected %d)", retry, schema.Version, version.Schema)
 	}
 	current := releaseSnapshot(history[index])
 	recorded, err := db.Snapshot(ctx, state.Current)
@@ -337,7 +337,7 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 		if err := engine.Reconcile(ctx, current, goose); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(out, "Reconciled release %s (Goose %d)\n", current.Version, currentVersion.Schema); err != nil {
+		if _, err := fmt.Fprintf(out, "Reconciled release %s (database schema %d)\n", current.Version, currentVersion.Schema); err != nil {
 			return err
 		}
 	}

@@ -35,10 +35,11 @@ Preview and apply the release:
 ```
 
 `plan` shows the next entry and, when needed, the full pending release chain.
-`apply` advances through every pending manifest entry in order, migrating Goose,
-applying changed objects, and recording each release as a separate deployment
-step. Use `-target NAME` for a configured target and `-yes` for unattended
-protected deployments.
+The whole-number portion of a release selects its database schema migration, so
+release `2.1` uses schema `2`. `apply` advances through every pending manifest
+entry in order, applies schema migrations and changed objects, and records each
+release as a separate deployment step. Use `-target NAME` for a configured
+target and `-yes` for unattended protected deployments.
 
 ## Create a release
 

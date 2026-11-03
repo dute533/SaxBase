@@ -17,6 +17,8 @@ type gooseEngine struct {
 	provider *goose.Provider
 }
 
+const schemaVersionTable = "dbo.saxbase_schema_version"
+
 func Open(cfg Config) (Engine, error) {
 	if cfg.Driver != "mssql" && cfg.Driver != "sqlserver" {
 		return nil, fmt.Errorf("unsupported driver %q: use mssql or sqlserver", cfg.Driver)
@@ -36,7 +38,13 @@ func Open(cfg Config) (Engine, error) {
 		// Driver parsing errors can include the DSN, which may contain a password.
 		return nil, fmt.Errorf("open SQL Server connection: invalid connection string")
 	}
-	p, err := goose.NewProvider(goose.DialectMSSQL, db, os.DirFS(cfg.Dir), goose.WithDisableGlobalRegistry(true))
+	p, err := goose.NewProvider(
+		goose.DialectMSSQL,
+		db,
+		os.DirFS(cfg.Dir),
+		goose.WithDisableGlobalRegistry(true),
+		goose.WithTableName(schemaVersionTable),
+	)
 	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("initialize Goose: %w", err)
@@ -65,7 +73,7 @@ func (g *gooseEngine) ValidateDownTo(ctx context.Context, target int64) error {
 	if target < 0 || target > current {
 		return fmt.Errorf("cannot roll schema %d back to %d", current, target)
 	}
-	store, err := database.NewStore(database.DialectMSSQL, goose.DefaultTablename)
+	store, err := database.NewStore(database.DialectMSSQL, schemaVersionTable)
 	if err != nil {
 		return err
 	}
@@ -90,7 +98,7 @@ func (g *gooseEngine) ValidateDownTo(ctx context.Context, target int64) error {
 		}
 	}
 	if !targetApplied {
-		return fmt.Errorf("target Goose version %d is not applied", target)
+		return fmt.Errorf("target database schema %d is not applied", target)
 	}
 	return nil
 }

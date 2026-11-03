@@ -51,8 +51,8 @@ func TestSQLServerApply(t *testing.T) {
 	assertVersion := func(want string) {
 		t.Helper()
 		output := strings.Join(strings.Fields(run("-manifest", "database/target.json", "status")), " ")
-		if !strings.Contains(output, "Goose version: "+want) {
-			t.Fatalf("status did not report Goose version %q: %s", want, output)
+		if !strings.Contains(output, "Database schema: "+want) {
+			t.Fatalf("status did not report database schema %q: %s", want, output)
 		}
 	}
 	write("database/migrations/00003_next.sql", "-- +goose Up\nCREATE TABLE dbo.next_table(id INT);\n-- +goose Down\nDROP TABLE dbo.next_table;")
@@ -88,7 +88,7 @@ func TestSQLServerApply(t *testing.T) {
 	}
 	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='2.1'", 1)
 	count("SELECT value FROM dbo.extra", 2)
-	count("SELECT COUNT(*) FROM dbo.goose_db_version WHERE version_id=3", 0)
+	count("SELECT COUNT(*) FROM dbo.saxbase_schema_version WHERE version_id=3", 0)
 	// Conflicting immutable release and absent target both fail before Goose.
 	write("database/objects/views/extra.sql", "CREATE OR ALTER VIEW dbo.extra AS SELECT 3 AS value;")
 	copyManifest("database/release-2-base.json", "database/conflicting.json")

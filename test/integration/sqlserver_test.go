@@ -146,8 +146,8 @@ func TestSQLServerMigration(t *testing.T) {
 	assertVersion := func(want string) {
 		t.Helper()
 		output := strings.Join(strings.Fields(run("status")), " ")
-		if !strings.Contains(output, "Goose version: "+want) {
-			t.Fatalf("status did not report Goose version %q: %s", want, output)
+		if !strings.Contains(output, "Database schema: "+want) {
+			t.Fatalf("status did not report database schema %q: %s", want, output)
 		}
 	}
 	assertCount := func(query string, want int) {
@@ -185,7 +185,7 @@ func TestSQLServerMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	planOutput := strings.Join(strings.Fields(run("plan")), " ")
-	for _, want := range []string{"Goose: 0 -> 2", "1 apply", "2 apply", "99 waiting", "Ready:"} {
+	for _, want := range []string{"Database schema: 0 -> 2", "1 apply", "2 apply", "NOT INCLUDED", "Migration 99", "release 2 targets database schema 2", "Ready:"} {
 		if !strings.Contains(planOutput, want) {
 			t.Fatalf("plan missing %q: %s", want, planOutput)
 		}
@@ -212,13 +212,13 @@ func TestSQLServerMigration(t *testing.T) {
 	assertStatus("applied", "applied")
 	assertCount("SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.customers') AND name = N'nickname' AND TYPE_NAME(user_type_id) = N'nvarchar' AND max_length = 200 AND is_nullable = 1", 1)
 	assertCount("SELECT COUNT(*) FROM dbo.customers WHERE id = 1 AND name = N'Ada' AND nickname IS NULL", 1)
-	assertCount("SELECT COUNT(*) FROM dbo.goose_db_version WHERE version_id IN (1, 2) AND is_applied = 1", 2)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_schema_version WHERE version_id IN (1, 2) AND is_applied = 1", 2)
 
 	// The insert and CREATE TABLE would fail if Goose reran the first migration.
 	run("apply")
 	assertVersion("2")
 	assertCount("SELECT COUNT(*) FROM dbo.customers", 1)
-	assertCount("SELECT COUNT(*) FROM dbo.goose_db_version WHERE version_id IN (1, 2) AND is_applied = 1", 2)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_schema_version WHERE version_id IN (1, 2) AND is_applied = 1", 2)
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_objects')", 0)
 
 	if output := run("-manifest", "database/release.json", "apply"); strings.Count(output, "current") != 3 {

@@ -70,17 +70,37 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 		current = "(unversioned)"
 	}
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(w, "Release:\t%s -> %s\nGoose:\t%d -> %d\n\n", current, plan.TargetRelease, plan.CurrentSchema, plan.TargetSchema)
+	fmt.Fprintf(w, "Release:\t%s -> %s\nDatabase schema:\t%d", current, plan.TargetRelease, plan.CurrentSchema)
+	if plan.CurrentSchema == plan.TargetSchema {
+		fmt.Fprintln(w, " (no migration change)")
+	} else {
+		fmt.Fprintf(w, " -> %d\n", plan.TargetSchema)
+	}
+	fmt.Fprintln(w)
 	if len(pending) > 1 {
 		fmt.Fprintf(w, "Pending releases:\t%s\n\n", strings.Join(pending, " -> "))
 	}
 	fmt.Fprintln(w, "MIGRATION\tACTION\tFILE")
 	for _, row := range plan.Migrations {
+		if row.Action == "deferred" {
+			continue
+		}
 		fmt.Fprintf(w, "%d\t%s\t%s\n", row.Version, displayState(row.Action), row.Path)
 	}
 	fmt.Fprintln(w, "\nOBJECT\tSTATE\tSHA256")
 	for _, row := range plan.Objects {
 		fmt.Fprintf(w, "%s\t%s\t%s\n", row.Path, displayState(row.State), row.Checksum)
+	}
+	var hasNotIncluded bool
+	for _, row := range plan.Migrations {
+		if row.Action != "deferred" {
+			continue
+		}
+		if !hasNotIncluded {
+			fmt.Fprintln(w, "\nNOT INCLUDED")
+			hasNotIncluded = true
+		}
+		fmt.Fprintf(w, "- Migration %d (%s): release %s targets database schema %d\n", row.Version, row.Path, plan.TargetRelease, plan.TargetSchema)
 	}
 	if len(plan.Blockers) > 0 {
 		fmt.Fprintln(w, "\nBLOCKERS")

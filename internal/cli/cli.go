@@ -27,9 +27,9 @@ Usage:
   saxbase [-manifest database/release.json] release validate
 
 Commands:
-  plan      Preview Goose migrations and objects without changing the database
+  plan      Preview schema migrations and objects without changing the database
   apply     Advance to the next manifest release, apply it, and record it
-  status    Show Goose, release, and object state together
+  status    Show database schema, release, and object state together
   rollback  Restore a recorded release using its manifest
   migration create NAME  Create the next sequential Goose SQL migration
   release create VERSION  Add or refresh a release from current object files
