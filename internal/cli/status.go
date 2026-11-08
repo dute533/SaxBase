@@ -22,6 +22,7 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 	}
 	var files []objects.File
 	var history []resolvedRelease
+	var current string
 	if _, loadErr := releases.Load(manifestPath); loadErr == nil {
 		history, err = resolveReleaseHistory(ctx, manifestPath, objectDir)
 		if err == nil {
@@ -55,7 +56,8 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 	}
 	var baseline []objects.File
 	if len(history) > 0 {
-		current, currentErr := effectiveCurrent(history, databaseState)
+		var currentErr error
+		current, currentErr = effectiveCurrent(history, databaseState)
 		if currentErr != nil {
 			return fmt.Errorf("resolve current release: %w", currentErr)
 		}
@@ -74,6 +76,40 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 	fmt.Fprintln(w, "\nOBJECT\tSTATE\tSHA256")
 	for _, row := range objectRows {
 		fmt.Fprintf(w, "%s\t%s\t%s\n", row.Path, displayState(row.State), row.Checksum)
+	}
+	next := "no action required"
+	if len(history) == 0 {
+		version := migrationsState.Version
+		for _, row := range migrationsState.Migrations {
+			if row.State == "pending" {
+				version = row.Version
+				break
+			}
+		}
+		next = fmt.Sprintf("saxbase release create %d", version)
+	} else {
+		latest := history[len(history)-1].manifest.Version
+		if current != latest {
+			next = "saxbase plan"
+		} else {
+			version, parseErr := releases.ParseVersion(latest)
+			if parseErr != nil {
+				return parseErr
+			}
+			for _, row := range migrationsState.Migrations {
+				if row.State == "missing" || (row.State == "pending" && row.Version <= version.Schema) {
+					next = "saxbase plan"
+					break
+				}
+				if row.State == "pending" && row.Version > version.Schema {
+					next = fmt.Sprintf("saxbase release create %d", row.Version)
+					break
+				}
+			}
+		}
+	}
+	if err := writeNext(w, next); err != nil {
+		return err
 	}
 	return w.Flush()
 }

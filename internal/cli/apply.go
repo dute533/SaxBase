@@ -92,5 +92,5 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 		current = manifest.Version
 		baseline = selected.state
 	}
-	return nil
+	return writeNext(w, "saxbase status")
 }

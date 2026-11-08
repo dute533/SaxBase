@@ -111,6 +111,26 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 		fmt.Fprintln(w, "\nReady: no deployment blockers found.")
 	}
 	fmt.Fprintln(w, "\nPreview only. No database changes made; SQL execution and dependencies are not validated.")
+	if len(plan.Blockers) > 0 {
+		if err := writeNext(w, "resolve the blockers above, then run saxbase plan"); err != nil {
+			return err
+		}
+	} else {
+		next := "no action required"
+		if plan.CurrentRelease != plan.TargetRelease {
+			next = "saxbase apply"
+		} else {
+			for _, row := range plan.Migrations {
+				if row.Action == "deferred" {
+					next = fmt.Sprintf("saxbase release create %d", row.Version)
+					break
+				}
+			}
+		}
+		if err := writeNext(w, next); err != nil {
+			return err
+		}
+	}
 	if err := w.Flush(); err != nil {
 		return err
 	}

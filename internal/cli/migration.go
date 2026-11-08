@@ -26,6 +26,8 @@ func runMigration(args []string, dir string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(out, "Created migration: %s\n", path)
-	return err
+	if _, err = fmt.Fprintf(out, "Created migration: %s\n", path); err != nil {
+		return err
+	}
+	return writeNext(out, fmt.Sprintf("edit %s", path))
 }

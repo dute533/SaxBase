@@ -28,8 +28,10 @@ func runRelease(ctx context.Context, args []string, filename, dir string, out io
 		if err != nil {
 			return err
 		}
-		_, err = fmt.Fprintf(out, "Release %s resolves %d referenced object(s)\n", m.Version, len(files))
-		return err
+		if _, err = fmt.Fprintf(out, "Release %s resolves %d referenced object(s)\n", m.Version, len(files)); err != nil {
+			return err
+		}
+		return writeNext(out, "saxbase plan")
 	}
 	files, err := releases.CommittedFiles(ctx, dir)
 	if err != nil {
@@ -74,7 +76,10 @@ func runRelease(ctx context.Context, args []string, filename, dir string, out io
 				if err == nil {
 					_, err = fmt.Fprintf(out, "Updated release %s: %s\n", m.Version, filename)
 				}
-				return err
+				if err != nil {
+					return err
+				}
+				return writeNext(out, "saxbase plan")
 			}
 		case errors.Is(loadErr, os.ErrNotExist):
 			m, err = releases.New(args[1], files)
@@ -87,8 +92,10 @@ func runRelease(ctx context.Context, args []string, filename, dir string, out io
 		if err := releases.Append(filename, m); err != nil {
 			return err
 		}
-		_, err = fmt.Fprintf(out, "Created release %s: %s\n", m.Version, filename)
-		return err
+		if _, err = fmt.Fprintf(out, "Created release %s: %s\n", m.Version, filename); err != nil {
+			return err
+		}
+		return writeNext(out, "saxbase plan")
 	}
 	return errors.New("unsupported local release command")
 }
@@ -352,7 +359,7 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 			return err
 		}
 	}
-	return nil
+	return writeNext(out, "saxbase status")
 }
 
 func releaseSnapshot(release resolvedRelease) objects.Snapshot {
