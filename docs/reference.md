@@ -237,8 +237,11 @@ Keep manifests and their referenced Git commits available for rollback.
 Only the target version is needed:
 
 ```sh
-./saxbase rollback 30
+./saxbase rollback
 ```
+
+With no version, rollback restores the immediately preceding recorded release.
+Pass a version to traverse back to that older release.
 
 The target and active releases must both be present in the history. SaxBase
 resolves historical object files from the commits in the manifest, so the

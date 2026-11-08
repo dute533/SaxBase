@@ -107,8 +107,11 @@ databases.
 Roll back directly to any earlier version in the manifest history:
 
 ```sh
-./saxbase rollback 30
+./saxbase rollback
 ```
+
+Without a version, rollback restores the immediately preceding recorded
+release. Pass an older version to traverse multiple releases in one command.
 
 Rollback walks the manifest history one release at a time, restoring historical
 objects and running the required Goose Down migrations. Each completed release
@@ -122,7 +125,7 @@ migration or object definition.
 | `plan` | Preview migrations and objects |
 | `apply` | Apply a manifest release |
 | `status` | Show migration, release, and object state |
-| `rollback VERSION` | Restore a recorded release |
+| `rollback [VERSION]` | Restore the previous or a specified recorded release |
 | `migration create NAME` | Create a sequential Goose SQL migration |
 | `release create/validate` | Manage manifests |
 

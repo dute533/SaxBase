@@ -342,11 +342,13 @@ func requireReconciledCurrent(ctx context.Context, history []resolvedRelease, st
 }
 
 func runRollback(ctx context.Context, args []string, cfg migrations.Config, manifestPath, objectDir string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {
-	if len(args) != 1 {
-		return errors.New("expected rollback VERSION")
+	if len(args) > 1 {
+		return errors.New("expected rollback [VERSION]")
 	}
-	if _, err := releases.ParseVersion(args[0]); err != nil {
-		return err
+	if len(args) == 1 {
+		if _, err := releases.ParseVersion(args[0]); err != nil {
+			return err
+		}
 	}
 	if cfg.Driver != "mssql" && cfg.Driver != "sqlserver" {
 		return fmt.Errorf("unsupported driver %q", cfg.Driver)
@@ -360,10 +362,6 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 	history, err := resolveReleaseHistory(ctx, manifestPath, objectDir)
 	if err != nil {
 		return err
-	}
-	targetIndex := releaseIndex(history, args[0])
-	if targetIndex < 0 {
-		return fmt.Errorf("release %s not found in %s", args[0], manifestPath)
 	}
 	engine, err := openObjects(cfg.DSN)
 	if err != nil {
@@ -380,6 +378,18 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 	currentIndex := releaseIndex(history, inspection.Current)
 	if currentIndex < 0 {
 		return fmt.Errorf("current release %s not found in manifest %s", inspection.Current, manifestPath)
+	}
+	var targetIndex int
+	if len(args) == 0 {
+		if currentIndex == 0 {
+			return fmt.Errorf("release %s is the oldest recorded release; there is nothing to roll back", inspection.Current)
+		}
+		targetIndex = currentIndex - 1
+	} else {
+		targetIndex = releaseIndex(history, args[0])
+		if targetIndex < 0 {
+			return fmt.Errorf("release %s not found in %s", args[0], manifestPath)
+		}
 	}
 	if targetIndex > currentIndex {
 		return errors.New("rollback target is newer than the current release")

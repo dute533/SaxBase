@@ -37,7 +37,7 @@ func TestRollbackCommand(t *testing.T) {
 		goose := &fakeEngine{}
 		store := &fakeObjects{rollbackErr: failure, current: "30.2", currentSet: true}
 		var out bytes.Buffer
-		err := run(context.Background(), []string{"-manifest", path, "rollback", "30.1"}, env(map[string]string{"GOOSE_DBSTRING": "dsn", "SAXBASE_OBJECTS_DIR": "absent"}), &out, func(migrations.Config) (migrations.Engine, error) { return goose, nil }, func(string) (objects.Engine, error) { return store, nil })
+		err := run(context.Background(), []string{"-manifest", path, "rollback"}, env(map[string]string{"GOOSE_DBSTRING": "dsn", "SAXBASE_OBJECTS_DIR": "absent"}), &out, func(migrations.Config) (migrations.Engine, error) { return goose, nil }, func(string) (objects.Engine, error) { return store, nil })
 		if !errors.Is(err, failure) || !goose.closed || !store.closed || store.command != "rollback" {
 			t.Fatalf("result: %v %+v %+v", err, goose, store)
 		}
