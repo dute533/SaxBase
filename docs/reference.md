@@ -132,6 +132,11 @@ Successful workflow commands end with one contextual `Next:` recommendation.
 When the next migration is above the latest release schema, SaxBase recommends
 the exact `release create` command needed to include it.
 
+Release object files must be committed so manifests can store reproducible Git
+references for rollback. `status` and `release create` list any affected SQL
+files and recommend the exact `git add` and `git commit` command; SaxBase never
+commits repository changes automatically.
+
 ## Release manifests
 
 A manifest is an ordered release history with the newest release first. The

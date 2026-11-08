@@ -36,6 +36,10 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 	if err != nil {
 		return fmt.Errorf("scan objects: %w", err)
 	}
+	changed, err := releases.UncommittedFiles(ctx, objectDir)
+	if err != nil {
+		return fmt.Errorf("inspect object Git status: %w", err)
+	}
 	goose, err := open(cfg)
 	if err != nil {
 		return err
@@ -77,6 +81,13 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 	for _, row := range objectRows {
 		fmt.Fprintf(w, "%s\t%s\t%s\n", row.Path, displayState(row.State), row.Checksum)
 	}
+	if len(changed) > 0 {
+		fmt.Fprintln(w, "\nUNCOMMITTED OBJECTS")
+		for _, path := range changed {
+			fmt.Fprintf(w, "- %s\n", path)
+		}
+		fmt.Fprintln(w, "\nObject changes are not committed, so a reproducible release cannot be created.")
+	}
 	next := "no action required"
 	if len(history) == 0 {
 		version := migrationsState.Version
@@ -107,6 +118,9 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 				}
 			}
 		}
+	}
+	if len(changed) > 0 {
+		next = gitCommitCommand(changed)
 	}
 	if err := writeNext(w, next); err != nil {
 		return err

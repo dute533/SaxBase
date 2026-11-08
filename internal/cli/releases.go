@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"saxbase/internal/migrations"
 	"saxbase/internal/objects"
@@ -32,6 +33,19 @@ func runRelease(ctx context.Context, args []string, filename, dir string, out io
 			return err
 		}
 		return writeNext(out, "saxbase plan")
+	}
+	changed, err := releases.UncommittedFiles(ctx, dir)
+	if err != nil {
+		return fmt.Errorf("inspect object Git status: %w", err)
+	}
+	if len(changed) > 0 {
+		var message strings.Builder
+		fmt.Fprintf(&message, "cannot create release %s: database objects have uncommitted changes\n\nChanged files:\n", args[1])
+		for _, path := range changed {
+			fmt.Fprintf(&message, "- %s\n", path)
+		}
+		fmt.Fprintf(&message, "\nCommit them so the manifest can store reproducible Git references for rollback.\n\nNext: %s", gitCommitCommand(changed))
+		return errors.New(message.String())
 	}
 	files, err := releases.CommittedFiles(ctx, dir)
 	if err != nil {

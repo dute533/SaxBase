@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -26,6 +27,39 @@ func git(ctx context.Context, dir string, args ...string) ([]byte, error) {
 func repository(ctx context.Context, dir string) (string, error) {
 	data, err := git(ctx, dir, "rev-parse", "--show-toplevel")
 	return strings.TrimSpace(string(data)), err
+}
+
+// UncommittedFiles returns repository-relative SQL object paths changed in the
+// index or working tree. Outside Git there is no commit requirement.
+func UncommittedFiles(ctx context.Context, dir string) ([]string, error) {
+	root, err := repository(ctx, dir)
+	if err != nil {
+		return nil, nil
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return nil, err
+	}
+	data, err := git(ctx, root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames", "--", ":(literal)"+filepath.ToSlash(rel))
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, record := range strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00") {
+		if len(record) < 4 {
+			continue
+		}
+		path := filepath.ToSlash(record[3:])
+		if strings.EqualFold(filepath.Ext(path), ".sql") {
+			files = append(files, path)
+		}
+	}
+	sort.Strings(files)
+	return files, nil
 }
 
 // Resolve reads regular SQL blobs in manifest order. Full commit references are
