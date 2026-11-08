@@ -184,11 +184,15 @@ Create and check manifests with:
 ```sh
 git add database/objects
 git commit -m "Update database objects"
-./saxbase release create 30
+./saxbase release create
 ./saxbase release validate
 ./saxbase plan
 ./saxbase apply
 ```
+
+Without an explicit version, `release create` selects the first migration above
+the latest release schema. When no migration is pending, it increments the
+latest release revision. An explicit version overrides the inferred value.
 
 By default, `database/release.json` is a newest-first release history. Creating
 a newer version prepends a delta from the latest version while preserving all

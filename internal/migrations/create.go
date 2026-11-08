@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -25,36 +26,13 @@ func Create(dir, name string) (string, error) {
 	if !migrationNamePattern.MatchString(name) {
 		return "", errors.New("migration name must use lowercase letters, numbers, and single underscores, starting with a letter")
 	}
-	entries, err := os.ReadDir(dir)
+	versions, err := Versions(dir)
 	if err != nil {
-		return "", fmt.Errorf("read migration directory: %w", err)
+		return "", err
 	}
-	seen := make(map[int64]string)
 	var latest int64
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		filename := entry.Name()
-		ext := filepath.Ext(filename)
-		if ext != ".sql" && ext != ".go" {
-			continue
-		}
-		versionText, _, ok := strings.Cut(filename, "_")
-		if !ok {
-			continue
-		}
-		version, parseErr := strconv.ParseInt(versionText, 10, 64)
-		if parseErr != nil || version < 1 {
-			continue
-		}
-		if previous, ok := seen[version]; ok {
-			return "", fmt.Errorf("duplicate migration version %d in %s and %s", version, previous, filename)
-		}
-		seen[version] = filename
-		if version > latest {
-			latest = version
-		}
+	if len(versions) > 0 {
+		latest = versions[len(versions)-1]
 	}
 	if latest == math.MaxInt64 {
 		return "", errors.New("cannot create a migration after the maximum version")
@@ -73,4 +51,39 @@ func Create(dir, name string) (string, error) {
 		return "", fmt.Errorf("write migration: %w", writeErr)
 	}
 	return path, nil
+}
+
+// Versions returns the ordered migration versions present in dir.
+func Versions(dir string) ([]int64, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("read migration directory: %w", err)
+	}
+	seen := make(map[int64]string)
+	var versions []int64
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		filename := entry.Name()
+		ext := filepath.Ext(filename)
+		if ext != ".sql" && ext != ".go" {
+			continue
+		}
+		versionText, _, ok := strings.Cut(filename, "_")
+		if !ok {
+			continue
+		}
+		version, parseErr := strconv.ParseInt(versionText, 10, 64)
+		if parseErr != nil || version < 1 {
+			continue
+		}
+		if previous, ok := seen[version]; ok {
+			return nil, fmt.Errorf("duplicate migration version %d in %s and %s", version, previous, filename)
+		}
+		seen[version] = filename
+		versions = append(versions, version)
+	}
+	sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
+	return versions, nil
 }

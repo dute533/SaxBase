@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
+	"strconv"
 	"strings"
 
 	"saxbase/internal/migrations"
@@ -13,9 +15,9 @@ import (
 	"saxbase/internal/releases"
 )
 
-func runRelease(ctx context.Context, args []string, filename, dir string, out io.Writer) error {
-	if !((len(args) == 2 && args[0] == "create") || (len(args) == 1 && args[0] == "validate")) {
-		return errors.New("expected release create VERSION or release validate")
+func runRelease(ctx context.Context, args []string, filename, dir, migrationDir string, out io.Writer) error {
+	if !(((len(args) == 1 || len(args) == 2) && args[0] == "create") || (len(args) == 1 && args[0] == "validate")) {
+		return errors.New("expected release create [VERSION] or release validate")
 	}
 	if filename == "" {
 		filename = "database/release.json"
@@ -34,6 +36,16 @@ func runRelease(ctx context.Context, args []string, filename, dir string, out io
 		}
 		return writeNext(out, "saxbase plan")
 	}
+	inferred := len(args) == 1
+	var inference string
+	if inferred {
+		version, reason, err := inferReleaseVersion(filename, migrationDir)
+		if err != nil {
+			return err
+		}
+		args = append(args, version)
+		inference = reason
+	}
 	changed, err := releases.UncommittedFiles(ctx, dir)
 	if err != nil {
 		return fmt.Errorf("inspect object Git status: %w", err)
@@ -50,6 +62,11 @@ func runRelease(ctx context.Context, args []string, filename, dir string, out io
 	files, err := releases.CommittedFiles(ctx, dir)
 	if err != nil {
 		return err
+	}
+	if inferred {
+		if _, err := fmt.Fprintf(out, "Creating release %s %s.\n", args[1], inference); err != nil {
+			return err
+		}
 	}
 
 	if args[0] == "create" {
@@ -112,6 +129,37 @@ func runRelease(ctx context.Context, args []string, filename, dir string, out io
 		return writeNext(out, "saxbase plan")
 	}
 	return errors.New("unsupported local release command")
+}
+
+func inferReleaseVersion(filename, migrationDir string) (string, string, error) {
+	versions, err := migrations.Versions(migrationDir)
+	if err != nil {
+		return "", "", err
+	}
+	history, err := releases.LoadAll(filename)
+	if errors.Is(err, os.ErrNotExist) {
+		if len(versions) > 0 {
+			version := versions[0]
+			return strconv.FormatInt(version, 10), fmt.Sprintf("because migration %d is pending", version), nil
+		}
+		return "0", "for committed object changes", nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	latest, err := releases.ParseVersion(history[len(history)-1].Version)
+	if err != nil {
+		return "", "", err
+	}
+	for _, version := range versions {
+		if version > latest.Schema {
+			return strconv.FormatInt(version, 10), fmt.Sprintf("because migration %d is pending", version), nil
+		}
+	}
+	if latest.Revision == math.MaxInt64 {
+		return "", "", errors.New("cannot create another revision after the maximum release revision")
+	}
+	return fmt.Sprintf("%d.%d", latest.Schema, latest.Revision+1), "for committed object changes", nil
 }
 
 func containsLatest(files []objects.File) bool {

@@ -58,16 +58,17 @@ Commit object SQL, create a manifest, review its order, then apply it:
 ```sh
 git add database/objects
 git commit -m "Update database objects"
-./saxbase release create 30
+./saxbase release create
 ./saxbase plan
 ./saxbase apply
 ```
 
 The default `database/release.json` is a release history with the newest release
-at the top. Creating a newer release prepends it as a delta from the previous
-latest release, so
-`./saxbase release create 31` can be used again without choosing a new
-filename. Older releases remain available in the same file for rollback.
+at the top. SaxBase selects the first migration above the latest release schema,
+or increments the object revision when no migration is pending. Pass a version
+explicitly to override that choice. Creating a newer release prepends it as a
+delta from the previous latest release. Older releases remain available in the
+same file for rollback.
 
 Each object entry contains a path and either a full Git commit hash or `latest`.
 Full hashes make releases reproducible. `latest` reads the working tree and is
@@ -78,7 +79,7 @@ For a later object revision, run `release create` again. SaxBase compares the
 working tree with the latest resolved state and adds only the changes at the top:
 
 ```sh
-./saxbase release create 30.1
+./saxbase release create
 ./saxbase plan
 ./saxbase apply
 ```

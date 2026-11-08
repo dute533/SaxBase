@@ -48,8 +48,17 @@ func TestReleaseCommandsOffline(t *testing.T) {
 func TestReleaseCreateAppendsReleaseHistory(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "objects")
+	migrationDir := filepath.Join(root, "migrations")
 	if err := os.Mkdir(dir, 0700); err != nil {
 		t.Fatal(err)
+	}
+	if err := os.Mkdir(migrationDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"00001_first.sql", "00002_second.sql"} {
+		if err := os.WriteFile(filepath.Join(migrationDir, name), []byte("-- +goose Up\nSELECT 1;\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 1;"), 0600); err != nil {
 		t.Fatal(err)
@@ -58,7 +67,7 @@ func TestReleaseCreateAppendsReleaseHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := filepath.Join(root, "release.json")
-	args := []string{"-objects-dir", dir, "-manifest", manifest, "release", "create"}
+	args := []string{"-dir", migrationDir, "-objects-dir", dir, "-manifest", manifest, "release", "create"}
 	if err := run(context.Background(), append(append([]string{}, args...), "1"), env(nil), &bytes.Buffer{}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +82,7 @@ func TestReleaseCreateAppendsReleaseHistory(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git commit: %v %s", err, out)
 	}
-	if err := run(context.Background(), append(append([]string{}, args...), "2"), env(nil), &bytes.Buffer{}, nil, nil); err != nil {
+	if err := run(context.Background(), append([]string{}, args...), env(nil), &bytes.Buffer{}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	m, err := releases.Load(manifest)
