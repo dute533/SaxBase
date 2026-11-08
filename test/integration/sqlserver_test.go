@@ -269,8 +269,8 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_objects')", 0)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='2.1'", 1)
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_release_objects'", 0)
-	if output := run("plan"); !strings.Contains(output, "Ready:") || strings.Count(output, "current") != 1 {
-		t.Fatalf("current plan: %s", output)
+	if output := run("plan"); !strings.Contains(output, "Ready:") || strings.Contains(output, "\nOBJECT") || !strings.Contains(output, "already current") {
+		t.Fatalf("action-only plan: %s", output)
 	}
 	var retainedFingerprint string
 	if err := db.QueryRowContext(ctx, "SELECT fingerprint FROM dbo.saxbase_releases WHERE version='2'").Scan(&retainedFingerprint); err != nil {

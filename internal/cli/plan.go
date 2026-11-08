@@ -80,16 +80,44 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 	if len(pending) > 1 {
 		fmt.Fprintf(w, "Pending releases:\t%s\n\n", strings.Join(pending, " -> "))
 	}
-	fmt.Fprintln(w, "MIGRATION\tACTION\tFILE")
+	var migrationActions, objectActions int
 	for _, row := range plan.Migrations {
-		if row.Action == "deferred" {
-			continue
+		if row.Action != "applied" && row.Action != "deferred" {
+			migrationActions++
 		}
-		fmt.Fprintf(w, "%d\t%s\t%s\n", row.Version, displayState(row.Action), row.Path)
 	}
-	fmt.Fprintln(w, "\nOBJECT\tSTATE\tSHA256")
 	for _, row := range plan.Objects {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", row.Path, displayState(row.State), row.Checksum)
+		if row.State != "unchanged" {
+			objectActions++
+		}
+	}
+	if migrationActions == 0 && objectActions == 0 {
+		if plan.CurrentRelease == plan.TargetRelease {
+			fmt.Fprintf(w, "Release %s is already current.\n", plan.TargetRelease)
+		} else {
+			fmt.Fprintf(w, "No schema or object changes in release %s.\n", plan.TargetRelease)
+		}
+	}
+	if migrationActions > 0 {
+		fmt.Fprintln(w, "MIGRATION\tACTION\tFILE")
+		for _, row := range plan.Migrations {
+			if row.Action == "applied" || row.Action == "deferred" {
+				continue
+			}
+			fmt.Fprintf(w, "%d\t%s\t%s\n", row.Version, displayState(row.Action), row.Path)
+		}
+	}
+	if objectActions > 0 {
+		if migrationActions > 0 {
+			fmt.Fprintln(w)
+		}
+		fmt.Fprintln(w, "OBJECT\tSTATE\tSHA256")
+		for _, row := range plan.Objects {
+			if row.State == "unchanged" {
+				continue
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\n", row.Path, displayState(row.State), row.Checksum)
+		}
 	}
 	var hasNotIncluded bool
 	for _, row := range plan.Migrations {

@@ -124,7 +124,8 @@ manifest.
 reports each object as `new`, `changed`, `current`, or `missing`. A planned
 deletion is shown as `delete`. In `plan`, migrations above the target schema are
 listed under `NOT INCLUDED` with the release and target schema that excluded
-them. Missing files
+them. Applied migrations and current objects are omitted so the plan contains
+only actions, exclusions, and blockers. Missing files
 are reported and are not automatically dropped. `apply` applies changed objects
 together with the manifest's migrations.
 
