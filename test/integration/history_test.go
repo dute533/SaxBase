@@ -56,7 +56,7 @@ func TestSQLServerManifestHistoryWorkflow(t *testing.T) {
 		t.Fatalf("fresh apply did not deploy the full release chain: %s", output)
 	}
 	assertValue(2)
-	if output := run("apply"); !strings.Contains(output, "current") {
+	if output := run("apply"); !strings.Contains(output, "already applied") {
 		t.Fatalf("repeat apply was not idempotent: %s", output)
 	}
 
@@ -131,7 +131,7 @@ func TestSQLServerForceRewritesCurrentDevelopmentRelease(t *testing.T) {
 	if newFingerprint == oldFingerprint {
 		t.Fatal("forced rewrite did not replace the release fingerprint")
 	}
-	if output := run("apply"); !strings.Contains(output, "current") {
+	if output := run("apply"); !strings.Contains(output, "already applied") {
 		t.Fatalf("rewritten release was not stable: %s", output)
 	}
 }

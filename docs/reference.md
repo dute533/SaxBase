@@ -101,6 +101,8 @@ DROP TABLE dbo.customers;
 `apply` advances the database schema to the version declared by the release
 manifest. `rollback` runs the required Goose down migrations for the target
 release. Use `status` to inspect migration state and the current database schema.
+Repeating `apply` on the current release prints a concise no-change summary
+instead of listing every current object.
 
 Use Goose annotations and transaction rules. Do not include SQL Server `GO` batch
 separators in migration files.

@@ -52,6 +52,7 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 	}
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	defer func() { err = errors.Join(err, w.Flush()) }()
+	changed := false
 	for i, selected := range pending {
 		manifest, files := selected.manifest, selected.files
 		version, parseErr := releases.ParseVersion(manifest.Version)
@@ -81,16 +82,27 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 		if i > 0 {
 			fmt.Fprintln(w)
 		}
+		alreadyApplied := !force && current == manifest.Version
+		if alreadyApplied {
+			fmt.Fprintf(w, "Release %s is already applied.\nDatabase schema %d is current.\nNo object changes required.\n", manifest.Version, version.Schema)
+			current = manifest.Version
+			baseline = selected.state
+			continue
+		}
 		action := "Applied"
 		if force {
 			action = "Force-applied"
 		}
+		changed = true
 		fmt.Fprintf(w, "%s release %s (database schema %d)\nSTATE\tFILE\tSHA256\n", action, manifest.Version, version.Schema)
 		for _, row := range rows {
 			fmt.Fprintf(w, "%s\t%s\t%s\n", displayState(row.State), row.Path, row.Checksum)
 		}
 		current = manifest.Version
 		baseline = selected.state
+	}
+	if !changed {
+		return writeNext(w, "no action required")
 	}
 	return writeNext(w, "saxbase status")
 }

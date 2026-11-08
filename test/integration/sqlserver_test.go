@@ -221,7 +221,7 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_schema_version WHERE version_id IN (1, 2) AND is_applied = 1", 2)
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_objects')", 0)
 
-	if output := run("-manifest", "database/release.json", "apply"); strings.Count(output, "current") != 3 {
+	if output := run("-manifest", "database/release.json", "apply"); !strings.Contains(output, "already applied") {
 		t.Fatalf("repeat objects: %s", output)
 	}
 	assertCount("SELECT value FROM dbo.saxbase_value", 1)
@@ -247,7 +247,7 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 1)
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE name='saxbase_release_objects'", 0)
 	assertVersion("2")
-	if output := run("apply"); strings.Count(output, "current") != 3 {
+	if output := run("apply"); !strings.Contains(output, "already applied") {
 		t.Fatalf("repeat objects: %s", output)
 	}
 	updated := []byte("CREATE OR ALTER VIEW dbo.saxbase_value AS SELECT 2 AS value;\n")
