@@ -84,8 +84,8 @@ Create the next sequential SQL migration with SaxBase:
 ```
 
 This command works without a database connection and creates a file such as
-`database/migrations/00003_add_customer_email.sql`. Use `-dir` before the
-command to select another migration directory. Names use lowercase letters,
+`database/migrations/00003_add_customer_email.sql`. Use `-dir` before or after
+the command to select another migration directory. Names use lowercase letters,
 numbers, and single underscores.
 
 Edit the generated Goose migration, for example:
@@ -185,16 +185,19 @@ object state at that schema version. Use a new revision when object SQL, paths,
 or order changes after deployment. Release versions are immutable once recorded
 in a database.
 
-Create and check manifests with:
+The normal release workflow is:
 
 ```sh
 git add database/objects
 git commit -m "Update database objects"
 ./saxbase release create
-./saxbase release validate
 ./saxbase plan
 ./saxbase apply
 ```
+
+`plan` and `apply` perform the required manifest validation themselves. Use
+`release validate` only when you want to verify manifest references without a
+database connection.
 
 Without an explicit version, `release create` selects the first migration above
 the latest release schema. When no migration is pending, it increments the
