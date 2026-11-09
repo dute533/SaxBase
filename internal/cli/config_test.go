@@ -19,7 +19,7 @@ func TestTargetsAndDotEnv(t *testing.T) {
 		want, failure string
 	}{
 		{name: "default", args: []string{"status"}, want: "local-secret"},
-		{name: "explicit", args: []string{"-target", "prod", "status"}, want: "prod-secret"},
+		{name: "explicit", args: []string{"status", "-target", "prod"}, want: "prod-secret"},
 		{name: "environment wins", args: []string{"status"}, values: map[string]string{"LOCAL_DSN": "override"}, want: "override"},
 		{name: "empty environment blocks fallback", args: []string{"status"}, values: map[string]string{"LOCAL_DSN": ""}, failure: "empty or missing"},
 		{name: "unknown", args: []string{"-target", "typo", "status"}, failure: "unknown database target"},

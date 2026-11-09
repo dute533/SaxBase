@@ -134,6 +134,7 @@ together with the manifest's migrations.
 Successful workflow commands end with one contextual `Next:` recommendation.
 When the next migration is above the latest release schema, SaxBase recommends
 the exact `release create` command needed to include it.
+Global options may be placed before or after the command.
 
 Release object files must be committed so manifests can store reproducible Git
 references for rollback. `status` and `release create` list any affected SQL

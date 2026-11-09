@@ -51,7 +51,7 @@ Configuration:
   -yes           Confirm database writes to targets requiring confirmation
   .env           Loaded from the working directory; environment takes precedence
 
-Options must precede the command.
+Options may appear before or after the command.
 `
 
 type OpenFunc func(migrations.Config) (migrations.Engine, error)
@@ -75,6 +75,10 @@ func RunWithLookup(ctx context.Context, args []string, lookup func(string) (stri
 func run(ctx context.Context, args []string, getenv func(string) string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error), environment ...runEnvironment) (err error) {
 	if len(args) == 0 {
 		_, err = io.WriteString(out, usage)
+		return err
+	}
+	args, err = reorderOptions(args)
+	if err != nil {
 		return err
 	}
 	flags := flag.NewFlagSet("saxbase", flag.ContinueOnError)

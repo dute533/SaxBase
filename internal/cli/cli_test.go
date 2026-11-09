@@ -97,6 +97,7 @@ func TestConfigurationPrecedence(t *testing.T) {
 	}{
 		{"environment", []string{"status"}, migrations.Config{Driver: "sqlserver", DSN: "env-dsn", Dir: "env-dir"}},
 		{"arguments", []string{"-dir", "custom", "status"}, migrations.Config{Driver: "sqlserver", DSN: "env-dsn", Dir: "custom"}},
+		{"arguments after command", []string{"status", "-dir", "custom"}, migrations.Config{Driver: "sqlserver", DSN: "env-dsn", Dir: "custom"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
