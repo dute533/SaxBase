@@ -11,6 +11,13 @@ func writeNext(out io.Writer, action string) error {
 	return err
 }
 
+func withNext(err error, action string) error {
+	if err == nil || strings.Contains(err.Error(), "\nNext:") {
+		return err
+	}
+	return fmt.Errorf("%w\n\nNext: %s", err, action)
+}
+
 func gitCommitCommand(paths []string) string {
 	quoted := make([]string, 0, len(paths))
 	for _, path := range paths {

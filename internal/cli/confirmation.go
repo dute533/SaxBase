@@ -14,7 +14,7 @@ func confirmWrite(ctx context.Context, target, command string, input io.Reader, 
 		return err
 	}
 	if input == nil {
-		return errors.New("target requires confirmation; use -yes for unattended writes")
+		return withNext(errors.New("target requires confirmation"), fmt.Sprintf("saxbase %s -target %s -yes", command, shellQuote(target)))
 	}
 	if _, err := fmt.Fprintf(out, "Run %s on target %q? Type yes to continue: ", command, target); err != nil {
 		return err
@@ -29,7 +29,7 @@ func confirmWrite(ctx context.Context, target, command string, input io.Reader, 
 		return ctx.Err()
 	case accepted := <-result:
 		if !accepted {
-			return errors.New("database operation cancelled; confirmation requires yes (use -yes for unattended writes)")
+			return withNext(errors.New("database operation cancelled; confirmation requires yes"), fmt.Sprintf("rerun saxbase %s -target %s and type yes", command, shellQuote(target)))
 		}
 		return nil
 	}

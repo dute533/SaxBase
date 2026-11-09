@@ -103,7 +103,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	if showVersion {
 		if flags.NArg() != 0 {
-			return errors.New("--version does not accept a command")
+			return withNext(errors.New("--version does not accept a command"), "saxbase --version")
 		}
 		_, err = fmt.Fprintf(out, "saxbase %s\n", Version)
 		return err
@@ -155,7 +155,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		})
 	}
 	if force && !(len(pos) == 1 && pos[0] == "apply") {
-		return errors.New("-f and -force only apply to the apply command")
+		return withNext(errors.New("-f and -force only apply to the apply command"), "saxbase apply -h")
 	}
 	if len(pos) > 0 && pos[0] == "rollback" {
 		if err := resolveTarget("rollback"); err != nil {
@@ -171,25 +171,25 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	var command string
 	if len(pos) != 1 {
-		return errors.New("expected COMMAND; use -h for help")
+		return withNext(errors.New("expected COMMAND"), "saxbase -h")
 	}
 	command = pos[0]
 	switch command {
 	case "apply", "status", "plan":
 	default:
-		return fmt.Errorf("unknown command %q; use -h for help", command)
+		return withNext(fmt.Errorf("unknown command %q", command), "saxbase -h")
 	}
 	if err := resolveTarget(command); err != nil {
 		return err
 	}
 	if cfg.Driver != "mssql" && cfg.Driver != "sqlserver" {
-		return fmt.Errorf("unsupported driver %q: use mssql or sqlserver", cfg.Driver)
+		return withNext(fmt.Errorf("unsupported driver %q", cfg.Driver), "set GOOSE_DRIVER=mssql")
 	}
 	if manifestPath != "" && command != "plan" && command != "apply" && command != "status" {
-		return errors.New("-manifest is supported only for plan, apply, status, and release commands")
+		return withNext(errors.New("-manifest is supported only for plan, apply, status, and release commands"), "saxbase -h")
 	}
 	if cfg.DSN == "" {
-		return errors.New("set GOOSE_DBSTRING or provide a connection string")
+		return withNext(errors.New("no database connection is configured"), "set GOOSE_DBSTRING or configure saxbase.yaml")
 	}
 	if command == "apply" {
 		return runApply(ctx, cfg, manifestPath, objectDir, force, out, open, openObjects)

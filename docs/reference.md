@@ -80,13 +80,13 @@ entry is already current, both commands safely recheck it.
 Create the next sequential SQL migration with SaxBase:
 
 ```sh
-./saxbase migration create add_customer_email
+./saxbase migration create "Add customer email"
 ```
 
 This command works without a database connection and creates a file such as
 `database/migrations/00003_add_customer_email.sql`. Use `-dir` before or after
-the command to select another migration directory. Names use lowercase letters,
-numbers, and single underscores.
+the command to select another migration directory. Names are normalized to
+lowercase snake_case filenames.
 
 Edit the generated Goose migration, for example:
 
@@ -127,13 +127,15 @@ reports each object as `new`, `changed`, `current`, or `missing`. A planned
 deletion is shown as `delete`. In `plan`, migrations above the target schema are
 listed under `NOT INCLUDED` with the release and target schema that excluded
 them. Applied migrations and current objects are omitted so the plan contains
-only actions, exclusions, and blockers. Missing files
-are reported and are not automatically dropped. `apply` applies changed objects
+only actions, exclusions, and blockers. A fully current `status` prints a short
+release, schema, and object summary instead of detail tables. Missing files are
+reported and are not automatically dropped. `apply` applies changed objects
 together with the manifest's migrations.
 
 Successful workflow commands end with one contextual `Next:` recommendation.
 When the next migration is above the latest release schema, SaxBase recommends
-the exact `release create` command needed to include it.
+the exact `release create` command needed to include it. User-correctable errors
+also end with one `Next:` action.
 Global options may be placed before or after the command.
 Every command and nested command accepts `-h` or `--help` without loading
 configuration or connecting to the database.
@@ -202,6 +204,8 @@ database connection.
 Without an explicit version, `release create` selects the first migration above
 the latest release schema. When no migration is pending, it increments the
 latest release revision. An explicit version overrides the inferred value.
+If the committed object state is unchanged, SaxBase reports no action and does
+not add an empty object revision.
 
 By default, `database/release.json` is a newest-first release history. Creating
 a newer version prepends a delta from the latest version while preserving all

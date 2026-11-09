@@ -6,13 +6,10 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 )
-
-var migrationNamePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$`)
 
 const sqlMigrationTemplate = `-- +goose Up
 -- Write the forward migration here.
@@ -23,8 +20,9 @@ const sqlMigrationTemplate = `-- +goose Up
 
 // Create creates the next sequential Goose SQL migration in dir.
 func Create(dir, name string) (string, error) {
-	if !migrationNamePattern.MatchString(name) {
-		return "", errors.New("migration name must use lowercase letters, numbers, and single underscores, starting with a letter")
+	name = normalizeName(name)
+	if name == "" {
+		return "", errors.New("migration name must contain at least one letter or number")
 	}
 	versions, err := Versions(dir)
 	if err != nil {
@@ -51,6 +49,28 @@ func Create(dir, name string) (string, error) {
 		return "", fmt.Errorf("write migration: %w", writeErr)
 	}
 	return path, nil
+}
+
+func normalizeName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	var result strings.Builder
+	separator := false
+	for _, r := range name {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			if separator && result.Len() > 0 {
+				result.WriteByte('_')
+			}
+			result.WriteRune(r)
+			separator = false
+		} else {
+			separator = true
+		}
+	}
+	normalized := strings.Trim(result.String(), "_")
+	if normalized != "" && normalized[0] >= '0' && normalized[0] <= '9' {
+		normalized = "migration_" + normalized
+	}
+	return normalized
 }
 
 // Versions returns the ordered migration versions present in dir.

@@ -65,14 +65,14 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 				return planErr
 			}
 			if len(plan.Blockers) > 0 {
-				return fmt.Errorf("apply blocked:\n- %s", strings.Join(plan.Blockers, "\n- "))
+				return withNext(fmt.Errorf("apply blocked:\n- %s", strings.Join(plan.Blockers, "\n- ")), "saxbase plan")
 			}
 			planCurrent := plan.CurrentRelease
 			if planCurrent == "" {
 				planCurrent = current
 			}
 			if selected.previous != "" && planCurrent != selected.previous && planCurrent != manifest.Version {
-				return fmt.Errorf("release %s must follow current release %s", manifest.Version, selected.previous)
+				return withNext(fmt.Errorf("release %s must follow current release %s", manifest.Version, selected.previous), "saxbase plan")
 			}
 			return nil
 		})

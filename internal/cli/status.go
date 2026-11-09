@@ -71,6 +71,13 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 		}
 	}
 	objectRows := objects.Compare(files, baseline)
+	if cleanStatus(history, current, databaseState.Current, migrationsState.Migrations, objectRows, changed) {
+		latest := history[len(history)-1].manifest.Version
+		if _, err := fmt.Fprintf(out, "Release %s is current.\nDatabase schema %d is current.\nNo pending object changes.\n", latest, migrationsState.Version); err != nil {
+			return err
+		}
+		return writeNext(out, "no action required")
+	}
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(w, "Database schema:\t%d\nRelease:\t%s\n\n", migrationsState.Version, statusValue(databaseState.Current))
 	fmt.Fprintln(w, "MIGRATION\tSTATE\tFILE")
@@ -126,6 +133,27 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 		return err
 	}
 	return w.Flush()
+}
+
+func cleanStatus(history []resolvedRelease, current, recorded string, migrationRows []migrations.Status, objectRows []objects.Status, changed []string) bool {
+	if len(history) == 0 || len(changed) > 0 {
+		return false
+	}
+	latest := history[len(history)-1].manifest.Version
+	if current != latest || recorded != latest {
+		return false
+	}
+	for _, row := range migrationRows {
+		if row.State != "applied" {
+			return false
+		}
+	}
+	for _, row := range objectRows {
+		if row.State != "unchanged" {
+			return false
+		}
+	}
+	return true
 }
 
 func statusValue(value string) string {

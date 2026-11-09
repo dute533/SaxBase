@@ -46,11 +46,12 @@ target and `-yes` for unattended protected deployments.
 Create a sequential Goose SQL migration without installing the Goose CLI:
 
 ```sh
-./saxbase migration create add_customer_email
+./saxbase migration create "Add customer email"
 ```
 
 Edit the generated migration file, including both its Up and Down sections.
-SaxBase chooses the next available five-digit migration number and respects
+SaxBase normalizes spaces, punctuation, and capitalization to a safe snake_case
+filename, chooses the next available five-digit migration number, and respects
 `-dir` when migrations live elsewhere.
 
 Commit object SQL, create a manifest, review its order, then apply it:
@@ -69,6 +70,10 @@ or increments the object revision when no migration is pending. Pass a version
 explicitly to override that choice. Creating a newer release prepends it as a
 delta from the previous latest release. Older releases remain available in the
 same file for rollback.
+
+When no schema migration or committed object change exists, `release create`
+reports that the current release already represents the object state and does
+not add an empty revision.
 
 Each object entry contains a path and either a full Git commit hash or `latest`.
 Full hashes make releases reproducible. `latest` reads the working tree and is

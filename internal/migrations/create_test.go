@@ -41,12 +41,24 @@ func TestCreateFirstMigration(t *testing.T) {
 }
 
 func TestCreateMigrationValidation(t *testing.T) {
-	for _, name := range []string{"", "AddThing", "add-thing", "add thing", "add__thing", "1_add"} {
+	for name, want := range map[string]string{
+		"AddThing":   "00001_addthing.sql",
+		"add-thing":  "00001_add_thing.sql",
+		"add thing":  "00001_add_thing.sql",
+		"add__thing": "00001_add_thing.sql",
+		"1_add":      "00001_migration_1_add.sql",
+	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := Create(t.TempDir(), name); err == nil {
-				t.Fatalf("accepted migration name %q", name)
+			path, err := Create(t.TempDir(), name)
+			if err != nil || filepath.Base(path) != want {
+				t.Fatalf("path=%q, want %q: %v", path, want, err)
 			}
 		})
+	}
+	for _, name := range []string{"", "---", "💥"} {
+		if _, err := Create(t.TempDir(), name); err == nil {
+			t.Fatalf("accepted empty migration name %q", name)
+		}
 	}
 
 	dir := t.TempDir()

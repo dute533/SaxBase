@@ -26,7 +26,7 @@ func loadDotEnv(getenv func(string) string, lookup ...func(string) (string, bool
 		return getenv, nil
 	}
 	if err != nil {
-		return nil, errors.New("cannot read .env: check file permissions and dotenv syntax")
+		return nil, withNext(errors.New("cannot read .env: check file permissions and dotenv syntax"), "edit .env and correct its syntax")
 	}
 	return func(key string) string {
 		if len(lookup) > 0 {
@@ -50,35 +50,35 @@ func selectTarget(filename, target string, getenv func(string) string, cfg *migr
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("open target config: %w", err)
+		return withNext(fmt.Errorf("open target config: %w", err), "create or correct "+filename)
 	}
 	defer file.Close()
 	var config targetConfig
 	decoder := yaml.NewDecoder(file)
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&config); err != nil {
-		return errors.New("invalid target config: check YAML syntax and supported fields")
+		return withNext(errors.New("invalid target config: check YAML syntax and supported fields"), "edit "+filename)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
-		return errors.New("target config must contain exactly one document")
+		return withNext(errors.New("target config must contain exactly one document"), "edit "+filename)
 	}
 	if target == "" {
 		target = config.DefaultTarget
 	}
 	if target == "" {
-		return errors.New("select -target or set default_target in the config")
+		return withNext(errors.New("select -target or set default_target in the config"), "edit saxbase.yaml and set default_target")
 	}
 	entry, ok := config.Targets[target]
 	if !ok {
-		return fmt.Errorf("unknown database target %q", target)
+		return withNext(fmt.Errorf("unknown database target %q", target), "edit saxbase.yaml or select a configured -target")
 	}
 	if strings.TrimSpace(entry.ConnectionEnv) == "" {
-		return fmt.Errorf("target %q requires connection_env", target)
+		return withNext(fmt.Errorf("target %q requires connection_env", target), "edit saxbase.yaml and set connection_env")
 	}
 	cfg.DSN = getenv(entry.ConnectionEnv)
 	if strings.TrimSpace(cfg.DSN) == "" {
-		return fmt.Errorf("target %q: environment variable %q is empty or missing", target, entry.ConnectionEnv)
+		return withNext(fmt.Errorf("target %q: environment variable %q is empty or missing", target, entry.ConnectionEnv), "set "+entry.ConnectionEnv+" in the environment or .env")
 	}
 	_, err = fmt.Fprintf(out, "Target: %s\n", target)
 	if err != nil {

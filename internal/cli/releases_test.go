@@ -131,6 +131,14 @@ func TestReleaseCreateAppendsReleaseHistory(t *testing.T) {
 	if err != nil || len(currentFiles) != 1 || currentFiles[0].SQL != "SELECT 3;" {
 		t.Fatalf("refreshed state=%+v err=%v", currentFiles, err)
 	}
+	var noChange bytes.Buffer
+	if err := run(context.Background(), append([]string{}, args...), env(nil), &noChange, nil, nil); err != nil || !strings.Contains(noChange.String(), "No committed object changes found") {
+		t.Fatalf("no-change release: %v %s", err, noChange.String())
+	}
+	history, err = releases.LoadAll(manifest)
+	if err != nil || len(history) != 2 {
+		t.Fatalf("no-change history=%+v err=%v", history, err)
+	}
 	if err := run(context.Background(), append(append([]string{}, args...), "1"), env(nil), &bytes.Buffer{}, nil, nil); err == nil {
 		t.Fatal("older release version was accepted")
 	}

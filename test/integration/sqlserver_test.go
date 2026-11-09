@@ -146,7 +146,7 @@ func TestSQLServerMigration(t *testing.T) {
 	assertVersion := func(want string) {
 		t.Helper()
 		output := strings.Join(strings.Fields(run("status")), " ")
-		if !strings.Contains(output, "Database schema: "+want) {
+		if !strings.Contains(output, "Database schema: "+want) && !strings.Contains(output, "Database schema "+want+" is current") {
 			t.Fatalf("status did not report database schema %q: %s", want, output)
 		}
 	}
@@ -209,7 +209,9 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_objects')", 0)
 	run("apply")
 	assertVersion("2")
-	assertStatus("applied", "applied")
+	if output := run("status"); !strings.Contains(output, "Release 2 is current") || !strings.Contains(output, "No pending object changes") {
+		t.Fatalf("clean status: %s", output)
+	}
 	assertCount("SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.customers') AND name = N'nickname' AND TYPE_NAME(user_type_id) = N'nvarchar' AND max_length = 200 AND is_nullable = 1", 1)
 	assertCount("SELECT COUNT(*) FROM dbo.customers WHERE id = 1 AND name = N'Ada' AND nickname IS NULL", 1)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_schema_version WHERE version_id IN (1, 2) AND is_applied = 1", 2)
@@ -331,11 +333,13 @@ func TestSQLServerMigration(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(objectDir, "views/value.sql"), updated, 0600); err != nil {
 		t.Fatal(err)
 	}
-	run("release", "create", "2.2")
+	if output := run("release", "create", "2.2"); !strings.Contains(output, "No committed object changes found") {
+		t.Fatalf("empty release was not skipped: %s", output)
+	}
 	run("apply")
 	assertCount("SELECT value FROM dbo.saxbase_value", 2)
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_objects')", 0)
-	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 3)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 2)
 
 	if err := os.WriteFile(filepath.Join(objectDir, "views/value.sql"), updated, 0600); err != nil {
 		t.Fatal(err)
@@ -443,7 +447,7 @@ func TestSQLServerMigration(t *testing.T) {
 	assertCount("EXEC dbo.saxbase_get_value", 1)
 	assertCount("SELECT dbo.saxbase_function()", 1)
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_rollbacks')", 0)
-	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 5)
+	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases", 4)
 	if output := strings.Join(strings.Fields(run("status")), " "); !strings.Contains(output, "Release: 2") {
 		t.Fatalf("current release missing from status: %s", output)
 	}

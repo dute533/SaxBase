@@ -51,7 +51,7 @@ func TestSQLServerApply(t *testing.T) {
 	assertVersion := func(want string) {
 		t.Helper()
 		output := strings.Join(strings.Fields(run("-manifest", "database/target.json", "status")), " ")
-		if !strings.Contains(output, "Database schema: "+want) {
+		if !strings.Contains(output, "Database schema: "+want) && !strings.Contains(output, "Database schema "+want+" is current") {
 			t.Fatalf("status did not report database schema %q: %s", want, output)
 		}
 	}
@@ -113,7 +113,7 @@ func TestSQLServerApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	apply()
-	if output := strings.Join(strings.Fields(run("-manifest", "database/target.json", "status")), " "); !strings.Contains(output, "Release: 3") {
+	if output := strings.Join(strings.Fields(run("-manifest", "database/target.json", "status")), " "); !strings.Contains(output, "Release 3 is current") {
 		t.Fatalf("current release missing from status: %s", output)
 	}
 	count("SELECT value FROM dbo.extra", 3)

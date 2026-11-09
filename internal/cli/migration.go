@@ -20,11 +20,11 @@ func runMigration(args []string, dir string, out io.Writer) error {
 		return err
 	}
 	if len(args) != 2 || args[0] != "create" {
-		return errors.New("expected migration create NAME")
+		return withNext(errors.New("expected migration create NAME"), "saxbase migration create -h")
 	}
 	path, err := migrations.Create(dir, args[1])
 	if err != nil {
-		return err
+		return withNext(err, "saxbase migration create add_customer_email")
 	}
 	if _, err = fmt.Fprintf(out, "Created migration: %s\n", path); err != nil {
 		return err
