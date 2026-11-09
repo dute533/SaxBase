@@ -28,7 +28,7 @@ Usage:
 
 Commands:
   plan      Preview schema migrations and objects without changing the database
-  apply     Advance to the next manifest release, apply it, and record it
+  apply     Apply every pending manifest release in order and record each one
   status    Show database schema, release, and object state together
   rollback  Restore the previous or a specified recorded release
   migration create NAME  Create the next sequential Goose SQL migration
