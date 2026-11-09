@@ -108,6 +108,11 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		_, err = fmt.Fprintf(out, "saxbase %s\n", Version)
 		return err
 	}
+	pos := flags.Args()
+	if help, ok := commandHelp(pos); ok {
+		_, err = io.WriteString(out, help)
+		return err
+	}
 	var lookup []func(string) (string, bool)
 	targetOut := out
 	var input io.Reader
@@ -149,7 +154,6 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 			return nil
 		})
 	}
-	pos := flags.Args()
 	if force && !(len(pos) == 1 && pos[0] == "apply") {
 		return errors.New("-f and -force only apply to the apply command")
 	}

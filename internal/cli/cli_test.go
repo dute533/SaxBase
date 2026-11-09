@@ -129,13 +129,13 @@ func TestValidationBeforeOpeningDatabase(t *testing.T) {
 }
 
 func TestHelpWithoutDatabase(t *testing.T) {
-	for _, args := range [][]string{nil, {"-h"}, {"--help"}} {
+	for _, args := range [][]string{nil, {"-h"}, {"--help"}, {"plan", "-h"}, {"apply", "--help"}, {"status", "-h"}, {"rollback", "--help"}, {"migration", "-h"}, {"migration", "create", "--help"}, {"release", "-h"}, {"release", "create", "--help"}, {"release", "validate", "-h"}} {
 		var out bytes.Buffer
 		err := Run(context.Background(), args, env(nil), &out, func(migrations.Config) (migrations.Engine, error) {
 			t.Fatal("opened database for help")
 			return nil, nil
 		})
-		if err != nil || !strings.Contains(out.String(), "SaxBase") {
+		if err != nil || (!strings.Contains(out.String(), "SaxBase") && !strings.Contains(out.String(), "Usage:")) {
 			t.Fatalf("help: %q, %v", out.String(), err)
 		}
 	}
