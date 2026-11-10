@@ -38,7 +38,7 @@ func TestResolveHistoricalCommitsInManifestOrder(t *testing.T) {
 	first := commit()
 	write("a.sql", "SELECT 3;")
 	second := commit()
-	m := Manifest{Version: "1", Objects: []Object{{Path: "z.sql", Commit: first}, {Path: "a.sql", Commit: second}}}
+	m := Manifest{Version: "1", MigrationVersion: int64Pointer(1), Objects: []Object{{Path: "z.sql", Commit: first}, {Path: "a.sql", Commit: second}}}
 	write("a.sql", "invalid working SQL")
 	if err := os.Remove(filepath.Join(root, "z.sql")); err != nil {
 		t.Fatal(err)
@@ -51,7 +51,7 @@ func TestResolveHistoricalCommitsInManifestOrder(t *testing.T) {
 	tree := gitFixture(t, root, "rev-parse", "HEAD^{tree}")
 	blob := gitFixture(t, root, "rev-parse", "HEAD:a.sql")
 	for _, ref := range []Object{{Path: "a.sql", Commit: strings.Repeat("0", 40)}, {Path: "a.sql", Commit: tree}, {Path: "a.sql", Commit: blob}, {Path: "../a.sql", Commit: first}, {Path: "missing.sql", Commit: first}, {Path: "a.sql", Commit: "HEAD"}, {Path: "a.sql", Commit: first[:12]}} {
-		bad := Manifest{Version: "1", Objects: []Object{ref}}
+		bad := Manifest{Version: "1", MigrationVersion: int64Pointer(1), Objects: []Object{ref}}
 		if _, err := bad.Resolve(ctx, root); err == nil {
 			t.Fatalf("accepted %+v", ref)
 		}
@@ -60,7 +60,7 @@ func TestResolveHistoricalCommitsInManifestOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	linkCommit := commit()
-	if _, err := (Manifest{Version: "1", Objects: []Object{{Path: "link.sql", Commit: linkCommit}}}).Resolve(ctx, root); err == nil {
+	if _, err := (Manifest{Version: "1", MigrationVersion: int64Pointer(1), Objects: []Object{{Path: "link.sql", Commit: linkCommit}}}).Resolve(ctx, root); err == nil {
 		t.Fatal("accepted symlink")
 	}
 }
@@ -100,7 +100,7 @@ func TestLatestManifestResolvesOutsideGit(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "view.sql"), []byte("SELECT 42;"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	m := Manifest{Version: "1", Objects: []Object{{Path: "view.sql", Commit: "latest"}}}
+	m := Manifest{Version: "1", MigrationVersion: int64Pointer(1), Objects: []Object{{Path: "view.sql", Commit: "latest"}}}
 	files, err := m.Resolve(context.Background(), root)
 	if err != nil {
 		t.Fatal(err)
@@ -111,7 +111,7 @@ func TestLatestManifestResolvesOutsideGit(t *testing.T) {
 	if err := os.Symlink("view.sql", filepath.Join(root, "link.sql")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (Manifest{Version: "1", Objects: []Object{{Path: "link.sql", Commit: "latest"}}}).Resolve(context.Background(), root); err == nil {
+	if _, err := (Manifest{Version: "1", MigrationVersion: int64Pointer(1), Objects: []Object{{Path: "link.sql", Commit: "latest"}}}).Resolve(context.Background(), root); err == nil {
 		t.Fatal("accepted latest symlink")
 	}
 }

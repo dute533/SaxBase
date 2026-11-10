@@ -33,18 +33,17 @@ Create a sequential Goose SQL migration.
 `
 
 const releaseUsage = `Usage:
-  saxbase [options] release create [VERSION]
+  saxbase [options] release create VERSION
   saxbase [options] release validate
 
 Create or validate release manifest entries.
 `
 
 const releaseCreateUsage = `Usage:
-  saxbase [options] release create [VERSION]
+  saxbase [options] release create VERSION
 
 Create a release from committed object files. VERSION may be semantic, such as
-1.2.0. SaxBase infers the target migration. Omitting VERSION is supported for
-legacy numeric release histories.
+1.2.0. SaxBase infers the target migration.
 `
 
 const releaseValidateUsage = `Usage:

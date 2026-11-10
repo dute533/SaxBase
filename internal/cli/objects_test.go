@@ -28,6 +28,8 @@ type fakeObjects struct {
 	applyErr        error
 }
 
+func migrationPointer(version int64) *int64 { return &version }
+
 func (f *fakeObjects) Close() error { f.closed = true; return nil }
 func (f *fakeObjects) Inspect(context.Context) (objects.Inspection, error) {
 	f.command = "inspect"

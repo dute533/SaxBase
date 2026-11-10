@@ -12,7 +12,7 @@ import (
 // Apply holds one session lock across preflight, Goose, and the object
 // transaction. Preflight must inspect the intended release without writing.
 func (s *store) Apply(ctx context.Context, files, baseline []File, release Release, force bool, goose migrations.Engine, preflight func(context.Context) error) (rows []Status, err error) {
-	if release.Version == "" || release.MigrationVersion < 0 || preflight == nil {
+	if release.Version == "" || release.MigrationVersion < 0 || release.Fingerprint == "" || preflight == nil {
 		return nil, errors.New("apply requires a valid release and preflight")
 	}
 	if err := validateFiles(files); err != nil {

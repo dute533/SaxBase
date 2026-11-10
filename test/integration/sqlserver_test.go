@@ -200,6 +200,16 @@ func TestSQLServerMigration(t *testing.T) {
 	// Object status is read-only, including before its metadata table exists.
 	run("release", "validate")
 	run("-manifest", "database/wrong-schema.json", "release", "create", "3")
+	wrongSchemaPath := filepath.Join(workDir, "database/wrong-schema.json")
+	wrongSchema, err := releases.Load(wrongSchemaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingMigration := int64(3)
+	wrongSchema.MigrationVersion = &missingMigration
+	if err := releases.ReplaceLatest(wrongSchemaPath, wrongSchema); err != nil {
+		t.Fatal(err)
+	}
 	if output, err := execute("-manifest", "database/wrong-schema.json", "apply"); err == nil {
 		t.Fatalf("schema mismatch accepted: %s", output)
 	}
@@ -355,11 +365,7 @@ func TestSQLServerMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A historical plain CREATE definition can be restored over an existing view.
-	if _, err := db.ExecContext(ctx, "CREATE TABLE dbo.saxbase_rollbacks(id int NOT NULL)"); err != nil {
-		t.Fatal(err)
-	}
 	run("rollback", "2.3")
-	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_rollbacks')", 0)
 	assertCount("SELECT value FROM dbo.saxbase_later", 2)
 	run("rollback", "2")
 	assertCount("SELECT COUNT(*) FROM sys.views WHERE object_id=OBJECT_ID(N'dbo.saxbase_later')", 0)

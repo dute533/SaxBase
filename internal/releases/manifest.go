@@ -27,7 +27,7 @@ type Object struct {
 }
 type Manifest struct {
 	Version          string   `json:"version"`
-	MigrationVersion *int64   `json:"migration_version,omitempty"`
+	MigrationVersion *int64   `json:"migration_version"`
 	Objects          []Object `json:"objects"`
 }
 
@@ -46,29 +46,18 @@ func New(version string, migrationVersion int64, files []objects.File) (Manifest
 func int64Pointer(value int64) *int64 { return &value }
 
 // TargetMigration returns the Goose version represented by this release.
-// Legacy manifests derive it from SCHEMA[.REVISION].
 func (m Manifest) TargetMigration() (int64, error) {
-	if m.MigrationVersion != nil {
-		if *m.MigrationVersion < 0 {
-			return 0, fmt.Errorf("release %s has negative migration_version", m.Version)
-		}
-		return *m.MigrationVersion, nil
-	}
-	legacy, err := releaseversion.ParseLegacy(m.Version)
-	if err != nil {
+	if m.MigrationVersion == nil {
 		return 0, fmt.Errorf("release %s requires migration_version", m.Version)
 	}
-	return legacy.Schema, nil
+	if *m.MigrationVersion < 0 {
+		return 0, fmt.Errorf("release %s has negative migration_version", m.Version)
+	}
+	return *m.MigrationVersion, nil
 }
 
-func (m Manifest) explicitMigrationVersion() bool { return m.MigrationVersion != nil }
-
-// Fingerprint binds explicit migration targets into new-format releases while
-// preserving fingerprints recorded from legacy manifests.
+// Fingerprint binds the migration target and ordered object operations.
 func (m Manifest) Fingerprint(files []objects.File) string {
-	if !m.explicitMigrationVersion() {
-		return objects.Fingerprint(files)
-	}
 	migrationVersion, _ := m.TargetMigration()
 	return objects.ReleaseFingerprint(migrationVersion, files)
 }

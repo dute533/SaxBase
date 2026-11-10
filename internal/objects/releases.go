@@ -52,7 +52,7 @@ const releaseTables = `IF OBJECT_ID(N'dbo.saxbase_releases', N'U') IS NULL
  ON dbo.saxbase_releases(is_current) WHERE is_current=1;
  END;`
 
-func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, files []File, force bool) (bool, error) {
+func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, force bool) (bool, error) {
 	if err := releaseversion.Validate(release.Version); err != nil {
 		return false, err
 	}
@@ -67,7 +67,7 @@ func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, files []Fi
 	}
 	requestedFingerprint := release.Fingerprint
 	if requestedFingerprint == "" {
-		requestedFingerprint = Fingerprint(files)
+		return false, errors.New("release fingerprint is required")
 	}
 	if exists && fingerprint != requestedFingerprint {
 		if !force {

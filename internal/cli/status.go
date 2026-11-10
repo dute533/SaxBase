@@ -11,7 +11,6 @@ import (
 	"saxbase/internal/migrations"
 	"saxbase/internal/objects"
 	"saxbase/internal/releases"
-	"saxbase/internal/releaseversion"
 )
 
 // runStatus presents the structural migration, release, and object state
@@ -98,14 +97,7 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 	}
 	next := "no action required"
 	if len(history) == 0 {
-		version := migrationsState.Version
-		for _, row := range migrationsState.Migrations {
-			if row.State == "pending" {
-				version = row.Version
-				break
-			}
-		}
-		next = fmt.Sprintf("saxbase release create %d", version)
+		next = "saxbase release create VERSION"
 	} else {
 		latest := history[len(history)-1].manifest.Version
 		if current != latest {
@@ -121,13 +113,7 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 					break
 				}
 				if row.State == "pending" && row.Version > latestMigration {
-					latestRelease := history[len(history)-1].manifest
-					legacy, legacyErr := releaseversion.ParseLegacy(latestRelease.Version)
-					if legacyErr == nil && legacy.Schema == latestMigration {
-						next = fmt.Sprintf("saxbase release create %d", row.Version)
-					} else {
-						next = "saxbase release create VERSION"
-					}
+					next = "saxbase release create VERSION"
 					break
 				}
 			}

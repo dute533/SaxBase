@@ -97,7 +97,7 @@ func (s *store) Reconcile(ctx context.Context, target Snapshot, goose migrations
 		if err := setCurrent(ctx, tx, target.Version); err != nil {
 			return err
 		}
-		return removeLegacyRollbackTable(ctx, tx)
+		return nil
 	}); err != nil {
 		return fmt.Errorf("reconcile release %s: %w", target.Version, err)
 	}
@@ -201,7 +201,7 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 		if err := setCurrent(ctx, tx, target.Version); err != nil {
 			return err
 		}
-		return removeLegacyRollbackTable(ctx, tx)
+		return nil
 	}); err != nil {
 		return result, fmt.Errorf("restore release %s: %w", target.Version, err)
 	}
@@ -249,13 +249,6 @@ func canonicalDefinition(definition string) string {
 		definition = string(runes[:afterAlter]) + " " + string(runes[next:])
 	}
 	return strings.TrimSpace(definition)
-}
-
-// Old SaxBase versions created a persistent rollback journal. Successful work
-// with the new state machine removes that obsolete internal table.
-func removeLegacyRollbackTable(ctx context.Context, tx *sql.Tx) error {
-	_, err := tx.ExecContext(ctx, "IF OBJECT_ID(N'dbo.saxbase_rollbacks',N'U') IS NOT NULL DROP TABLE dbo.saxbase_rollbacks;")
-	return err
 }
 
 func rollbackTransaction(ctx context.Context, conn *sql.Conn, fn func(*sql.Tx) error) error {

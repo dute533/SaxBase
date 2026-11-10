@@ -71,7 +71,7 @@ func TestPlanBlockers(t *testing.T) {
 	}
 }
 
-func TestPlanUnchangedAndNumericRevision(t *testing.T) {
+func TestPlanUnchangedRelease(t *testing.T) {
 	m, _ := New("2.10", 2, nil)
 	db := planObjects{state: objects.Inspection{Current: "2.2", History: []objects.Release{{Version: "2.2"}}}}
 	schema := planSchema{state: migrations.Inspection{Version: 2, Migrations: []migrations.Status{{Version: 2, State: "applied"}}}}

@@ -23,7 +23,7 @@ Usage:
   saxbase [-f] [-manifest database/release.json] apply
   saxbase rollback [VERSION]
   saxbase [-dir database/migrations] migration create NAME
-  saxbase [-manifest database/release.json] release create [VERSION]
+  saxbase [-manifest database/release.json] release create VERSION
   saxbase [-manifest database/release.json] release validate
 
 Commands:
@@ -32,7 +32,7 @@ Commands:
   status    Show database schema, release, and object state together
   rollback  Restore the previous or a specified recorded release
   migration create NAME  Create the next sequential Goose SQL migration
-  release create [VERSION]  Add or refresh a release from current object files
+  release create VERSION    Add or refresh a release from current object files
   release validate        Check the manifest against current object files
 
 Environment:

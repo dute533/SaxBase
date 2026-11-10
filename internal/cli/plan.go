@@ -150,7 +150,7 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 		} else {
 			for _, row := range plan.Migrations {
 				if row.Action == "deferred" {
-					next = fmt.Sprintf("saxbase release create %d", row.Version)
+					next = "saxbase release create VERSION"
 					break
 				}
 			}

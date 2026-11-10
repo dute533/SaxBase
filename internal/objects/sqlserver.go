@@ -88,7 +88,7 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files, basel
 	}
 	alreadyCurrent := false
 	if release != nil {
-		created, err := prepareRelease(ctx, tx, *release, files, force)
+		created, err := prepareRelease(ctx, tx, *release, force)
 		if err != nil {
 			return nil, err
 		}

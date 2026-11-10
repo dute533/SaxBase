@@ -62,11 +62,11 @@ func TestPlanSelectsNextManifestHistoryRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "release.json")
-	base := releases.Manifest{Version: "30", Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	base := releases.Manifest{Version: "30", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
 	if err := base.Write(path); err != nil {
 		t.Fatal(err)
 	}
-	delta := releases.Manifest{Version: "30.1", Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	delta := releases.Manifest{Version: "30.1", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
 	if err := releases.Append(path, delta); err != nil {
 		t.Fatal(err)
 	}

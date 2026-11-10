@@ -59,7 +59,7 @@ git commit -m "Create database release"
 
 Release versions can use SemVer. SaxBase records the target Goose migration
 separately, so object-only releases can advance from `1.0.0` to `1.0.1` without
-adding a migration. Existing numeric manifests remain supported.
+adding a migration. Every manifest entry declares its migration target.
 
 `plan` previews every pending migration and object change. `apply` deploys all
 pending releases in order. Use `-target NAME` to select a configured database.
@@ -90,7 +90,7 @@ migrations one release at a time.
 | `status` | Show schema, release, and object state |
 | `rollback [VERSION]` | Restore the previous or specified release |
 | `migration create NAME` | Create a sequential Goose migration |
-| `release create` | Create or refresh a release manifest entry |
+| `release create VERSION` | Create or refresh a release manifest entry |
 | `release validate` | Validate manifest object references |
 
 Run `./saxbase -h` for all options. See the

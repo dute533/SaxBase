@@ -76,7 +76,7 @@ Restore the preceding release, or specify an older version:
 
 ```sh
 ../../saxbase rollback
-../../saxbase rollback 2
+../../saxbase rollback 1.0.0
 ```
 
 See the [manifest ordering example](ordering/README.md) and the

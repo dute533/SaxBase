@@ -8,25 +8,7 @@ import (
 	"testing"
 
 	"saxbase/internal/objects"
-	"saxbase/internal/releaseversion"
 )
-
-func TestLegacyVersions(t *testing.T) {
-	for _, test := range []struct {
-		value string
-		want  releaseversion.Version
-	}{{"0", releaseversion.Version{}}, {"30", releaseversion.Version{Schema: 30}}, {"30.10", releaseversion.Version{Schema: 30, Revision: 10}}, {"9223372036854775807.1", releaseversion.Version{Schema: 9223372036854775807, Revision: 1}}} {
-		got, err := releaseversion.ParseLegacy(test.value)
-		if err != nil || got != test.want {
-			t.Fatalf("%s: %+v %v", test.value, got, err)
-		}
-	}
-	for _, value := range []string{"", "01", "30.0", "30.01", "30.1.2", "-1", "1e2", " 30", "30.", "9223372036854775808", "1.9223372036854775808"} {
-		if _, err := releaseversion.ParseLegacy(value); err == nil {
-			t.Errorf("accepted %q", value)
-		}
-	}
-}
 
 func TestManifestRoundTripAndMismatch(t *testing.T) {
 	files := []objects.File{{Path: "views/a.sql", Commit: strings.Repeat("a", 64)}}
@@ -55,7 +37,7 @@ func TestManifestRoundTripAndMismatch(t *testing.T) {
 	}
 }
 
-func TestManifestExplicitAndLegacyMigrationTargets(t *testing.T) {
+func TestManifestRequiresMigrationTarget(t *testing.T) {
 	semantic, err := New("1.2.3-rc.1", 30, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -63,12 +45,8 @@ func TestManifestExplicitAndLegacyMigrationTargets(t *testing.T) {
 	if got, err := semantic.TargetMigration(); err != nil || got != 30 {
 		t.Fatalf("semantic migration=%d err=%v", got, err)
 	}
-	legacy := Manifest{Version: "30.2", Objects: []Object{}}
-	if got, err := legacy.TargetMigration(); err != nil || got != 30 {
-		t.Fatalf("legacy migration=%d err=%v", got, err)
-	}
 	if _, err := (Manifest{Version: "1.2.3", Objects: []Object{}}).TargetMigration(); err == nil {
-		t.Fatal("semantic release without migration_version was accepted")
+		t.Fatal("release without migration_version was accepted")
 	}
 }
 
@@ -78,10 +56,6 @@ func TestMigrationVersionIsPartOfReleaseFingerprint(t *testing.T) {
 	b, _ := New("1.2.0", 3, files)
 	if a.Fingerprint(files) == b.Fingerprint(files) {
 		t.Fatal("migration target did not change release fingerprint")
-	}
-	legacy := Manifest{Version: "2.1", Objects: []Object{}}
-	if legacy.Fingerprint(files) != objects.Fingerprint(files) {
-		t.Fatal("legacy fingerprint compatibility was lost")
 	}
 }
 
@@ -107,15 +81,15 @@ func TestInvalidManifests(t *testing.T) {
 		`{"version":30,"objects":[]}`,
 		`{"version":"30","objects":[]}`,
 		`{"releases":[]}`,
-		`{"releases":[{"version":"30","objects":null}]}`,
-		`{"releases":[{"version":"30","objects":[],"typo":true}]}`,
-		`{"releases":[{"version":"30","parent":"29","objects":[]}]}`,
+		`{"releases":[{"version":"30","migration_version":30,"objects":null}]}`,
+		`{"releases":[{"version":"30","migration_version":30,"objects":[],"typo":true}]}`,
+		`{"releases":[{"version":"30","migration_version":30,"parent":"29","objects":[]}]}`,
 		`{"releases":[{"version":"1","objects":[]},{"version":"2","objects":[]}]}`,
-		`{"releases":[{"version":"30","objects":[]}]} {}`,
-		`{"releases":[{"version":"30","objects":[{"path":"../a.sql","commit":"` + sum + `"}]}]}`,
-		`{"releases":[{"version":"30","objects":[{"path":"a.sql","commit":"bad"}]}]}`,
-		`{"releases":[{"version":"30","objects":[{"path":"a.sql","commit":"` + sum + `"},{"path":"a.sql","commit":"` + sum + `"}]}]}`,
-		`{"releases":[{"version":"30","objects":[{"path":"a.sql","commit":"` + sum + `","delete":true}]}]}`,
+		`{"releases":[{"version":"30","migration_version":30,"objects":[]}]} {}`,
+		`{"releases":[{"version":"30","migration_version":30,"objects":[{"path":"../a.sql","commit":"` + sum + `"}]}]}`,
+		`{"releases":[{"version":"30","migration_version":30,"objects":[{"path":"a.sql","commit":"bad"}]}]}`,
+		`{"releases":[{"version":"30","migration_version":30,"objects":[{"path":"a.sql","commit":"` + sum + `"},{"path":"a.sql","commit":"` + sum + `"}]}]}`,
+		`{"releases":[{"version":"30","migration_version":30,"objects":[{"path":"a.sql","commit":"` + sum + `","delete":true}]}]}`,
 	} {
 		file := filepath.Join(t.TempDir(), "release.json")
 		if err := os.WriteFile(file, []byte(body), 0600); err != nil {
@@ -129,10 +103,10 @@ func TestInvalidManifests(t *testing.T) {
 
 func TestAppendStoresNewestReleaseFirst(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), "release.json")
-	if err := (Manifest{Version: "1", Objects: []Object{}}).Write(filename); err != nil {
+	if err := (Manifest{Version: "1", MigrationVersion: int64Pointer(1), Objects: []Object{}}).Write(filename); err != nil {
 		t.Fatal(err)
 	}
-	if err := Append(filename, Manifest{Version: "2", Objects: []Object{}}); err != nil {
+	if err := Append(filename, Manifest{Version: "2", MigrationVersion: int64Pointer(2), Objects: []Object{}}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filename)
@@ -150,7 +124,7 @@ func TestAppendStoresNewestReleaseFirst(t *testing.T) {
 	if err != nil || history[0].Version != "1" || history[1].Version != "2" {
 		t.Fatalf("chronological history=%+v err=%v", history, err)
 	}
-	replacement := Manifest{Version: "2", Objects: []Object{{Path: "a.sql", Commit: strings.Repeat("a", 40)}}}
+	replacement := Manifest{Version: "2", MigrationVersion: int64Pointer(2), Objects: []Object{{Path: "a.sql", Commit: strings.Repeat("a", 40)}}}
 	if err := ReplaceLatest(filename, replacement); err != nil {
 		t.Fatal(err)
 	}
@@ -158,13 +132,13 @@ func TestAppendStoresNewestReleaseFirst(t *testing.T) {
 	if err != nil || len(history[1].Objects) != 1 || history[1].Objects[0].Path != "a.sql" {
 		t.Fatalf("replaced history=%+v err=%v", history, err)
 	}
-	if err := ReplaceLatest(filename, Manifest{Version: "1", Objects: []Object{}}); err == nil {
+	if err := ReplaceLatest(filename, Manifest{Version: "1", MigrationVersion: int64Pointer(1), Objects: []Object{}}); err == nil {
 		t.Fatal("replaced a non-latest release")
 	}
 }
 
 func TestFirstReleaseCannotBeADeletion(t *testing.T) {
-	m := Manifest{Version: "1", Objects: []Object{{Path: "a.sql", Commit: strings.Repeat("a", 40), Delete: true}}}
+	m := Manifest{Version: "1", MigrationVersion: int64Pointer(1), Objects: []Object{{Path: "a.sql", Commit: strings.Repeat("a", 40), Delete: true}}}
 	if err := m.Write(filepath.Join(t.TempDir(), "release.json")); err == nil {
 		t.Fatal("wrote deletion as the initial release")
 	}

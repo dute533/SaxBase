@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
-	"strconv"
 	"strings"
 
 	"saxbase/internal/migrations"
@@ -17,8 +15,8 @@ import (
 )
 
 func runRelease(ctx context.Context, args []string, filename, dir, migrationDir string, out io.Writer) error {
-	if !(((len(args) == 1 || len(args) == 2) && args[0] == "create") || (len(args) == 1 && args[0] == "validate")) {
-		return withNext(errors.New("expected release create [VERSION] or release validate"), "saxbase release -h")
+	if !((len(args) == 2 && args[0] == "create") || (len(args) == 1 && args[0] == "validate")) {
+		return withNext(errors.New("expected release create VERSION or release validate"), "saxbase release -h")
 	}
 	if filename == "" {
 		filename = "database/release.json"
@@ -41,26 +39,12 @@ func runRelease(ctx context.Context, args []string, filename, dir, migrationDir 
 		}
 		return writeNext(out, "saxbase plan")
 	}
-	inferred := len(args) == 1
-	var inference string
-	var migrationVersion int64
-	if inferred {
-		version, target, reason, err := inferReleaseVersion(filename, migrationDir)
-		if err != nil {
-			return err
-		}
-		args = append(args, version)
-		migrationVersion = target
-		inference = reason
-	} else {
-		if err := releaseversion.Validate(args[1]); err != nil {
-			return withNext(err, "saxbase release create -h")
-		}
-		var err error
-		migrationVersion, err = inferMigrationVersion(filename, migrationDir, args[1])
-		if err != nil {
-			return err
-		}
+	if err := releaseversion.Validate(args[1]); err != nil {
+		return withNext(err, "saxbase release create -h")
+	}
+	migrationVersion, err := inferMigrationVersion(filename, migrationDir, args[1])
+	if err != nil {
+		return err
 	}
 	changed, err := releases.UncommittedFiles(ctx, dir)
 	if err != nil {
@@ -128,10 +112,6 @@ func runRelease(ctx context.Context, args []string, filename, dir, migrationDir 
 				m, err = releases.NewDelta(args[1], migrationVersion, files, previous)
 			}
 			if err == nil && sameVersion {
-				// Preserve legacy fingerprints while refreshing a legacy release.
-				if latest.MigrationVersion == nil {
-					m.MigrationVersion = nil
-				}
 				err = releases.ReplaceLatest(filename, m)
 				if err == nil {
 					_, err = fmt.Fprintf(out, "Updated release %s: %s\n", m.Version, filename)
@@ -149,11 +129,6 @@ func runRelease(ctx context.Context, args []string, filename, dir, migrationDir 
 		if err != nil {
 			return err
 		}
-		if inferred {
-			if _, err := fmt.Fprintf(out, "Creating release %s %s.\n", args[1], inference); err != nil {
-				return err
-			}
-		}
 		if err := releases.Append(filename, m); err != nil {
 			return err
 		}
@@ -165,42 +140,6 @@ func runRelease(ctx context.Context, args []string, filename, dir, migrationDir 
 	return errors.New("unsupported local release command")
 }
 
-func inferReleaseVersion(filename, migrationDir string) (string, int64, string, error) {
-	versions, err := availableMigrationVersions(migrationDir)
-	if err != nil {
-		return "", 0, "", err
-	}
-	history, err := releases.LoadAll(filename)
-	if errors.Is(err, os.ErrNotExist) {
-		if len(versions) > 0 {
-			version := versions[0]
-			return strconv.FormatInt(version, 10), version, fmt.Sprintf("because migration %d is pending", version), nil
-		}
-		return "0", 0, "for committed object changes", nil
-	}
-	if err != nil {
-		return "", 0, "", err
-	}
-	latest := history[len(history)-1]
-	latestMigration, err := latest.TargetMigration()
-	if err != nil {
-		return "", 0, "", err
-	}
-	legacy, err := releaseversion.ParseLegacy(latest.Version)
-	if err != nil || legacy.Schema != latestMigration {
-		return "", 0, "", withNext(fmt.Errorf("cannot infer a semantic version after release %s", latest.Version), "saxbase release create VERSION")
-	}
-	for _, version := range versions {
-		if version > latestMigration {
-			return strconv.FormatInt(version, 10), version, fmt.Sprintf("because migration %d is pending", version), nil
-		}
-	}
-	if legacy.Revision == math.MaxInt64 {
-		return "", 0, "", errors.New("cannot create another revision after the maximum release revision")
-	}
-	return fmt.Sprintf("%d.%d", latestMigration, legacy.Revision+1), latestMigration, "for committed object changes", nil
-}
-
 func inferMigrationVersion(filename, migrationDir, requestedVersion string) (int64, error) {
 	versions, err := availableMigrationVersions(migrationDir)
 	if err != nil {
@@ -208,9 +147,6 @@ func inferMigrationVersion(filename, migrationDir, requestedVersion string) (int
 	}
 	history, err := releases.LoadAll(filename)
 	if errors.Is(err, os.ErrNotExist) {
-		if legacy, legacyErr := releaseversion.ParseLegacy(requestedVersion); legacyErr == nil {
-			return legacy.Schema, nil
-		}
 		if len(versions) > 0 {
 			return versions[0], nil
 		}
@@ -226,9 +162,6 @@ func inferMigrationVersion(filename, migrationDir, requestedVersion string) (int
 	}
 	if requestedVersion == latest.Version {
 		return current, nil
-	}
-	if legacy, legacyErr := releaseversion.ParseLegacy(requestedVersion); legacyErr == nil {
-		return legacy.Schema, nil
 	}
 	for _, version := range versions {
 		if version > current {

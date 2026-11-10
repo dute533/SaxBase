@@ -68,7 +68,7 @@ func TestReleaseCreateAppendsReleaseHistory(t *testing.T) {
 	}
 	manifest := filepath.Join(root, "release.json")
 	args := []string{"-dir", migrationDir, "-objects-dir", dir, "-manifest", manifest, "release", "create"}
-	if err := run(context.Background(), append(append([]string{}, args...), "1"), env(nil), &bytes.Buffer{}, nil, nil); err != nil {
+	if err := run(context.Background(), append(append([]string{}, args...), "1.0.0"), env(nil), &bytes.Buffer{}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 2;"), 0600); err != nil {
@@ -82,24 +82,24 @@ func TestReleaseCreateAppendsReleaseHistory(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git commit: %v %s", err, out)
 	}
-	if err := run(context.Background(), append([]string{}, args...), env(nil), &bytes.Buffer{}, nil, nil); err != nil {
+	if err := run(context.Background(), append(append([]string{}, args...), "1.1.0"), env(nil), &bytes.Buffer{}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	m, err := releases.Load(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.Version != "2" {
-		t.Fatalf("manifest version = %q, want 2", m.Version)
+	if m.Version != "1.1.0" {
+		t.Fatalf("manifest version = %q, want 1.1.0", m.Version)
 	}
 	history, err := releases.LoadAll(manifest)
-	if err != nil || len(history) != 2 || history[0].Version != "1" || history[1].Version != "2" {
+	if err != nil || len(history) != 2 || history[0].Version != "1.0.0" || history[1].Version != "1.1.0" {
 		t.Fatalf("history=%+v err=%v", history, err)
 	}
 	if len(history[1].Objects) != 1 {
-		t.Fatalf("release 2=%+v", history[1])
+		t.Fatalf("release 1.1.0=%+v", history[1])
 	}
-	oldFiles, err := releases.ResolveStateVersion(context.Background(), manifest, dir, "1")
+	oldFiles, err := releases.ResolveStateVersion(context.Background(), manifest, dir, "1.0.0")
 	if err != nil || len(oldFiles) != 1 || oldFiles[0].SQL != "SELECT 1;" {
 		t.Fatalf("release 1 state=%+v err=%v", oldFiles, err)
 	}
@@ -120,11 +120,11 @@ func TestReleaseCreateAppendsReleaseHistory(t *testing.T) {
 		t.Fatalf("git commit: %v %s", err, out)
 	}
 	var out bytes.Buffer
-	if err := run(context.Background(), append(append([]string{}, args...), "2"), env(nil), &out, nil, nil); err != nil || !strings.Contains(out.String(), "Updated release 2") {
+	if err := run(context.Background(), append(append([]string{}, args...), "1.1.0"), env(nil), &out, nil, nil); err != nil || !strings.Contains(out.String(), "Updated release 1.1.0") {
 		t.Fatalf("refresh release: %v %s", err, out.String())
 	}
 	history, err = releases.LoadAll(manifest)
-	if err != nil || len(history) != 2 || history[0].Version != "1" || history[1].Version != "2" {
+	if err != nil || len(history) != 2 || history[0].Version != "1.0.0" || history[1].Version != "1.1.0" {
 		t.Fatalf("refreshed history=%+v err=%v", history, err)
 	}
 	currentFiles, err = releases.ResolveState(context.Background(), manifest, dir)
@@ -132,14 +132,14 @@ func TestReleaseCreateAppendsReleaseHistory(t *testing.T) {
 		t.Fatalf("refreshed state=%+v err=%v", currentFiles, err)
 	}
 	var noChange bytes.Buffer
-	if err := run(context.Background(), append([]string{}, args...), env(nil), &noChange, nil, nil); err != nil || !strings.Contains(noChange.String(), "No committed object changes found") {
+	if err := run(context.Background(), append(append([]string{}, args...), "1.1.0"), env(nil), &noChange, nil, nil); err != nil || !strings.Contains(noChange.String(), "No committed object changes found") {
 		t.Fatalf("no-change release: %v %s", err, noChange.String())
 	}
 	history, err = releases.LoadAll(manifest)
 	if err != nil || len(history) != 2 {
 		t.Fatalf("no-change history=%+v err=%v", history, err)
 	}
-	if err := run(context.Background(), append(append([]string{}, args...), "1"), env(nil), &bytes.Buffer{}, nil, nil); err == nil {
+	if err := run(context.Background(), append(append([]string{}, args...), "1.0.0"), env(nil), &bytes.Buffer{}, nil, nil); err == nil {
 		t.Fatal("duplicate release version was accepted")
 	}
 }
@@ -210,8 +210,8 @@ func TestReleaseCreateSemanticVersionsTrackMigrations(t *testing.T) {
 	}
 	args := []string{"-dir", migrationDir, "-objects-dir", objectDir, "-manifest", manifestPath, "release", "create"}
 	err = run(context.Background(), args, env(nil), &bytes.Buffer{}, nil, nil)
-	if err == nil || !strings.Contains(err.Error(), "release create VERSION") {
-		t.Fatalf("semantic version was inferred: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "expected release create VERSION") {
+		t.Fatalf("missing version was accepted: %v", err)
 	}
 }
 

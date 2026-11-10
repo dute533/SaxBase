@@ -189,9 +189,7 @@ changes at the same migration. Release order is the manifest order, not a
 numeric comparison of identifiers. Both the migration target and object delta
 are immutable once the release is recorded in a database.
 
-Legacy manifests without `migration_version` remain supported when their
-version uses `SCHEMA` or `SCHEMA.REVISION`; for example, legacy release `30.1`
-targets migration `30`. Newly created entries always write an explicit target.
+Every manifest entry requires `migration_version`.
 
 The normal release workflow is:
 
@@ -207,12 +205,11 @@ git commit -m "Update database objects"
 `release validate` only when you want to verify manifest references without a
 database connection.
 
-For an explicit version, `release create` targets the first migration above the
+`release create VERSION` targets the first migration above the
 latest release, or reuses the latest target when no migration is pending. This
-makes an object-only SemVer patch release straightforward. Version inference is
-retained for legacy numeric histories; after a semantic version, supply the next
-version explicitly. If both the target migration and committed object state are
-unchanged, SaxBase reports no action and does not add an empty release.
+makes an object-only SemVer patch release straightforward. If both the target
+migration and committed object state are unchanged, SaxBase reports no action
+and does not add an empty release.
 
 By default, `database/release.json` is a newest-first release history. Creating
 a new release prepends a delta from the latest version while preserving all
@@ -276,8 +273,7 @@ SaxBase resolves object state from release manifests. Its
 `migration_version`; new fingerprints bind that target to the object delta.
 Goose stores the migration history used by SaxBase in
 `dbo.saxbase_schema_version`; rollback does not create another
-metadata table. Successful rollback or reconciliation also removes the obsolete
-`dbo.saxbase_rollbacks` table left by older SaxBase versions.
+metadata table.
 
 ## Development
 

@@ -26,7 +26,7 @@ func (g *rollbackGoose) DownTo(_ context.Context, target int64) error {
 }
 
 func snapshot(version string, migrationVersion int64, delta []File, state ...File) Snapshot {
-	result := Snapshot{Release: Release{Version: version, MigrationVersion: migrationVersion, Fingerprint: Fingerprint(delta)}}
+	result := Snapshot{Release: Release{Version: version, MigrationVersion: migrationVersion, Fingerprint: ReleaseFingerprint(migrationVersion, delta)}}
 	for _, file := range state {
 		result.Objects = append(result.Objects, SnapshotObject{Path: file.Path, SQL: file.SQL, Checksum: file.Checksum})
 	}
