@@ -1,143 +1,102 @@
 # SaxBase
 
-SaxBase deploys SQL Server schema migrations and versioned views, procedures, and
-functions from one release manifest. Goose manages structural migrations; SaxBase
-applies object definitions in the manifest’s order.
+SaxBase deploys SQL Server migrations and versioned views, procedures, and
+functions as one release. Goose manages structural migrations; SaxBase applies
+complete object definitions in dependency order.
 
-## Quick start
+Use migrations for tables and data changes. Use object definitions for views,
+procedures, and functions.
+
+## Install
+
+Download a binary from [GitHub Releases](https://github.com/dute533/SaxBase/releases),
+or build from source:
 
 ```sh
 go build -o saxbase .
+```
+
+Copy the configuration templates and provide a SQL Server connection string:
+
+```sh
 cp saxbase.yaml.example saxbase.yaml
 cp .env.example .env
 ```
 
-Put connection variables in `.env` (or export `GOOSE_DBSTRING`). Defaults are:
+SaxBase expects this layout by default:
 
 ```text
-database/migrations/
-database/objects/
-database/release.json
+database/
+  migrations/       # Goose SQL migrations
+  objects/          # Complete view, procedure, and function definitions
+  release.json      # Release history
 ```
 
-Use the native form
-`sqlserver://USER:PASSWORD@HOST:PORT?database=DATABASE`. JDBC connection strings
-are rejected because the SQL Server Go driver does not interpret
-`databaseName`, which can otherwise cause a connection to the login's default
-database.
+## Create and deploy a release
 
-Preview and apply the release:
-
-```sh
-./saxbase plan
-./saxbase apply
-./saxbase status
-```
-
-`plan` shows the next entry and, when needed, the full pending release chain.
-The whole-number portion of a release selects its database schema migration, so
-release `2.1` uses schema `2`. `apply` advances through every pending manifest
-entry in order, applies schema migrations and changed objects, and records each
-release as a separate deployment step. Use `-target NAME` for a configured
-target and `-yes` for unattended protected deployments.
-
-## Create a release
-
-Create a sequential Goose SQL migration without installing the Goose CLI:
+Create a migration when the database structure or data must change:
 
 ```sh
 ./saxbase migration create "Add customer email"
 ```
 
-Edit the generated migration file, including both its Up and Down sections.
-SaxBase normalizes spaces, punctuation, and capitalization to a safe snake_case
-filename, chooses the next available five-digit migration number, and respects
-`-dir` when migrations live elsewhere.
-
-Commit object SQL, create a manifest, review its order, then apply it:
+Edit its Up and Down sections, then add or update complete SQL definitions under
+`database/objects`. Commit object files before creating the release so SaxBase
+can pin them to Git for reproducible rollback:
 
 ```sh
-git add database/objects
-git commit -m "Update database objects"
+git add database/migrations database/objects
+git commit -m "Add customer email"
+
 ./saxbase release create
+git add database/release.json
+git commit -m "Create database release"
+
 ./saxbase plan
 ./saxbase apply
+./saxbase status
 ```
 
-The default `database/release.json` is a release history with the newest release
-at the top. SaxBase selects the first migration above the latest release schema,
-or increments the object revision when no migration is pending. Pass a version
-explicitly to override that choice. Creating a newer release prepends it as a
-delta from the previous latest release. Older releases remain available in the
-same file for rollback.
+`release create` infers the next version. The whole-number portion selects the
+migration version, while the decimal portion represents another object state at
+the same schema version: release `2.1` uses database schema `2`.
 
-When no schema migration or committed object change exists, `release create`
-reports that the current release already represents the object state and does
-not add an empty revision.
-
-Each object entry contains a path and either a full Git commit hash or `latest`.
-Full hashes make releases reproducible. `latest` reads the working tree and is
-useful for an initial release in tests or projects without Git; adding another
-release requires Git-backed references so previous contents remain available.
-
-For a later object revision, run `release create` again. SaxBase compares the
-working tree with the latest resolved state and adds only the changes at the top:
-
-```sh
-./saxbase release create
-./saxbase plan
-./saxbase apply
-```
-
-Move entries in the manifest to put dependencies before their consumers. A release
-recorded in a database is immutable; use a new revision when SQL, paths, or order
-changes after deployment. Before deployment, rerun `release create` with the
-newest version to refresh that entry while leaving older releases unchanged.
-
-For an intentionally mutable development database, force the refreshed release:
-
-```sh
-./saxbase release create 30.1
-./saxbase -f apply
-```
-
-Force apply re-executes every object entry in the selected release and replaces
-its recorded fingerprint. It does not infer operations removed from the old
-release entry; ensuring that the refreshed delta produces the intended database
-state is the user's responsibility. Do not use force for shared or production
-databases.
+`plan` previews every pending migration and object change. `apply` deploys all
+pending releases in order. Use `-target NAME` to select a configured database.
 
 ## Rollback
 
-Roll back directly to any earlier version in the manifest history:
+Restore the preceding release:
 
 ```sh
 ./saxbase rollback
 ```
 
-Without a version, rollback restores the immediately preceding recorded
-release. Pass an older version to traverse multiple releases in one command.
+Pass a version to traverse back through multiple releases:
 
-Rollback walks the manifest history one release at a time, restoring historical
-objects and running the required Goose Down migrations. Each completed release
-is a durable checkpoint, so retry the same command after repairing a failed Down
-migration or object definition.
+```sh
+./saxbase rollback 2.1
+```
+
+SaxBase restores historical object definitions and runs the required Goose Down
+migrations one release at a time.
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `plan` | Preview migrations and objects |
-| `apply` | Apply a manifest release |
-| `status` | Show migration, release, and object state |
-| `rollback [VERSION]` | Restore the previous or a specified recorded release |
-| `migration create NAME` | Create a sequential Goose SQL migration |
-| `release create/validate` | Manage manifests |
+| `plan` | Preview pending migrations and objects |
+| `apply` | Apply every pending release |
+| `status` | Show schema, release, and object state |
+| `rollback [VERSION]` | Restore the previous or specified release |
+| `migration create NAME` | Create a sequential Goose migration |
+| `release create` | Create or refresh a release manifest entry |
+| `release validate` | Validate manifest object references |
 
-Run `./saxbase -h` for the complete option list.
-
-See the [SQL Server example](examples/sqlserver/README.md) and the
-[full reference](docs/reference.md).
+Run `./saxbase -h` for all options. See the
+[working SQL Server example](examples/sqlserver/README.md) and
+[full reference](docs/reference.md) for configuration, manifest behavior,
+development force-apply, and failure recovery.
 
 ## Development
 

@@ -1,6 +1,6 @@
 # SQL Server example
 
-This example uses SaxBase’s default layout:
+This example uses SaxBase's default layout:
 
 ```text
 database/
@@ -14,8 +14,8 @@ database/
   release.json
 ```
 
-The migrations create `dbo.customers`; the objects define a view, procedure, and
-function that use that table. Each object is a complete `CREATE OR ALTER` definition.
+The migrations create `dbo.customers`. The object files contain complete view,
+procedure, and function definitions that use it.
 
 ## Run it
 
@@ -24,11 +24,10 @@ From the repository root:
 ```sh
 go build -o saxbase .
 cd examples/sqlserver
-export GOOSE_DRIVER=mssql
 export GOOSE_DBSTRING='sqlserver://USER:PASSWORD@localhost:1433?database=SaxBaseExample'
 ```
 
-Create the database, then preview and apply the checked-in release:
+Create the database, then deploy the checked-in release:
 
 ```sql
 CREATE DATABASE SaxBaseExample;
@@ -49,57 +48,35 @@ EXEC dbo.saxbase_get_value;
 SELECT dbo.saxbase_function();
 ```
 
-## Change an object
+## Create another release
 
-Edit `database/objects/views/value.sql`, then inspect the change:
-
-```sh
-../../saxbase status
-../../saxbase apply
-```
-
-To record the change as release `2.1`, commit the SQL and add a delta at the top
-of the manifest:
+For an object-only release, edit an object definition and commit it before
+creating the manifest entry:
 
 ```sh
 git add database/objects
 git commit -m "Update example objects"
-../../saxbase release create 2.1
+../../saxbase release create
 ../../saxbase plan
 ../../saxbase apply
 ```
 
-## Roll back
-
-Restore release `2` from the manifest history:
-
-```sh
-../../saxbase rollback 2
-```
-
-Rollback resolves the target objects from their historical Git commits. Keep the
-manifest and referenced commits available.
-
-## Add a migration
-
-Create the next sequential Goose SQL migration through SaxBase:
+For a structural release, create and edit the next migration first:
 
 ```sh
 ../../saxbase migration create add_customer_email
 ```
 
-Edit the generated file, commit it, and create a release whose schema component
-matches the migration version before running `plan` and `apply`.
+Then commit the database files and repeat `release create`, `plan`, and `apply`.
 
-## Verify locally
+## Roll back
 
-From the repository root, run the disposable SQL Server integration test:
+Restore the preceding release, or specify an older version:
 
 ```sh
-bash scripts/test-integration.sh
+../../saxbase rollback
+../../saxbase rollback 2
 ```
-
-The test uses a temporary database and does not modify these example files.
 
 See the [manifest ordering example](ordering/README.md) and the
 [full reference](../../docs/reference.md).

@@ -1,7 +1,7 @@
 # Manifest dependency order
 
-`a_dependent.sql` reads from the view in `z_base.sql`. The manifest must therefore
-list `z_base.sql` first, even though its filename sorts later.
+`a_dependent.sql` uses the view defined in `z_base.sql`, so the manifest must
+list `z_base.sql` first. Filenames do not determine deployment order.
 
 From `examples/sqlserver`, copy the objects and create a release:
 
@@ -12,9 +12,8 @@ git commit -m "Add ordered example objects"
 ../../saxbase -manifest database/ordered-release.json release create 2
 ```
 
-Edit `database/ordered-release.json` and move the `z_base.sql` entry before
-`a_dependent.sql`. The array order is the deployment order; no extra order field is
-needed.
+Move the `z_base.sql` entry before `a_dependent.sql` in
+`database/ordered-release.json`, then deploy it:
 
 ```sh
 ../../saxbase -manifest database/ordered-release.json plan
