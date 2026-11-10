@@ -154,7 +154,7 @@ func CommittedFiles(ctx context.Context, dir string) ([]objects.File, error) {
 		for i := range files {
 			files[i].Commit = "latest"
 		}
-		m, manifestErr := New("0", files)
+		m, manifestErr := New("0", 0, files)
 		if manifestErr != nil {
 			return nil, manifestErr
 		}
@@ -183,7 +183,7 @@ func CommittedFiles(ctx context.Context, dir string) ([]objects.File, error) {
 		}
 		files[i].Commit = strings.TrimSpace(string(commit))
 	}
-	m, err := New("0", files)
+	m, err := New("0", 0, files)
 	if err != nil {
 		return nil, fmt.Errorf("commit SQL files before creating a release: %w", err)
 	}

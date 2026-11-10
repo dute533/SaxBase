@@ -20,32 +20,57 @@ import (
 
 var commitPattern = regexp.MustCompile(`^(latest|[0-9a-f]{40}|[0-9a-f]{64})$`)
 
-type Version = releaseversion.Version
-
-func ParseVersion(value string) (Version, error) {
-	return releaseversion.Parse(value)
-}
-
 type Object struct {
 	Path   string `json:"path"`
 	Commit string `json:"commit"`
 	Delete bool   `json:"delete,omitempty"`
 }
 type Manifest struct {
-	Version string   `json:"version"`
-	Objects []Object `json:"objects"`
+	Version          string   `json:"version"`
+	MigrationVersion *int64   `json:"migration_version,omitempty"`
+	Objects          []Object `json:"objects"`
 }
 
 type manifestDocument struct {
 	Releases []Manifest `json:"releases"`
 }
 
-func New(version string, files []objects.File) (Manifest, error) {
-	m := Manifest{Version: version, Objects: make([]Object, 0, len(files))}
+func New(version string, migrationVersion int64, files []objects.File) (Manifest, error) {
+	m := Manifest{Version: version, MigrationVersion: int64Pointer(migrationVersion), Objects: make([]Object, 0, len(files))}
 	for _, file := range files {
 		m.Objects = append(m.Objects, Object{Path: file.Path, Commit: file.Commit})
 	}
 	return m, m.Validate(files)
+}
+
+func int64Pointer(value int64) *int64 { return &value }
+
+// TargetMigration returns the Goose version represented by this release.
+// Legacy manifests derive it from SCHEMA[.REVISION].
+func (m Manifest) TargetMigration() (int64, error) {
+	if m.MigrationVersion != nil {
+		if *m.MigrationVersion < 0 {
+			return 0, fmt.Errorf("release %s has negative migration_version", m.Version)
+		}
+		return *m.MigrationVersion, nil
+	}
+	legacy, err := releaseversion.ParseLegacy(m.Version)
+	if err != nil {
+		return 0, fmt.Errorf("release %s requires migration_version", m.Version)
+	}
+	return legacy.Schema, nil
+}
+
+func (m Manifest) explicitMigrationVersion() bool { return m.MigrationVersion != nil }
+
+// Fingerprint binds explicit migration targets into new-format releases while
+// preserving fingerprints recorded from legacy manifests.
+func (m Manifest) Fingerprint(files []objects.File) string {
+	if !m.explicitMigrationVersion() {
+		return objects.Fingerprint(files)
+	}
+	migrationVersion, _ := m.TargetMigration()
+	return objects.ReleaseFingerprint(migrationVersion, files)
 }
 
 func Load(filename string) (Manifest, error) {
@@ -122,7 +147,7 @@ func decodeExactly(data []byte, value any) error {
 
 func validateHistory(releases []Manifest) error {
 	seen := make(map[string]bool, len(releases))
-	var previous Version
+	var previousMigration int64
 	for i, m := range releases {
 		if err := m.check(); err != nil {
 			return err
@@ -138,18 +163,20 @@ func validateHistory(releases []Manifest) error {
 			return fmt.Errorf("duplicate release version %q", m.Version)
 		}
 		seen[m.Version] = true
-		version, _ := ParseVersion(m.Version)
-		if i > 0 && (version.Schema < previous.Schema ||
-			(version.Schema == previous.Schema && version.Revision <= previous.Revision)) {
-			return fmt.Errorf("release versions must be strictly increasing: %s follows %s", m.Version, releases[i-1].Version)
+		migrationVersion, _ := m.TargetMigration()
+		if i > 0 && migrationVersion < previousMigration {
+			return fmt.Errorf("release %s targets migration %d below preceding release %s at migration %d", m.Version, migrationVersion, releases[i-1].Version, previousMigration)
 		}
-		previous = version
+		previousMigration = migrationVersion
 	}
 	return nil
 }
 
 func (m Manifest) check() error {
-	if _, err := ParseVersion(m.Version); err != nil {
+	if err := releaseversion.Validate(m.Version); err != nil {
+		return err
+	}
+	if _, err := m.TargetMigration(); err != nil {
 		return err
 	}
 	if m.Objects == nil {
@@ -234,14 +261,10 @@ func Append(filename string, m Manifest) error {
 	if err := validateHistory(releases); err != nil {
 		return err
 	}
-	previous := releases[len(releases)-1]
-	previousVersion, _ := ParseVersion(previous.Version)
-	newVersion, _ := ParseVersion(m.Version)
-	if newVersion.Schema < previousVersion.Schema ||
-		(newVersion.Schema == previousVersion.Schema && newVersion.Revision <= previousVersion.Revision) {
-		return fmt.Errorf("release %s must be newer than existing release %s", m.Version, previous.Version)
-	}
 	releases = append(releases, m)
+	if err := validateHistory(releases); err != nil {
+		return err
+	}
 	data, err := marshalHistory(releases)
 	if err != nil {
 		return err
@@ -319,12 +342,12 @@ func (m Manifest) OrderedFiles(files []objects.File) ([]objects.File, error) {
 // NewDelta creates a release containing only objects whose committed
 // definitions differ from the preceding state. Removed objects retain their last
 // commit so SaxBase can identify and drop the database object during apply.
-func NewDelta(version string, current, previous []objects.File) (Manifest, error) {
+func NewDelta(version string, migrationVersion int64, current, previous []objects.File) (Manifest, error) {
 	old := make(map[string]objects.File, len(previous))
 	for _, file := range previous {
 		old[file.Path] = file
 	}
-	m := Manifest{Version: version, Objects: make([]Object, 0)}
+	m := Manifest{Version: version, MigrationVersion: int64Pointer(migrationVersion), Objects: make([]Object, 0)}
 	for _, file := range current {
 		before, ok := old[file.Path]
 		if !ok || before.Commit != file.Commit || before.Checksum != file.Checksum {

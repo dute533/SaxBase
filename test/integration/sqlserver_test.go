@@ -99,7 +99,7 @@ func integrationDatabase(t *testing.T) (context.Context, *sql.DB, string, func(.
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := releases.New("2", files)
+	manifest, err := releases.New("2", 2, files)
 	if err != nil {
 		t.Fatal(err)
 	}

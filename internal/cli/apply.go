@@ -55,11 +55,12 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 	changed := false
 	for i, selected := range pending {
 		manifest, files := selected.manifest, selected.files
-		version, parseErr := releases.ParseVersion(manifest.Version)
-		if parseErr != nil {
-			return parseErr
+		migrationVersion, migrationErr := manifest.TargetMigration()
+		if migrationErr != nil {
+			return migrationErr
 		}
-		rows, applyErr := db.Apply(ctx, files, baseline, manifest.Version, force, goose, func(ctx context.Context) error {
+		release := objects.Release{Version: manifest.Version, MigrationVersion: migrationVersion, Fingerprint: manifest.Fingerprint(files)}
+		rows, applyErr := db.Apply(ctx, files, baseline, release, force, goose, func(ctx context.Context) error {
 			plan, planErr := releases.BuildPlan(ctx, manifest, selected.delta, force, files, baseline, goose, db)
 			if planErr != nil {
 				return planErr
@@ -84,7 +85,7 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 		}
 		alreadyApplied := !force && current == manifest.Version
 		if alreadyApplied {
-			fmt.Fprintf(w, "Release %s is already applied.\nDatabase schema %d is current.\nNo object changes required.\n", manifest.Version, version.Schema)
+			fmt.Fprintf(w, "Release %s is already applied.\nDatabase schema %d is current.\nNo object changes required.\n", manifest.Version, migrationVersion)
 			current = manifest.Version
 			baseline = selected.state
 			continue
@@ -94,7 +95,7 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 			action = "Force-applied"
 		}
 		changed = true
-		fmt.Fprintf(w, "%s release %s (database schema %d)\nSTATE\tFILE\tSHA256\n", action, manifest.Version, version.Schema)
+		fmt.Fprintf(w, "%s release %s (database schema %d)\nSTATE\tFILE\tSHA256\n", action, manifest.Version, migrationVersion)
 		for _, row := range rows {
 			fmt.Fprintf(w, "%s\t%s\t%s\n", displayState(row.State), row.Path, row.Checksum)
 		}

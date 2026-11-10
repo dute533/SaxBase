@@ -9,7 +9,6 @@ import (
 
 	"saxbase/internal/deploymentlock"
 	"saxbase/internal/migrations"
-	"saxbase/internal/releaseversion"
 )
 
 // Rollback describes one completed transition between adjacent releases.
@@ -54,10 +53,6 @@ func (s *store) Reconciled(ctx context.Context, target Snapshot) (bool, error) {
 // before Goose or object restoration finished. Repeating it is safe: Goose
 // resumes from its recorded version and CREATE OR ALTER restores target state.
 func (s *store) Reconcile(ctx context.Context, target Snapshot, goose migrations.Engine) (err error) {
-	version, err := releaseversion.Parse(target.Version)
-	if err != nil {
-		return err
-	}
 	targetFiles, _, err := snapshotFiles(target)
 	if err != nil {
 		return err
@@ -81,19 +76,19 @@ func (s *store) Reconcile(ctx context.Context, target Snapshot, goose migrations
 	if err != nil {
 		return err
 	}
-	if currentSchema < version.Schema {
+	if currentSchema < target.MigrationVersion {
 		return fmt.Errorf("Goose version %d is below current release %s", currentSchema, target.Version)
 	}
-	if currentSchema > version.Schema {
-		if err := goose.ValidateDownTo(ctx, version.Schema); err != nil {
+	if currentSchema > target.MigrationVersion {
+		if err := goose.ValidateDownTo(ctx, target.MigrationVersion); err != nil {
 			return fmt.Errorf("rollback preflight: %w", err)
 		}
-		if err := goose.DownTo(ctx, version.Schema); err != nil {
+		if err := goose.DownTo(ctx, target.MigrationVersion); err != nil {
 			return fmt.Errorf("Goose rollback may be partially applied; repair the migration and retry rollback %s: %w", target.Version, err)
 		}
 	}
 	if err := rollbackTransaction(ctx, conn, func(tx *sql.Tx) error {
-		if err := checkReleaseSchema(ctx, tx, version.Schema); err != nil {
+		if err := checkReleaseSchema(ctx, tx, target.MigrationVersion); err != nil {
 			return err
 		}
 		if err := restoreFiles(ctx, tx, targetFiles); err != nil {
@@ -114,16 +109,8 @@ func (s *store) Reconcile(ctx context.Context, target Snapshot, goose migrations
 // a durable checkpoint.
 func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose migrations.Engine) (result Rollback, err error) {
 	result = Rollback{SourceVersion: source.Version, TargetVersion: target.Version}
-	targetNumber, err := releaseversion.Parse(target.Version)
-	if err != nil {
-		return result, err
-	}
-	sourceNumber, err := releaseversion.Parse(source.Version)
-	if err != nil {
-		return result, err
-	}
-	if releaseversion.Compare(targetNumber, sourceNumber) >= 0 {
-		return result, errors.New("rollback target must be older than the current release")
+	if target.MigrationVersion > source.MigrationVersion {
+		return result, errors.New("rollback target migration must not be newer than the current release")
 	}
 	targetFiles, targetIDs, err := snapshotFiles(target)
 	if err != nil {
@@ -166,11 +153,11 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 	if err != nil {
 		return result, err
 	}
-	if currentSchema != sourceNumber.Schema {
+	if currentSchema != source.MigrationVersion {
 		return result, fmt.Errorf("Goose version %d does not match current release %s", currentSchema, source.Version)
 	}
-	if sourceNumber.Schema != targetNumber.Schema {
-		if err := goose.ValidateDownTo(ctx, targetNumber.Schema); err != nil {
+	if source.MigrationVersion != target.MigrationVersion {
+		if err := goose.ValidateDownTo(ctx, target.MigrationVersion); err != nil {
 			return result, fmt.Errorf("rollback preflight: %w", err)
 		}
 	}
@@ -185,7 +172,7 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 		}
 		return nil
 	}
-	if sourceNumber.Schema != targetNumber.Schema {
+	if source.MigrationVersion != target.MigrationVersion {
 		// The target pointer and blocker removal commit together. A crash before
 		// this transaction leaves the source intact; a crash after it is visible
 		// as target release + source Goose version.
@@ -197,12 +184,12 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 		}); err != nil {
 			return result, fmt.Errorf("prepare rollback to %s: %w", target.Version, err)
 		}
-		if err := goose.DownTo(ctx, targetNumber.Schema); err != nil {
+		if err := goose.DownTo(ctx, target.MigrationVersion); err != nil {
 			return result, fmt.Errorf("Goose rollback may be partially applied; repair the migration and retry rollback %s: %w", target.Version, err)
 		}
 	}
 	if err := rollbackTransaction(ctx, conn, func(tx *sql.Tx) error {
-		if err := checkReleaseSchema(ctx, tx, targetNumber.Schema); err != nil {
+		if err := checkReleaseSchema(ctx, tx, target.MigrationVersion); err != nil {
 			return err
 		}
 		if err := restoreFiles(ctx, tx, targetFiles); err != nil {

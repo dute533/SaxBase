@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"unicode/utf8"
 
 	"saxbase/internal/migrations"
@@ -54,20 +53,22 @@ const releaseTables = `IF OBJECT_ID(N'dbo.saxbase_releases', N'U') IS NULL
  END;`
 
 func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, files []File, force bool) (bool, error) {
-	requestedVersion, err := releaseversion.Parse(release.Version)
-	if err != nil {
+	if err := releaseversion.Validate(release.Version); err != nil {
 		return false, err
 	}
 	if _, err := tx.ExecContext(ctx, releaseTables); err != nil {
 		return false, fmt.Errorf("initialize release history: %w", err)
 	}
 	var fingerprint string
-	err = tx.QueryRowContext(ctx, "SELECT fingerprint FROM dbo.saxbase_releases WHERE version=@version", sql.Named("version", release.Version)).Scan(&fingerprint)
+	err := tx.QueryRowContext(ctx, "SELECT fingerprint FROM dbo.saxbase_releases WHERE version=@version", sql.Named("version", release.Version)).Scan(&fingerprint)
 	exists := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, err
 	}
-	requestedFingerprint := Fingerprint(files)
+	requestedFingerprint := release.Fingerprint
+	if requestedFingerprint == "" {
+		requestedFingerprint = Fingerprint(files)
+	}
 	if exists && fingerprint != requestedFingerprint {
 		if !force {
 			return false, fmt.Errorf("release %s is immutable; use a new release version or force a development rewrite", release.Version)
@@ -80,32 +81,6 @@ func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, files []Fi
 		return false, nil
 	}
 
-	rows, err := tx.QueryContext(ctx, "SELECT version FROM dbo.saxbase_releases")
-	if err != nil {
-		return false, err
-	}
-	defer rows.Close()
-	var latest string
-	var latestVersion releaseversion.Version
-	for rows.Next() {
-		var value string
-		if err := rows.Scan(&value); err != nil {
-			return false, err
-		}
-		parsed, err := releaseversion.Parse(value)
-		if err != nil {
-			return false, fmt.Errorf("invalid recorded release version: %w", err)
-		}
-		if latest == "" || releaseversion.Compare(parsed, latestVersion) > 0 {
-			latest, latestVersion = value, parsed
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return false, err
-	}
-	if latest != "" && releaseversion.Compare(requestedVersion, latestVersion) < 0 {
-		return false, fmt.Errorf("release %s is older than the latest recorded release %s; use rollback %s", release.Version, latest, release.Version)
-	}
 	if _, err := tx.ExecContext(ctx, "INSERT INTO dbo.saxbase_releases(version,fingerprint) VALUES(@version,@fingerprint)", sql.Named("version", release.Version), sql.Named("fingerprint", requestedFingerprint)); err != nil {
 		return false, fmt.Errorf("record release: %w", err)
 	}
@@ -137,6 +112,17 @@ func Fingerprint(files []File) string {
 	return fmt.Sprintf("%x", sha256.Sum256(data))
 }
 
+// ReleaseFingerprint binds a target Goose migration to the ordered object
+// operations so neither part of an applied release can be rewritten silently.
+func ReleaseFingerprint(migrationVersion int64, files []File) string {
+	type releaseIdentity struct {
+		MigrationVersion int64  `json:"migration_version"`
+		Objects          string `json:"objects_sha256"`
+	}
+	data, _ := json.Marshal(releaseIdentity{MigrationVersion: migrationVersion, Objects: Fingerprint(files)})
+	return fmt.Sprintf("%x", sha256.Sum256(data))
+}
+
 func historyExists(ctx context.Context, db reader) (bool, error) {
 	var id sql.NullInt64
 	err := db.QueryRowContext(ctx, "SELECT OBJECT_ID(N'dbo.saxbase_releases', N'U')").Scan(&id)
@@ -144,11 +130,7 @@ func historyExists(ctx context.Context, db reader) (bool, error) {
 }
 
 func (s *store) History(ctx context.Context) ([]Release, error) {
-	type parsedRelease struct {
-		release Release
-		version releaseversion.Version
-	}
-	parsed := make([]parsedRelease, 0)
+	var result []Release
 	exists, err := historyExists(ctx, s.db)
 	if err != nil || !exists {
 		return []Release{}, err
@@ -163,21 +145,13 @@ func (s *store) History(ctx context.Context) ([]Release, error) {
 		if err := rows.Scan(&release.Version); err != nil {
 			return nil, err
 		}
-		version, err := releaseversion.Parse(release.Version)
-		if err != nil {
+		if err := releaseversion.Validate(release.Version); err != nil {
 			return nil, fmt.Errorf("invalid recorded release version: %w", err)
 		}
-		parsed = append(parsed, parsedRelease{release: release, version: version})
+		result = append(result, release)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
-	}
-	sort.Slice(parsed, func(i, j int) bool {
-		return releaseversion.Compare(parsed[i].version, parsed[j].version) > 0
-	})
-	result := make([]Release, len(parsed))
-	for i := range parsed {
-		result[i] = parsed[i].release
 	}
 	return result, nil
 }
@@ -199,7 +173,7 @@ func (s *store) Snapshot(ctx context.Context, version string) (Snapshot, error) 
 	if err != nil {
 		return snapshot, err
 	}
-	if _, err := releaseversion.Parse(snapshot.Version); err != nil {
+	if err := releaseversion.Validate(snapshot.Version); err != nil {
 		return snapshot, fmt.Errorf("invalid recorded release version: %w", err)
 	}
 	snapshot.Fingerprint = fingerprint

@@ -40,9 +40,9 @@ func TestSQLServerManifestOrder(t *testing.T) {
 		var m releases.Manifest
 		previous, resolveErr := releases.ResolveState(context.Background(), path, root)
 		if resolveErr == nil {
-			m, err = releases.NewDelta(version, files, previous)
+			m, err = releases.NewDelta(version, 2, files, previous)
 		} else if os.IsNotExist(resolveErr) {
-			m, err = releases.New(version, files)
+			m, err = releases.New(version, 2, files)
 		} else {
 			t.Fatal(resolveErr)
 		}

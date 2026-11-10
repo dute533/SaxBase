@@ -13,6 +13,7 @@ import (
 	"saxbase/internal/migrations"
 	"saxbase/internal/objects"
 	"saxbase/internal/releases"
+	"saxbase/internal/releaseversion"
 )
 
 func runRelease(ctx context.Context, args []string, filename, dir, migrationDir string, out io.Writer) error {
@@ -31,20 +32,35 @@ func runRelease(ctx context.Context, args []string, filename, dir, migrationDir 
 		if err != nil {
 			return err
 		}
-		if _, err = fmt.Fprintf(out, "Release %s resolves %d referenced object(s)\n", m.Version, len(files)); err != nil {
+		migrationVersion, err := m.TargetMigration()
+		if err != nil {
+			return err
+		}
+		if _, err = fmt.Fprintf(out, "Release %s targets migration %d and resolves %d referenced object(s)\n", m.Version, migrationVersion, len(files)); err != nil {
 			return err
 		}
 		return writeNext(out, "saxbase plan")
 	}
 	inferred := len(args) == 1
 	var inference string
+	var migrationVersion int64
 	if inferred {
-		version, reason, err := inferReleaseVersion(filename, migrationDir)
+		version, target, reason, err := inferReleaseVersion(filename, migrationDir)
 		if err != nil {
 			return err
 		}
 		args = append(args, version)
+		migrationVersion = target
 		inference = reason
+	} else {
+		if err := releaseversion.Validate(args[1]); err != nil {
+			return withNext(err, "saxbase release create -h")
+		}
+		var err error
+		migrationVersion, err = inferMigrationVersion(filename, migrationDir, args[1])
+		if err != nil {
+			return err
+		}
 	}
 	changed, err := releases.UncommittedFiles(ctx, dir)
 	if err != nil {
@@ -69,20 +85,23 @@ func runRelease(ctx context.Context, args []string, filename, dir, migrationDir 
 		switch {
 		case loadErr == nil:
 			latest := history[len(history)-1]
-			requestedVersion, parseErr := releases.ParseVersion(args[1])
-			if parseErr != nil {
-				return withNext(parseErr, "saxbase release create -h")
+			for _, existing := range history[:len(history)-1] {
+				if args[1] == existing.Version {
+					return fmt.Errorf("release version %s already exists", args[1])
+				}
 			}
-			latestVersion, _ := releases.ParseVersion(latest.Version)
-			sameVersion := requestedVersion == latestVersion
-			if requestedVersion.Schema < latestVersion.Schema ||
-				(requestedVersion.Schema == latestVersion.Schema && requestedVersion.Revision < latestVersion.Revision) {
-				return withNext(fmt.Errorf("release %s must be newer than existing release %s", args[1], latest.Version), "saxbase release create")
+			latestMigration, migrationErr := latest.TargetMigration()
+			if migrationErr != nil {
+				return migrationErr
 			}
-			if requestedVersion.Schema == latestVersion.Schema {
+			sameVersion := args[1] == latest.Version
+			if migrationVersion == latestMigration {
 				latestFiles, resolveErr := releases.ResolveStateVersion(ctx, filename, dir, latest.Version)
 				if resolveErr != nil {
 					return fmt.Errorf("resolve latest release: %w", resolveErr)
+				}
+				if !sameVersion && containsLatest(latestFiles) {
+					return withNext(errors.New("cannot add a release after one containing latest references"), "commit the object files and recreate the initial release with Git-backed references")
 				}
 				if objects.Fingerprint(files) == objects.Fingerprint(latestFiles) {
 					if _, err := fmt.Fprintf(out, "Release %s is current.\nNo committed object changes found.\n", latest.Version); err != nil {
@@ -93,7 +112,7 @@ func runRelease(ctx context.Context, args []string, filename, dir, migrationDir 
 			}
 			var previous []objects.File
 			if sameVersion && len(history) == 1 {
-				m, err = releases.New(args[1], files)
+				m, err = releases.New(args[1], migrationVersion, files)
 			} else {
 				previousVersion := latest.Version
 				if sameVersion {
@@ -106,9 +125,13 @@ func runRelease(ctx context.Context, args []string, filename, dir, migrationDir 
 				if containsLatest(previous) {
 					return withNext(errors.New("cannot add a release after one containing latest references"), "commit the object files and recreate the initial release with Git-backed references")
 				}
-				m, err = releases.NewDelta(args[1], files, previous)
+				m, err = releases.NewDelta(args[1], migrationVersion, files, previous)
 			}
 			if err == nil && sameVersion {
+				// Preserve legacy fingerprints while refreshing a legacy release.
+				if latest.MigrationVersion == nil {
+					m.MigrationVersion = nil
+				}
 				err = releases.ReplaceLatest(filename, m)
 				if err == nil {
 					_, err = fmt.Fprintf(out, "Updated release %s: %s\n", m.Version, filename)
@@ -119,7 +142,7 @@ func runRelease(ctx context.Context, args []string, filename, dir, migrationDir 
 				return writeNext(out, "saxbase plan")
 			}
 		case errors.Is(loadErr, os.ErrNotExist):
-			m, err = releases.New(args[1], files)
+			m, err = releases.New(args[1], migrationVersion, files)
 		default:
 			return loadErr
 		}
@@ -134,7 +157,7 @@ func runRelease(ctx context.Context, args []string, filename, dir, migrationDir 
 		if err := releases.Append(filename, m); err != nil {
 			return err
 		}
-		if _, err = fmt.Fprintf(out, "Created release %s: %s\n", m.Version, filename); err != nil {
+		if _, err = fmt.Fprintf(out, "Created release %s at migration %d: %s\n", m.Version, migrationVersion, filename); err != nil {
 			return err
 		}
 		return writeNext(out, "saxbase plan")
@@ -142,35 +165,85 @@ func runRelease(ctx context.Context, args []string, filename, dir, migrationDir 
 	return errors.New("unsupported local release command")
 }
 
-func inferReleaseVersion(filename, migrationDir string) (string, string, error) {
-	versions, err := migrations.Versions(migrationDir)
+func inferReleaseVersion(filename, migrationDir string) (string, int64, string, error) {
+	versions, err := availableMigrationVersions(migrationDir)
 	if err != nil {
-		return "", "", err
+		return "", 0, "", err
 	}
 	history, err := releases.LoadAll(filename)
 	if errors.Is(err, os.ErrNotExist) {
 		if len(versions) > 0 {
 			version := versions[0]
-			return strconv.FormatInt(version, 10), fmt.Sprintf("because migration %d is pending", version), nil
+			return strconv.FormatInt(version, 10), version, fmt.Sprintf("because migration %d is pending", version), nil
 		}
-		return "0", "for committed object changes", nil
+		return "0", 0, "for committed object changes", nil
 	}
 	if err != nil {
-		return "", "", err
+		return "", 0, "", err
 	}
-	latest, err := releases.ParseVersion(history[len(history)-1].Version)
+	latest := history[len(history)-1]
+	latestMigration, err := latest.TargetMigration()
 	if err != nil {
-		return "", "", err
+		return "", 0, "", err
+	}
+	legacy, err := releaseversion.ParseLegacy(latest.Version)
+	if err != nil || legacy.Schema != latestMigration {
+		return "", 0, "", withNext(fmt.Errorf("cannot infer a semantic version after release %s", latest.Version), "saxbase release create VERSION")
 	}
 	for _, version := range versions {
-		if version > latest.Schema {
-			return strconv.FormatInt(version, 10), fmt.Sprintf("because migration %d is pending", version), nil
+		if version > latestMigration {
+			return strconv.FormatInt(version, 10), version, fmt.Sprintf("because migration %d is pending", version), nil
 		}
 	}
-	if latest.Revision == math.MaxInt64 {
-		return "", "", errors.New("cannot create another revision after the maximum release revision")
+	if legacy.Revision == math.MaxInt64 {
+		return "", 0, "", errors.New("cannot create another revision after the maximum release revision")
 	}
-	return fmt.Sprintf("%d.%d", latest.Schema, latest.Revision+1), "for committed object changes", nil
+	return fmt.Sprintf("%d.%d", latestMigration, legacy.Revision+1), latestMigration, "for committed object changes", nil
+}
+
+func inferMigrationVersion(filename, migrationDir, requestedVersion string) (int64, error) {
+	versions, err := availableMigrationVersions(migrationDir)
+	if err != nil {
+		return 0, err
+	}
+	history, err := releases.LoadAll(filename)
+	if errors.Is(err, os.ErrNotExist) {
+		if legacy, legacyErr := releaseversion.ParseLegacy(requestedVersion); legacyErr == nil {
+			return legacy.Schema, nil
+		}
+		if len(versions) > 0 {
+			return versions[0], nil
+		}
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	latest := history[len(history)-1]
+	current, err := latest.TargetMigration()
+	if err != nil {
+		return 0, err
+	}
+	if requestedVersion == latest.Version {
+		return current, nil
+	}
+	if legacy, legacyErr := releaseversion.ParseLegacy(requestedVersion); legacyErr == nil {
+		return legacy.Schema, nil
+	}
+	for _, version := range versions {
+		if version > current {
+			return version, nil
+		}
+	}
+	return current, nil
+}
+
+func availableMigrationVersions(dir string) ([]int64, error) {
+	versions, err := migrations.Versions(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	return versions, err
 }
 
 func containsLatest(files []objects.File) bool {
@@ -320,7 +393,7 @@ func requireReconciledCurrent(ctx context.Context, history []resolvedRelease, st
 	if index < 0 {
 		return withNext(fmt.Errorf("current release %s is not in manifest history", state.Current), "restore a manifest containing release "+state.Current)
 	}
-	version, err := releases.ParseVersion(state.Current)
+	expectedMigration, err := history[index].manifest.TargetMigration()
 	if err != nil {
 		return err
 	}
@@ -329,8 +402,8 @@ func requireReconciledCurrent(ctx context.Context, history []resolvedRelease, st
 		return fmt.Errorf("inspect migrations: %w", err)
 	}
 	retry := fmt.Sprintf("current release %s is not fully reconciled; retry rollback %s", state.Current, state.Current)
-	if schema.Version != version.Schema {
-		return withNext(fmt.Errorf("current release %s is not fully reconciled (database schema is %d, expected %d)", state.Current, schema.Version, version.Schema), "saxbase rollback "+state.Current)
+	if schema.Version != expectedMigration {
+		return withNext(fmt.Errorf("current release %s is not fully reconciled (database schema is %d, expected %d)", state.Current, schema.Version, expectedMigration), "saxbase rollback "+state.Current)
 	}
 	current := releaseSnapshot(history[index])
 	recorded, err := db.Snapshot(ctx, state.Current)
@@ -357,7 +430,7 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 		return withNext(errors.New("expected rollback [VERSION]"), "saxbase rollback -h")
 	}
 	if len(args) == 1 {
-		if _, err := releases.ParseVersion(args[0]); err != nil {
+		if err := releaseversion.Validate(args[0]); err != nil {
 			return withNext(err, "saxbase rollback -h")
 		}
 	}
@@ -411,10 +484,6 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 	}
 	defer func() { err = errors.Join(err, goose.Close()) }()
 	current := releaseSnapshot(history[currentIndex])
-	currentVersion, err := releases.ParseVersion(current.Version)
-	if err != nil {
-		return err
-	}
 	schema, err := goose.Inspect(ctx)
 	if err != nil {
 		return fmt.Errorf("inspect migrations: %w", err)
@@ -423,11 +492,11 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 	if err != nil {
 		return fmt.Errorf("inspect current release objects: %w", err)
 	}
-	if currentIndex == targetIndex || schema.Version != currentVersion.Schema || !reconciled {
+	if currentIndex == targetIndex || schema.Version != current.MigrationVersion || !reconciled {
 		if err := engine.Reconcile(ctx, current, goose); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(out, "Reconciled release %s (database schema %d)\n", current.Version, currentVersion.Schema); err != nil {
+		if _, err := fmt.Fprintf(out, "Reconciled release %s (database schema %d)\n", current.Version, current.MigrationVersion); err != nil {
 			return err
 		}
 	}
@@ -446,7 +515,8 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 }
 
 func releaseSnapshot(release resolvedRelease) objects.Snapshot {
-	result := objects.Snapshot{Release: objects.Release{Version: release.manifest.Version, Fingerprint: objects.Fingerprint(release.files)}}
+	migrationVersion, _ := release.manifest.TargetMigration()
+	result := objects.Snapshot{Release: objects.Release{Version: release.manifest.Version, MigrationVersion: migrationVersion, Fingerprint: release.manifest.Fingerprint(release.files)}}
 	for _, file := range release.state {
 		result.Objects = append(result.Objects, objects.SnapshotObject{Path: file.Path, SQL: file.SQL, Checksum: file.Checksum})
 	}

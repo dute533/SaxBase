@@ -11,6 +11,7 @@ import (
 	"saxbase/internal/migrations"
 	"saxbase/internal/objects"
 	"saxbase/internal/releases"
+	"saxbase/internal/releaseversion"
 )
 
 // runStatus presents the structural migration, release, and object state
@@ -110,17 +111,23 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 		if current != latest {
 			next = "saxbase plan"
 		} else {
-			version, parseErr := releases.ParseVersion(latest)
-			if parseErr != nil {
-				return parseErr
+			latestMigration, migrationErr := history[len(history)-1].manifest.TargetMigration()
+			if migrationErr != nil {
+				return migrationErr
 			}
 			for _, row := range migrationsState.Migrations {
-				if row.State == "missing" || (row.State == "pending" && row.Version <= version.Schema) {
+				if row.State == "missing" || (row.State == "pending" && row.Version <= latestMigration) {
 					next = "saxbase plan"
 					break
 				}
-				if row.State == "pending" && row.Version > version.Schema {
-					next = fmt.Sprintf("saxbase release create %d", row.Version)
+				if row.State == "pending" && row.Version > latestMigration {
+					latestRelease := history[len(history)-1].manifest
+					legacy, legacyErr := releaseversion.ParseLegacy(latestRelease.Version)
+					if legacyErr == nil && legacy.Schema == latestMigration {
+						next = fmt.Sprintf("saxbase release create %d", row.Version)
+					} else {
+						next = "saxbase release create VERSION"
+					}
 					break
 				}
 			}

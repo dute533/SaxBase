@@ -8,20 +8,21 @@ import (
 	"testing"
 
 	"saxbase/internal/objects"
+	"saxbase/internal/releaseversion"
 )
 
-func TestVersions(t *testing.T) {
+func TestLegacyVersions(t *testing.T) {
 	for _, test := range []struct {
 		value string
-		want  Version
-	}{{"0", Version{}}, {"30", Version{Schema: 30}}, {"30.10", Version{Schema: 30, Revision: 10}}, {"9223372036854775807.1", Version{Schema: 9223372036854775807, Revision: 1}}} {
-		got, err := ParseVersion(test.value)
+		want  releaseversion.Version
+	}{{"0", releaseversion.Version{}}, {"30", releaseversion.Version{Schema: 30}}, {"30.10", releaseversion.Version{Schema: 30, Revision: 10}}, {"9223372036854775807.1", releaseversion.Version{Schema: 9223372036854775807, Revision: 1}}} {
+		got, err := releaseversion.ParseLegacy(test.value)
 		if err != nil || got != test.want {
 			t.Fatalf("%s: %+v %v", test.value, got, err)
 		}
 	}
 	for _, value := range []string{"", "01", "30.0", "30.01", "30.1.2", "-1", "1e2", " 30", "30.", "9223372036854775808", "1.9223372036854775808"} {
-		if _, err := ParseVersion(value); err == nil {
+		if _, err := releaseversion.ParseLegacy(value); err == nil {
 			t.Errorf("accepted %q", value)
 		}
 	}
@@ -29,7 +30,7 @@ func TestVersions(t *testing.T) {
 
 func TestManifestRoundTripAndMismatch(t *testing.T) {
 	files := []objects.File{{Path: "views/a.sql", Commit: strings.Repeat("a", 64)}}
-	m, err := New("30.1", files)
+	m, err := New("1.2.0", 30, files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,6 +52,52 @@ func TestManifestRoundTripAndMismatch(t *testing.T) {
 		if err := loaded.Validate(bad); err == nil {
 			t.Fatalf("accepted mismatch: %+v", bad)
 		}
+	}
+}
+
+func TestManifestExplicitAndLegacyMigrationTargets(t *testing.T) {
+	semantic, err := New("1.2.3-rc.1", 30, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := semantic.TargetMigration(); err != nil || got != 30 {
+		t.Fatalf("semantic migration=%d err=%v", got, err)
+	}
+	legacy := Manifest{Version: "30.2", Objects: []Object{}}
+	if got, err := legacy.TargetMigration(); err != nil || got != 30 {
+		t.Fatalf("legacy migration=%d err=%v", got, err)
+	}
+	if _, err := (Manifest{Version: "1.2.3", Objects: []Object{}}).TargetMigration(); err == nil {
+		t.Fatal("semantic release without migration_version was accepted")
+	}
+}
+
+func TestMigrationVersionIsPartOfReleaseFingerprint(t *testing.T) {
+	files := []objects.File{{Path: "views/a.sql", SQL: "SELECT 1", Checksum: strings.Repeat("a", 64)}}
+	a, _ := New("1.2.0", 2, files)
+	b, _ := New("1.2.0", 3, files)
+	if a.Fingerprint(files) == b.Fingerprint(files) {
+		t.Fatal("migration target did not change release fingerprint")
+	}
+	legacy := Manifest{Version: "2.1", Objects: []Object{}}
+	if legacy.Fingerprint(files) != objects.Fingerprint(files) {
+		t.Fatal("legacy fingerprint compatibility was lost")
+	}
+}
+
+func TestManifestHistoryUsesEntryOrderAndNondecreasingMigrations(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "release.json")
+	base, _ := New("2.0.0", 3, nil)
+	if err := base.Write(filename); err != nil {
+		t.Fatal(err)
+	}
+	patch, _ := New("1.9.9", 3, nil)
+	if err := Append(filename, patch); err != nil {
+		t.Fatalf("identifier ordering affected chronology: %v", err)
+	}
+	downgrade, _ := New("3.0.0", 2, nil)
+	if err := Append(filename, downgrade); err == nil {
+		t.Fatal("decreasing migration target was accepted")
 	}
 }
 
@@ -132,7 +179,7 @@ func TestNewDeltaContainsOnlyChanges(t *testing.T) {
 		{Path: "a.sql", Commit: strings.Repeat("c", 40), SQL: "SELECT 3;", Checksum: strings.Repeat("3", 64)},
 		{Path: "c.sql", Commit: strings.Repeat("d", 40), SQL: "SELECT 4;", Checksum: strings.Repeat("4", 64)},
 	}
-	m, err := NewDelta("2.1", current, old)
+	m, err := NewDelta("2.1", 2, current, old)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +194,7 @@ func TestNewDeltaContainsOnlyChanges(t *testing.T) {
 func TestNewDeltaDetectsLatestContentChanges(t *testing.T) {
 	old := []objects.File{{Path: "a.sql", Commit: "latest", SQL: "SELECT 1;", Checksum: "old"}}
 	current := []objects.File{{Path: "a.sql", Commit: "latest", SQL: "SELECT 2;", Checksum: "new"}}
-	m, err := NewDelta("2", current, old)
+	m, err := NewDelta("2", 2, current, old)
 	if err != nil {
 		t.Fatal(err)
 	}

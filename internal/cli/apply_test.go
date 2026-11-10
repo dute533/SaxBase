@@ -24,7 +24,11 @@ func TestApplyCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, version := range []string{"30.2", "29"} {
-		manifest, err := releases.New(version, files)
+		migrationVersion := int64(30)
+		if version == "29" {
+			migrationVersion = 29
+		}
+		manifest, err := releases.New(version, migrationVersion, files)
 		if err != nil {
 			t.Fatal(err)
 		}

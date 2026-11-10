@@ -155,14 +155,16 @@ contains only changes from the entry immediately below it:
 {
   "releases": [
     {
-      "version": "2",
+      "version": "1.1.0",
+      "migration_version": 2,
       "objects": [
         {"path": "database/objects/views/customer.sql", "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
         {"path": "database/objects/views/order.sql", "commit": "cccccccccccccccccccccccccccccccccccccccc"}
       ]
     },
     {
-      "version": "1",
+      "version": "1.0.0",
+      "migration_version": 1,
       "objects": [
         {"path": "database/objects/views/customer.sql", "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
       ]
@@ -180,19 +182,23 @@ Objects within a release execute from top to bottom. Edit that release's
 `objects` array when dependencies require a different order. A `delete` entry
 removes an object from the database and must use a historical commit hash.
 
-Versions use `SCHEMA` or `SCHEMA.REVISION`, such as `30`, `30.1`, and `31`. The
-whole-number portion of a release selects its schema migration, so releases
-`30.1` and `30.2` reuse database schema `30`; the revision identifies another
-object state at that schema version. Use a new revision when object SQL, paths,
-or order changes after deployment. Release versions are immutable once recorded
-in a database.
+`version` is the database release identifier and may use SemVer, such as
+`1.4.0` or `2.0.0-rc.1`. `migration_version` is the Goose migration that release
+targets. Keeping them separate lets `1.4.1` and `1.4.2` represent object-only
+changes at the same migration. Release order is the manifest order, not a
+numeric comparison of identifiers. Both the migration target and object delta
+are immutable once the release is recorded in a database.
+
+Legacy manifests without `migration_version` remain supported when their
+version uses `SCHEMA` or `SCHEMA.REVISION`; for example, legacy release `30.1`
+targets migration `30`. Newly created entries always write an explicit target.
 
 The normal release workflow is:
 
 ```sh
 git add database/objects
 git commit -m "Update database objects"
-./saxbase release create
+./saxbase release create 1.4.0
 ./saxbase plan
 ./saxbase apply
 ```
@@ -201,18 +207,19 @@ git commit -m "Update database objects"
 `release validate` only when you want to verify manifest references without a
 database connection.
 
-Without an explicit version, `release create` selects the first migration above
-the latest release schema. When no migration is pending, it increments the
-latest release revision. An explicit version overrides the inferred value.
-If the committed object state is unchanged, SaxBase reports no action and does
-not add an empty object revision.
+For an explicit version, `release create` targets the first migration above the
+latest release, or reuses the latest target when no migration is pending. This
+makes an object-only SemVer patch release straightforward. Version inference is
+retained for legacy numeric histories; after a semantic version, supply the next
+version explicitly. If both the target migration and committed object state are
+unchanged, SaxBase reports no action and does not add an empty release.
 
 By default, `database/release.json` is a newest-first release history. Creating
-a newer version prepends a delta from the latest version while preserving all
+a new release prepends a delta from the latest version while preserving all
 older versions. `plan` previews the pending chain and `apply` deploys it
 chronologically, one recorded release step at a time; rollback selects an older
-version from the same file. Creating a version older than the newest manifest
-entry is rejected.
+entry from the same file. Migration targets must never decrease as entries are
+added, and release identifiers must be unique.
 
 Before the newest release is deployed, rerun `release create` with that same
 version to rebuild its entry from the current committed object files. Older
@@ -223,7 +230,7 @@ To deliberately rewrite that recorded release in a disposable development
 database, use force after refreshing it:
 
 ```sh
-./saxbase release create 30.1
+./saxbase release create 1.4.1
 ./saxbase -f apply
 ```
 
@@ -237,7 +244,7 @@ production database.
 To prepend a delta containing only changes from the latest release:
 
 ```sh
-./saxbase release create 30.1
+./saxbase release create 1.4.1
 ```
 
 Keep manifests and their referenced Git commits available for rollback.
@@ -265,9 +272,10 @@ checkpoint before continuing.
 
 SaxBase resolves object state from release manifests. Its
 `dbo.saxbase_releases` table stores only the canonical release `version`, its
-`fingerprint`, and the `is_current` marker; schema and revision numbers are
-derived from the version when needed. Goose stores the migration history used by
-SaxBase in `dbo.saxbase_schema_version`; rollback does not create another
+`fingerprint`, and the `is_current` marker. The manifest supplies each release's
+`migration_version`; new fingerprints bind that target to the object delta.
+Goose stores the migration history used by SaxBase in
+`dbo.saxbase_schema_version`; rollback does not create another
 metadata table. Successful rollback or reconciliation also removes the obsolete
 `dbo.saxbase_rollbacks` table left by older SaxBase versions.
 

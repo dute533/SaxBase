@@ -44,7 +44,7 @@ func TestSQLServerManifestHistoryWorkflow(t *testing.T) {
 	// Append a delta before provisioning this fresh database. Apply must visit
 	// the oldest release first and continue through the newest release.
 	writeView("2")
-	run("release", "create", "2.1")
+	run("release", "create", "2.0.1")
 	history, err := releases.LoadAll(manifestPath)
 	if err != nil || len(history) != 2 || len(history[1].Objects) != 1 {
 		t.Fatalf("history=%+v err=%v", history, err)
@@ -52,7 +52,7 @@ func TestSQLServerManifestHistoryWorkflow(t *testing.T) {
 	if output := run("plan"); !strings.Contains(output, "-> 2") {
 		t.Fatalf("fresh plan did not select release 2: %s", output)
 	}
-	if output := run("apply"); !strings.Contains(output, "Applied release 2 ") || !strings.Contains(output, "Applied release 2.1 ") {
+	if output := run("apply"); !strings.Contains(output, "Applied release 2 ") || !strings.Contains(output, "Applied release 2.0.1 ") {
 		t.Fatalf("fresh apply did not deploy the full release chain: %s", output)
 	}
 	assertValue(2)
@@ -66,13 +66,13 @@ func TestSQLServerManifestHistoryWorkflow(t *testing.T) {
 	if err := os.WriteFile(extraPath, []byte("CREATE VIEW dbo.saxbase_temporary AS SELECT 1 AS value;\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	run("release", "create", "2.2")
+	run("release", "create", "2.0.2")
 	run("apply")
 	assertView("saxbase_temporary", 1)
 	if err := os.Remove(extraPath); err != nil {
 		t.Fatal(err)
 	}
-	run("release", "create", "2.3")
+	run("release", "create", "2.0.3")
 	if output := run("apply"); !strings.Contains(output, "delete") {
 		t.Fatalf("deletion was not reported: %s", output)
 	}
@@ -80,7 +80,7 @@ func TestSQLServerManifestHistoryWorkflow(t *testing.T) {
 
 	// A newer, undeployed entry must not be mistaken for the rollback source.
 	writeView("3")
-	run("release", "create", "2.4")
+	run("release", "create", "2.0.4")
 	run("rollback", "2")
 	assertValue(1)
 }

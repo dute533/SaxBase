@@ -103,28 +103,28 @@ func TestSQLServerApply(t *testing.T) {
 	if _, err := db.ExecContext(ctx, "CREATE TRIGGER saxbase_block_apply ON DATABASE FOR ALTER_VIEW AS THROW 51000, 'intentional apply failure', 1;"); err != nil {
 		t.Fatal(err)
 	}
-	manifest("3")
+	manifest("3.0.0")
 	fail("intentional apply failure", "-manifest", "database/target.json", "apply")
 	assertVersion("3")
 	count("SELECT value FROM dbo.extra", 2)
-	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='3'", 0)
+	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='3.0.0'", 0)
 	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE is_current=1", 0)
 	if _, err := db.ExecContext(ctx, "DROP TRIGGER saxbase_block_apply ON DATABASE"); err != nil {
 		t.Fatal(err)
 	}
 	apply()
-	if output := strings.Join(strings.Fields(run("-manifest", "database/target.json", "status")), " "); !strings.Contains(output, "Release 3 is current") {
+	if output := strings.Join(strings.Fields(run("-manifest", "database/target.json", "status")), " "); !strings.Contains(output, "Release 3.0.0 is current") {
 		t.Fatalf("current release missing from status: %s", output)
 	}
 	count("SELECT value FROM dbo.extra", 3)
 	// Structural failure leaves the old object state intact and releases the lock.
 	write("database/migrations/00004_failure.sql", "-- +goose Up\nTHROW 51000, 'intentional migration failure', 1;\n-- +goose Down\nSELECT 1;")
-	manifest("4")
+	manifest("4.0.0")
 	fail("intentional migration failure", "-manifest", "database/target.json", "apply")
-	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='4'", 0)
+	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='4.0.0'", 0)
 	count("SELECT value FROM dbo.extra", 3)
 	write("database/migrations/00004_failure.sql", "-- +goose Up\nCREATE TABLE dbo.recovered(id INT);\n-- +goose Down\nDROP TABLE dbo.recovered;")
 	apply()
-	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='4'", 1)
-	fail("newer than existing release", "-manifest", "database/target.json", "release", "create", "3")
+	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='4.0.0'", 1)
+	fail("already exists", "-manifest", "database/target.json", "release", "create", "3.0.0")
 }

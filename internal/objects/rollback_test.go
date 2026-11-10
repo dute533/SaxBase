@@ -25,8 +25,8 @@ func (g *rollbackGoose) DownTo(_ context.Context, target int64) error {
 	return g.err
 }
 
-func snapshot(version string, delta []File, state ...File) Snapshot {
-	result := Snapshot{Release: Release{Version: version, Fingerprint: Fingerprint(delta)}}
+func snapshot(version string, migrationVersion int64, delta []File, state ...File) Snapshot {
+	result := Snapshot{Release: Release{Version: version, MigrationVersion: migrationVersion, Fingerprint: Fingerprint(delta)}}
 	for _, file := range state {
 		result.Objects = append(result.Objects, SnapshotObject{Path: file.Path, SQL: file.SQL, Checksum: file.Checksum})
 	}
@@ -59,7 +59,7 @@ func TestReconciledChecksStoredDefinitions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s, mock := mockStore(t)
 			file := objectFile("a.sql", "CREATE OR ALTER VIEW dbo.a AS SELECT 1 AS n;\n")
-			release := snapshot("2.1", []File{file}, file)
+			release := snapshot("2.1", 2, []File{file}, file)
 			expectCurrentRelease(mock, release.Version)
 			row := sqlmock.NewRows([]string{"definition"})
 			if tc.actual == "" {
@@ -81,8 +81,8 @@ func TestStructuralRollbackCheckpointsTargetBeforeGooseDown(t *testing.T) {
 	s, mock := mockStore(t)
 	base := objectFile("a.sql", "CREATE OR ALTER VIEW dbo.a AS SELECT 1 AS n;")
 	extra := objectFile("b.sql", "CREATE OR ALTER VIEW dbo.b AS SELECT 2 AS n;")
-	target := snapshot("2.1", []File{base}, base)
-	source := snapshot("3", []File{extra}, base, extra)
+	target := snapshot("2.1", 2, []File{base}, base)
+	source := snapshot("3", 3, []File{extra}, base, extra)
 	failure := errors.New("down failed")
 	goose := &rollbackGoose{version: 3, err: failure}
 

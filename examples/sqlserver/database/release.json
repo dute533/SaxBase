@@ -2,6 +2,7 @@
   "releases": [
     {
       "version": "2",
+      "migration_version": 2,
       "objects": [
         {
           "path": "examples/sqlserver/database/objects/functions/value.sql",

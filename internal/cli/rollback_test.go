@@ -24,8 +24,8 @@ func TestRollbackCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, _ := releases.New("30.1", files)
-	source, _ := releases.NewDelta("30.2", files, files)
+	target, _ := releases.New("30.1", 30, files)
+	source, _ := releases.NewDelta("30.2", 30, files, files)
 	path := filepath.Join(dir, "release.json")
 	if err := target.Write(path); err != nil {
 		t.Fatal(err)

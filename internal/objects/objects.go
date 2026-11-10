@@ -20,7 +20,7 @@ type File struct {
 }
 type Status struct{ Path, State, Checksum string }
 type Engine interface {
-	Apply(context.Context, []File, []File, string, bool, migrations.Engine, func(context.Context) error) ([]Status, error)
+	Apply(context.Context, []File, []File, Release, bool, migrations.Engine, func(context.Context) error) ([]Status, error)
 	History(context.Context) ([]Release, error)
 	Snapshot(context.Context, string) (Snapshot, error)
 	Rollback(context.Context, Snapshot, Snapshot, migrations.Engine) (Rollback, error)
@@ -37,8 +37,9 @@ type Inspection struct {
 }
 
 type Release struct {
-	Version     string `json:"version"`
-	Fingerprint string `json:"fingerprint"`
+	Version          string `json:"version"`
+	MigrationVersion int64  `json:"migration_version"`
+	Fingerprint      string `json:"fingerprint"`
 }
 
 type SnapshotObject struct {

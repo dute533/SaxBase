@@ -8,7 +8,7 @@ import (
 
 func TestManifestOrder(t *testing.T) {
 	files := []objects.File{{Path: "a.sql", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, {Path: "z.sql", Commit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
-	m, err := New("2", files)
+	m, err := New("2", 2, files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,11 +27,12 @@ func TestManifestOrder(t *testing.T) {
 func TestSnapshotOrderIdentity(t *testing.T) {
 	files := []objects.File{{Path: "z.sql", SQL: "z", Checksum: "z"}, {Path: "a.sql", SQL: "a", Checksum: "a"}}
 	s := objects.Snapshot{Release: objects.Release{Fingerprint: objects.Fingerprint(files)}, Objects: []objects.SnapshotObject{{Path: "z.sql", SQL: "z", Checksum: "z"}, {Path: "a.sql", SQL: "a", Checksum: "a"}}}
-	if !matchesSnapshot(s, files) {
+	manifest := Manifest{Version: "2", Objects: []Object{}}
+	if !matchesSnapshot(s, manifest, files) {
 		t.Fatal("identical ordered snapshot rejected")
 	}
 	files[0], files[1] = files[1], files[0]
-	if matchesSnapshot(s, files) {
+	if matchesSnapshot(s, manifest, files) {
 		t.Fatal("reordered snapshot accepted")
 	}
 }

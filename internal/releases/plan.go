@@ -32,11 +32,11 @@ type ObjectInspector interface {
 
 func BuildPlan(ctx context.Context, manifest Manifest, delta, force bool, files, baseline []objects.File, goose MigrationInspector, db ObjectInspector) (Plan, error) {
 	p := Plan{TargetRelease: manifest.Version, Migrations: make([]MigrationPlan, 0), Blockers: make([]string, 0)}
-	version, err := ParseVersion(manifest.Version)
+	targetMigration, err := manifest.TargetMigration()
 	if err != nil {
 		return p, err
 	}
-	p.TargetSchema = version.Schema
+	p.TargetSchema = targetMigration
 	ordered, orderErr := manifest.OrderedFiles(files)
 	if err := orderErr; err != nil {
 		p.Blockers = append(p.Blockers, err.Error())
@@ -58,19 +58,19 @@ func BuildPlan(ctx context.Context, manifest Manifest, delta, force bool, files,
 	if delta && len(p.Objects) > len(files) {
 		p.Objects = p.Objects[:len(files)]
 	}
-	if version.Schema < schema.Version {
-		p.Blockers = append(p.Blockers, fmt.Sprintf("target database schema %d is below current %d; use rollback", version.Schema, schema.Version))
+	if targetMigration < schema.Version {
+		p.Blockers = append(p.Blockers, fmt.Sprintf("target database schema %d is below current %d; use rollback", targetMigration, schema.Version))
 	}
-	targetKnown := version.Schema == 0
+	targetKnown := targetMigration == 0
 	for _, migration := range schema.Migrations {
-		if migration.Version == version.Schema {
+		if migration.Version == targetMigration {
 			targetKnown = true
 		}
 		action := migration.State
 		switch migration.State {
 		case "pending":
 			action = "apply"
-			if migration.Version > version.Schema {
+			if migration.Version > targetMigration {
 				action = "deferred"
 			} else if migration.Version < schema.Version {
 				action = "out-of-order"
@@ -82,7 +82,7 @@ func BuildPlan(ctx context.Context, manifest Manifest, delta, force bool, files,
 		p.Migrations = append(p.Migrations, MigrationPlan{Version: migration.Version, Path: migration.Path, Action: action})
 	}
 	if !targetKnown {
-		p.Blockers = append(p.Blockers, fmt.Sprintf("target database schema %d has no migration file or applied record", version.Schema))
+		p.Blockers = append(p.Blockers, fmt.Sprintf("target database schema %d has no migration file or applied record", targetMigration))
 	}
 	for _, row := range p.Objects {
 		if row.State == "missing" && !delta {
@@ -95,8 +95,8 @@ func BuildPlan(ctx context.Context, manifest Manifest, delta, force bool, files,
 			if err != nil {
 				return p, fmt.Errorf("inspect release fingerprint: %w", err)
 			}
-			if !force && !matchesSnapshot(snapshot, files) {
-				p.Blockers = append(p.Blockers, fmt.Sprintf("release %s is immutable: the object order, set, or definitions differ", manifest.Version))
+			if !force && !matchesSnapshot(snapshot, manifest, files) {
+				p.Blockers = append(p.Blockers, fmt.Sprintf("release %s is immutable: its migration target, object order, set, or definitions differ", manifest.Version))
 			}
 			break
 		}
@@ -120,6 +120,6 @@ func BuildPlan(ctx context.Context, manifest Manifest, delta, force bool, files,
 	return p, nil
 }
 
-func matchesSnapshot(snapshot objects.Snapshot, files []objects.File) bool {
-	return snapshot.Fingerprint == objects.Fingerprint(files)
+func matchesSnapshot(snapshot objects.Snapshot, manifest Manifest, files []objects.File) bool {
+	return snapshot.Fingerprint == manifest.Fingerprint(files)
 }

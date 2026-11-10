@@ -140,7 +140,78 @@ func TestReleaseCreateAppendsReleaseHistory(t *testing.T) {
 		t.Fatalf("no-change history=%+v err=%v", history, err)
 	}
 	if err := run(context.Background(), append(append([]string{}, args...), "1"), env(nil), &bytes.Buffer{}, nil, nil); err == nil {
-		t.Fatal("older release version was accepted")
+		t.Fatal("duplicate release version was accepted")
+	}
+}
+
+func TestReleaseCreateSemanticVersionsTrackMigrations(t *testing.T) {
+	root := t.TempDir()
+	objectDir := filepath.Join(root, "objects")
+	migrationDir := filepath.Join(root, "migrations")
+	if err := os.Mkdir(objectDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(migrationDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	writeMigration := func(version, name string) {
+		t.Helper()
+		filename := filepath.Join(migrationDir, version+"_"+name+".sql")
+		if err := os.WriteFile(filename, []byte("-- +goose Up\nSELECT 1;\n-- +goose Down\nSELECT 1;\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeMigration("00001", "initial")
+	view := filepath.Join(objectDir, "view.sql")
+	if err := os.WriteFile(view, []byte("SELECT 1;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := committedFixture(t, objectDir); err != nil {
+		t.Fatal(err)
+	}
+	commitView := func(message string) {
+		t.Helper()
+		for _, args := range [][]string{{"add", "view.sql"}, {"-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", message}} {
+			cmd := exec.Command("git", append([]string{"-C", objectDir}, args...)...)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("git commit: %v %s", err, output)
+			}
+		}
+	}
+	manifestPath := filepath.Join(root, "release.json")
+	create := func(version string) {
+		t.Helper()
+		args := []string{"-dir", migrationDir, "-objects-dir", objectDir, "-manifest", manifestPath, "release", "create", version}
+		if err := run(context.Background(), args, env(nil), &bytes.Buffer{}, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	create("1.0.0")
+	if err := os.WriteFile(view, []byte("SELECT 2;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	commitView("object patch")
+	create("1.0.1")
+	writeMigration("00002", "structural_change")
+	create("1.1.0")
+
+	history, err := releases.LoadAll(manifestPath)
+	if err != nil || len(history) != 3 {
+		t.Fatalf("history=%+v err=%v", history, err)
+	}
+	wantVersions := []string{"1.0.0", "1.0.1", "1.1.0"}
+	wantMigrations := []int64{1, 1, 2}
+	for i := range history {
+		target, targetErr := history[i].TargetMigration()
+		if targetErr != nil || history[i].MigrationVersion == nil || history[i].Version != wantVersions[i] || target != wantMigrations[i] {
+			t.Fatalf("history[%d]=%+v target=%d err=%v", i, history[i], target, targetErr)
+		}
+	}
+	args := []string{"-dir", migrationDir, "-objects-dir", objectDir, "-manifest", manifestPath, "release", "create"}
+	err = run(context.Background(), args, env(nil), &bytes.Buffer{}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "release create VERSION") {
+		t.Fatalf("semantic version was inferred: %v", err)
 	}
 }
 

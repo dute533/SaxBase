@@ -71,20 +71,20 @@ func (f *fakeObjects) Snapshot(_ context.Context, version string) (objects.Snaps
 	return objects.Snapshot{Release: objects.Release{Version: version}, Objects: []objects.SnapshotObject{{Path: "view.sql", SQL: "SELECT 1;"}}}, f.err
 }
 
-func (f *fakeObjects) Apply(ctx context.Context, files, _ []objects.File, version string, force bool, goose migrations.Engine, preflight func(context.Context) error) ([]objects.Status, error) {
+func (f *fakeObjects) Apply(ctx context.Context, files, _ []objects.File, release objects.Release, force bool, goose migrations.Engine, preflight func(context.Context) error) ([]objects.Status, error) {
 	if err := preflight(ctx); err != nil {
 		return nil, err
 	}
-	if version == f.applyErrAt {
+	if release.Version == f.applyErrAt {
 		return nil, f.applyErr
 	}
 	f.command = "apply"
 	f.files = files
 	f.force = force
-	f.version = version
+	f.version = release.Version
 	f.currentSet = true
-	f.current = version
-	f.appliedVersions = append(f.appliedVersions, version)
+	f.current = release.Version
+	f.appliedVersions = append(f.appliedVersions, release.Version)
 	rows := make([]objects.Status, 0, len(files))
 	for _, file := range files {
 		rows = append(rows, objects.Status{Path: file.Path, State: "applied", Checksum: file.Checksum})

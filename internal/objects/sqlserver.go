@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"saxbase/internal/deploymentlock"
-	"saxbase/internal/releaseversion"
 	"saxbase/internal/sqlserverdsn"
 
 	_ "github.com/microsoft/go-mssqldb"
@@ -71,11 +70,7 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files, basel
 		}
 	}
 	if release != nil {
-		version, err := releaseversion.Parse(release.Version)
-		if err != nil {
-			return nil, err
-		}
-		if err := checkReleaseSchema(ctx, tx, version.Schema); err != nil {
+		if err := checkReleaseSchema(ctx, tx, release.MigrationVersion); err != nil {
 			return nil, err
 		}
 	}

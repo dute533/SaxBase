@@ -23,7 +23,7 @@ func TestPlanCLI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := releases.New("30.1", files)
+	manifest, err := releases.New("30.1", 30, files)
 	if err != nil {
 		t.Fatal(err)
 	}

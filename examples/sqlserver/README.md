@@ -56,7 +56,7 @@ creating the manifest entry:
 ```sh
 git add database/objects
 git commit -m "Update example objects"
-../../saxbase release create
+../../saxbase release create 1.0.1
 ../../saxbase plan
 ../../saxbase apply
 ```
@@ -67,7 +67,8 @@ For a structural release, create and edit the next migration first:
 ../../saxbase migration create add_customer_email
 ```
 
-Then commit the database files and repeat `release create`, `plan`, and `apply`.
+Then commit the database files and create the next semantic release. SaxBase
+records the pending migration as that release's `migration_version`.
 
 ## Roll back
 

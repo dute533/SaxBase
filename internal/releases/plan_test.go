@@ -29,7 +29,7 @@ func (s planObjects) Snapshot(context.Context, string) (objects.Snapshot, error)
 }
 
 func TestPlanMigrationBoundaries(t *testing.T) {
-	manifest, _ := New("2", nil)
+	manifest, _ := New("1.1.0", 2, nil)
 	schema := planSchema{state: migrations.Inspection{Migrations: []migrations.Status{{Version: 3, State: "pending"}, {Version: 1, State: "pending"}, {Version: 2, State: "pending"}}}}
 	p, err := BuildPlan(context.Background(), manifest, false, false, nil, nil, schema, planObjects{})
 	if err != nil || len(p.Blockers) != 0 {
@@ -42,7 +42,7 @@ func TestPlanMigrationBoundaries(t *testing.T) {
 
 func TestPlanBlockers(t *testing.T) {
 	file := objects.File{Commit: strings.Repeat("a", 40), Path: "view.sql", SQL: "SELECT 1;", Checksum: strings.Repeat("a", 64)}
-	manifest, _ := New("2.1", []objects.File{file})
+	manifest, _ := New("1.1.0", 2, []objects.File{file})
 	base := migrations.Inspection{Version: 2, Migrations: []migrations.Status{{Version: 2, State: "applied"}}}
 	for _, tc := range []struct {
 		name, want string
@@ -57,7 +57,7 @@ func TestPlanBlockers(t *testing.T) {
 		{name: "out of order", want: "pending below", schema: migrations.Inspection{Version: 2, Migrations: []migrations.Status{{Version: 1, State: "pending"}, {Version: 2, State: "applied"}}}, files: []objects.File{file}},
 		{name: "missing migration", want: "migration file", schema: migrations.Inspection{Version: 2, Migrations: []migrations.Status{{Version: 2, State: "missing"}}}, files: []objects.File{file}},
 		{name: "missing object", want: "omits object", schema: base, files: []objects.File{file}, baseline: []objects.File{{Path: "old.sql", Checksum: "old"}}},
-		{name: "immutable", want: "immutable", schema: base, files: []objects.File{file}, db: planObjects{state: objects.Inspection{History: []objects.Release{{Version: "2.1"}}}, snapshot: objects.Snapshot{Objects: []objects.SnapshotObject{{Path: file.Path, Checksum: file.Checksum, SQL: "different SQL"}}}}},
+		{name: "immutable", want: "immutable", schema: base, files: []objects.File{file}, db: planObjects{state: objects.Inspection{History: []objects.Release{{Version: "1.1.0"}}}, snapshot: objects.Snapshot{Objects: []objects.SnapshotObject{{Path: file.Path, Checksum: file.Checksum, SQL: "different SQL"}}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p, err := BuildPlan(context.Background(), manifest, false, false, tc.files, tc.baseline, planSchema{state: tc.schema}, tc.db)
@@ -72,7 +72,7 @@ func TestPlanBlockers(t *testing.T) {
 }
 
 func TestPlanUnchangedAndNumericRevision(t *testing.T) {
-	m, _ := New("2.10", nil)
+	m, _ := New("2.10", 2, nil)
 	db := planObjects{state: objects.Inspection{Current: "2.2", History: []objects.Release{{Version: "2.2"}}}}
 	schema := planSchema{state: migrations.Inspection{Version: 2, Migrations: []migrations.Status{{Version: 2, State: "applied"}}}}
 	p, err := BuildPlan(context.Background(), m, false, false, nil, nil, schema, db)
@@ -80,7 +80,7 @@ func TestPlanUnchangedAndNumericRevision(t *testing.T) {
 		t.Fatalf("%+v %v", p, err)
 	}
 	db.state.History = []objects.Release{{Version: "2.10"}}
-	db.snapshot = objects.Snapshot{Release: objects.Release{Fingerprint: objects.Fingerprint(nil)}, Objects: []objects.SnapshotObject{}}
+	db.snapshot = objects.Snapshot{Release: objects.Release{Fingerprint: m.Fingerprint(nil)}, Objects: []objects.SnapshotObject{}}
 	p, err = BuildPlan(context.Background(), m, false, false, nil, nil, schema, db)
 	if err != nil || len(p.Blockers) != 0 || p.Migrations[0].Action != "applied" {
 		t.Fatalf("%+v %v", p, err)
@@ -89,7 +89,7 @@ func TestPlanUnchangedAndNumericRevision(t *testing.T) {
 
 func TestForcedPlanAllowsRecordedFingerprintRewrite(t *testing.T) {
 	file := objects.File{Commit: strings.Repeat("a", 40), Path: "view.sql", SQL: "SELECT 1;", Checksum: strings.Repeat("a", 64)}
-	manifest, _ := New("2.1", []objects.File{file})
+	manifest, _ := New("2.1", 2, []objects.File{file})
 	schema := planSchema{state: migrations.Inspection{Version: 2, Migrations: []migrations.Status{{Version: 2, State: "applied"}}}}
 	db := planObjects{state: objects.Inspection{Current: "2.1", History: []objects.Release{{Version: "2.1"}}}, snapshot: objects.Snapshot{Release: objects.Release{Fingerprint: "different"}}}
 	p, err := BuildPlan(context.Background(), manifest, false, true, []objects.File{file}, []objects.File{file}, schema, db)
@@ -100,7 +100,7 @@ func TestForcedPlanAllowsRecordedFingerprintRewrite(t *testing.T) {
 
 func TestPlanInspectionFailure(t *testing.T) {
 	failure := errors.New("database unavailable")
-	m, _ := New("0", nil)
+	m, _ := New("0", 0, nil)
 	if _, err := BuildPlan(context.Background(), m, false, false, nil, nil, planSchema{err: failure}, planObjects{}); !errors.Is(err, failure) {
 		t.Fatalf("lost error: %v", err)
 	}

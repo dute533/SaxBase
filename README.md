@@ -48,7 +48,7 @@ can pin them to Git for reproducible rollback:
 git add database/migrations database/objects
 git commit -m "Add customer email"
 
-./saxbase release create
+./saxbase release create 1.0.0
 git add database/release.json
 git commit -m "Create database release"
 
@@ -57,9 +57,9 @@ git commit -m "Create database release"
 ./saxbase status
 ```
 
-`release create` infers the next version. The whole-number portion selects the
-migration version, while the decimal portion represents another object state at
-the same schema version: release `2.1` uses database schema `2`.
+Release versions can use SemVer. SaxBase records the target Goose migration
+separately, so object-only releases can advance from `1.0.0` to `1.0.1` without
+adding a migration. Existing numeric manifests remain supported.
 
 `plan` previews every pending migration and object change. `apply` deploys all
 pending releases in order. Use `-target NAME` to select a configured database.
@@ -75,7 +75,7 @@ Restore the preceding release:
 Pass a version to traverse back through multiple releases:
 
 ```sh
-./saxbase rollback 2.1
+./saxbase rollback 1.0.0
 ```
 
 SaxBase restores historical object definitions and runs the required Goose Down

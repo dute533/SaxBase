@@ -34,7 +34,7 @@ func TestGitResolutionFailsBeforeDatabaseOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := releases.New("30", files)
+	m, err := releases.New("30", 30, files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestReleaseCreateAppendsDeltaToHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifestPath := filepath.Join(dir, "release.json")
-	base, err := releases.New("1", files)
+	base, err := releases.New("1", 1, files)
 	if err != nil {
 		t.Fatal(err)
 	}
