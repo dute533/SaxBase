@@ -35,7 +35,7 @@ func TestPlanMigrationBoundaries(t *testing.T) {
 	if err != nil || len(p.Blockers) != 0 {
 		t.Fatalf("%+v %v", p, err)
 	}
-	if p.CurrentSchema != 0 || p.TargetSchema != 2 || p.Migrations[0].Action != "apply" || p.Migrations[1].Action != "apply" || p.Migrations[2].Action != "deferred" {
+	if p.CurrentSchema != 0 || p.TargetSchema != 2 || p.Migrations[0].Action != "apply" || p.Migrations[1].Action != "apply" || p.Migrations[2].Action != "waiting" {
 		t.Fatalf("bad boundary: %+v", p)
 	}
 }

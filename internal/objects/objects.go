@@ -119,7 +119,7 @@ func Compare(files, baseline []File) []Status {
 		if file.Delete {
 			state := "missing"
 			if _, exists := deployed[file.Path]; exists {
-				state = "deleted"
+				state = "delete"
 			}
 			result = append(result, Status{Path: file.Path, State: state, Checksum: file.Checksum})
 			seen[file.Path] = true
@@ -129,7 +129,7 @@ func Compare(files, baseline []File) []Status {
 		if sum, exists := deployed[file.Path]; exists {
 			state = "changed"
 			if sum == file.Checksum {
-				state = "unchanged"
+				state = "current"
 			}
 		}
 		result = append(result, Status{Path: file.Path, State: state, Checksum: file.Checksum})

@@ -82,11 +82,11 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 	fmt.Fprintf(w, "Database schema:\t%d\nRelease:\t%s\n\n", migrationsState.Version, statusValue(databaseState.Current))
 	fmt.Fprintln(w, "MIGRATION\tSTATE\tFILE")
 	for _, row := range migrationsState.Migrations {
-		fmt.Fprintf(w, "%d\t%s\t%s\n", row.Version, displayState(row.State), row.Path)
+		fmt.Fprintf(w, "%d\t%s\t%s\n", row.Version, row.State, row.Path)
 	}
 	fmt.Fprintln(w, "\nOBJECT\tSTATE\tSHA256")
 	for _, row := range objectRows {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", row.Path, displayState(row.State), row.Checksum)
+		fmt.Fprintf(w, "%s\t%s\t%s\n", row.Path, row.State, row.Checksum)
 	}
 	if len(changed) > 0 {
 		fmt.Fprintln(w, "\nUNCOMMITTED OBJECTS")
@@ -142,7 +142,7 @@ func cleanStatus(history []resolvedRelease, current, recorded string, migrationR
 		}
 	}
 	for _, row := range objectRows {
-		if row.State != "unchanged" {
+		if row.State != "current" {
 			return false
 		}
 	}

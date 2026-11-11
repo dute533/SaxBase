@@ -71,7 +71,7 @@ func BuildPlan(ctx context.Context, manifest Manifest, delta, force bool, files,
 		case "pending":
 			action = "apply"
 			if migration.Version > targetMigration {
-				action = "deferred"
+				action = "waiting"
 			} else if migration.Version < schema.Version {
 				action = "out-of-order"
 				p.Blockers = append(p.Blockers, fmt.Sprintf("migration %d is pending below current database schema %d", migration.Version, schema.Version))

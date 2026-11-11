@@ -82,7 +82,7 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files, basel
 		for i, file := range files {
 			result[i].State = "changed"
 			if file.Delete {
-				result[i].State = "deleted"
+				result[i].State = "delete"
 			}
 		}
 	}
@@ -100,7 +100,7 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files, basel
 			alreadyCurrent = current == release.Version
 			if alreadyCurrent {
 				for i, file := range files {
-					result[i].State = "unchanged"
+					result[i].State = "current"
 					if file.Delete {
 						result[i].State = "missing"
 					}
@@ -125,7 +125,7 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files, basel
 			}
 			continue
 		}
-		if result[i].State == "unchanged" {
+		if result[i].State == "current" {
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, file.SQL); err != nil {

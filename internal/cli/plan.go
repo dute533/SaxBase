@@ -82,12 +82,12 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 	}
 	var migrationActions, objectActions int
 	for _, row := range plan.Migrations {
-		if row.Action != "applied" && row.Action != "deferred" {
+		if row.Action != "applied" && row.Action != "waiting" {
 			migrationActions++
 		}
 	}
 	for _, row := range plan.Objects {
-		if row.State != "unchanged" {
+		if row.State != "current" {
 			objectActions++
 		}
 	}
@@ -101,10 +101,10 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 	if migrationActions > 0 {
 		fmt.Fprintln(w, "MIGRATION\tACTION\tFILE")
 		for _, row := range plan.Migrations {
-			if row.Action == "applied" || row.Action == "deferred" {
+			if row.Action == "applied" || row.Action == "waiting" {
 				continue
 			}
-			fmt.Fprintf(w, "%d\t%s\t%s\n", row.Version, displayState(row.Action), row.Path)
+			fmt.Fprintf(w, "%d\t%s\t%s\n", row.Version, row.Action, row.Path)
 		}
 	}
 	if objectActions > 0 {
@@ -113,15 +113,15 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 		}
 		fmt.Fprintln(w, "OBJECT\tSTATE\tSHA256")
 		for _, row := range plan.Objects {
-			if row.State == "unchanged" {
+			if row.State == "current" {
 				continue
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\n", row.Path, displayState(row.State), row.Checksum)
+			fmt.Fprintf(w, "%s\t%s\t%s\n", row.Path, row.State, row.Checksum)
 		}
 	}
 	var hasNotIncluded bool
 	for _, row := range plan.Migrations {
-		if row.Action != "deferred" {
+		if row.Action != "waiting" {
 			continue
 		}
 		if !hasNotIncluded {
@@ -149,7 +149,7 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 			next = "saxbase apply"
 		} else {
 			for _, row := range plan.Migrations {
-				if row.Action == "deferred" {
+				if row.Action == "waiting" {
 					next = "saxbase release create VERSION"
 					break
 				}

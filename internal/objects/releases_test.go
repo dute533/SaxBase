@@ -62,7 +62,7 @@ func TestReleaseCommitsFingerprintWithoutSQLSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 2 || rows[0].State != "applied" || rows[1].State != "unchanged" {
+	if len(rows) != 2 || rows[0].State != "applied" || rows[1].State != "current" {
 		t.Fatalf("statuses: %+v", rows)
 	}
 }
@@ -125,7 +125,7 @@ func TestReleaseIdentityAndOrdering(t *testing.T) {
 			}
 			rows, err := s.apply(context.Background(), []File{file}, baseline, releaseFor("30.2.0", 30, []File{file}))
 			if scenario == "retry" {
-				if err != nil || rows[0].State != "unchanged" {
+				if err != nil || rows[0].State != "current" {
 					t.Fatalf("retry: %v %v", rows, err)
 				}
 			} else {
@@ -156,7 +156,7 @@ func TestForceApplyRewritesFingerprintAndEveryDeltaEntry(t *testing.T) {
 	mock.ExpectCommit()
 
 	rows, err := s.applyOn(context.Background(), s.db, files, nil, releaseFor("30.1.0", 30, files), true, true)
-	if err != nil || len(rows) != 2 || rows[0].State != "applied" || rows[1].State != "deleted" {
+	if err != nil || len(rows) != 2 || rows[0].State != "applied" || rows[1].State != "delete" {
 		t.Fatalf("rows=%+v err=%v", rows, err)
 	}
 }
