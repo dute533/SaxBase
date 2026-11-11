@@ -94,7 +94,7 @@ migrations one release at a time.
 | `release validate` | Validate manifest object references |
 
 Run `./saxbase -h` for all options. See the
-[working SQL Server example](examples/sqlserver/README.md) and
+[working SQL Server example](examples/README.md) and
 [full reference](docs/reference.md) for configuration, manifest behavior,
 development force-apply, and failure recovery.
 

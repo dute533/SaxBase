@@ -73,7 +73,7 @@ func integrationDatabase(t *testing.T) (context.Context, *sql.DB, string, func(.
 	// Use the documented example with the CLI's default database/ layout.
 	// Copy it so change/failure tests never modify the example in the checkout.
 	workDir := t.TempDir()
-	exampleDir := filepath.Join("..", "..", "examples", "sqlserver", "database")
+	exampleDir := filepath.Join("..", "..", "examples", "database")
 	if err := filepath.WalkDir(exampleDir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -365,7 +365,7 @@ func TestSQLServerMigration(t *testing.T) {
 
 	// A newer structural release is rolled back through Goose, with a failed
 	// Down migration first to prove progress survives and retries can finish.
-	noteMigration, err := os.ReadFile("../../examples/sqlserver/rollback/00003_add_customer_note.sql")
+	noteMigration, err := os.ReadFile("testdata/rollback/00003_add_customer_note.sql")
 	if err != nil {
 		t.Fatal(err)
 	}

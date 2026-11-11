@@ -22,7 +22,7 @@ func TestSQLServerManifestOrder(t *testing.T) {
 		}
 	}
 	for _, name := range []string{"z_base.sql", "a_dependent.sql"} {
-		data, err := os.ReadFile(filepath.Join("../../examples/sqlserver/ordering", name))
+		data, err := os.ReadFile(filepath.Join("testdata/ordering", name))
 		if err != nil {
 			t.Fatal(err)
 		}
