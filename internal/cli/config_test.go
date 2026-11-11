@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"saxbase/internal/dialect"
 	"saxbase/internal/migrations"
 	"saxbase/internal/objects"
 )
@@ -23,13 +24,13 @@ func TestTargetsAndDotEnv(t *testing.T) {
 		{name: "environment wins", args: []string{"status"}, values: map[string]string{"LOCAL_DSN": "override"}, want: "override"},
 		{name: "empty environment blocks fallback", args: []string{"status"}, values: map[string]string{"LOCAL_DSN": ""}, failure: "empty or missing"},
 		{name: "unknown", args: []string{"-target", "typo", "status"}, failure: "unknown database target"},
-		{name: "missing secret", args: []string{"-target", "acc", "status"}, values: map[string]string{"GOOSE_DBSTRING": "wrong-db"}, failure: "empty or missing"},
+		{name: "missing secret", args: []string{"-target", "acc", "status"}, values: map[string]string{"SAXBASE_DSN": "wrong-db"}, failure: "empty or missing"},
 		{name: "positional connection", args: []string{"mssql", "other-secret", "status"}, failure: "expected COMMAND"},
 		{name: "missing config", args: []string{"-config", "missing.yaml", "status"}, failure: "open target config"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Chdir(t.TempDir())
-			writeConfigFixture(t, "saxbase.yaml", "default_target: local\ntargets:\n  local:\n    connection_env: LOCAL_DSN\n  prod:\n    connection_env: PROD_DSN\n  acc:\n    connection_env: ACC_DSN\n")
+			writeConfigFixture(t, "saxbase.yaml", "default_target: local\ntargets:\n  local:\n    dialect: sqlserver\n    connection_env: LOCAL_DSN\n  prod:\n    dialect: postgres\n    connection_env: PROD_DSN\n  acc:\n    dialect: sqlserver\n    connection_env: ACC_DSN\n")
 			writeConfigFixture(t, ".env", "LOCAL_DSN='local-secret'\nPROD_DSN=prod-secret\n")
 			var out bytes.Buffer
 			opened := false
@@ -42,8 +43,15 @@ func TestTargetsAndDotEnv(t *testing.T) {
 				if cfg.DSN != tc.want {
 					t.Fatal("wrong target connection")
 				}
+				wantDialect := dialect.SQLServer
+				if tc.name == "explicit" {
+					wantDialect = dialect.Postgres
+				}
+				if cfg.Dialect != wantDialect {
+					t.Fatalf("dialect = %s, want %s", cfg.Dialect, wantDialect)
+				}
 				return &fakeEngine{}, nil
-			}, func(string) (objects.Engine, error) { return &fakeObjects{}, nil }, runEnvironment{lookup: func(k string) (string, bool) { v, ok := tc.values[k]; return v, ok }, diagnostics: &out, input: os.Stdin})
+			}, func(migrations.Config) (objects.Engine, error) { return &fakeObjects{}, nil }, runEnvironment{lookup: func(k string) (string, bool) { v, ok := tc.values[k]; return v, ok }, diagnostics: &out, input: os.Stdin})
 			if tc.failure != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.failure) {
 					t.Fatalf("error: %v", err)
@@ -67,10 +75,11 @@ func writeConfigFixture(t *testing.T, path, value string) {
 
 func TestConfigValidation(t *testing.T) {
 	for _, content := range []string{
-		"default_target: local\ntargets: {local: {connection_env: SECRET, typo: value}}",
+		"default_target: local\ntargets: {local: {dialect: sqlserver, connection_env: SECRET, typo: value}}",
 		"default_target: local\ndefault_target: prod\ntargets: {}",
 		"targets: {}",
-		"default_target: local\ntargets: {local: {}}",
+		"default_target: local\ntargets: {local: {dialect: sqlserver}}",
+		"default_target: local\ntargets: {local: {dialect: sqlite, connection_env: SECRET}}",
 		"default_target: local\ntargets: {}\n---\ntargets: {}",
 	} {
 		t.Run(content, func(t *testing.T) {
@@ -89,17 +98,17 @@ func TestDotEnvAndLocalCommands(t *testing.T) {
 	if err := os.MkdirAll("database/objects", 0700); err != nil {
 		t.Fatal(err)
 	}
-	writeConfigFixture(t, ".env", "GOOSE_DBSTRING='dotenv-secret'\n")
+	writeConfigFixture(t, ".env", "SAXBASE_DIALECT=sqlserver\nSAXBASE_DSN='dotenv-secret'\n")
 	var out bytes.Buffer
 	if err := run(context.Background(), []string{"status"}, env(nil), &out, func(cfg migrations.Config) (migrations.Engine, error) {
 		if cfg.DSN != "dotenv-secret" {
 			t.Fatal("dotenv not loaded")
 		}
 		return &fakeEngine{}, nil
-	}, func(string) (objects.Engine, error) { return &fakeObjects{}, nil }); err != nil {
+	}, func(migrations.Config) (objects.Engine, error) { return &fakeObjects{}, nil }); err != nil {
 		t.Fatal(err)
 	}
-	writeConfigFixture(t, "saxbase.yaml", "default_target: prod\ntargets: {prod: {connection_env: MISSING}}")
+	writeConfigFixture(t, "saxbase.yaml", "default_target: prod\ntargets: {prod: {dialect: sqlserver, connection_env: MISSING}}")
 	if err := os.Mkdir("objects", 0700); err != nil {
 		t.Fatal(err)
 	}

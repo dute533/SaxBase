@@ -1,8 +1,8 @@
 # SaxBase reference
 
-SaxBase deploys SQL Server migrations and versioned views, procedures, and
-functions as one release. Goose manages structural migrations; SaxBase applies
-complete object definitions in manifest order.
+SaxBase deploys SQL Server and PostgreSQL migrations with versioned views,
+procedures, and functions as one release. Goose manages structural migrations;
+SaxBase applies complete object definitions in manifest order.
 
 ## Project layout
 
@@ -31,8 +31,10 @@ The target configuration maps deployment names to environment variables:
 default_target: local
 targets:
   local:
+    dialect: sqlserver
     connection_env: SAXBASE_LOCAL_DSN
   prod:
+    dialect: postgres
     connection_env: SAXBASE_PROD_DSN
     require_confirmation: true
 ```
@@ -41,16 +43,19 @@ Use `-target NAME` to override `default_target`. Protected targets prompt before
 `apply` and `rollback`; pass `-yes` for unattended deployment. Existing
 environment variables override values loaded from `.env`.
 
-Without a target configuration, set `GOOSE_DBSTRING`. Use a native SQL Server
-URL or ADO connection string with an explicit, non-system database:
+Without a target configuration, set `SAXBASE_DIALECT` and `SAXBASE_DSN`. Every
+connection must select an explicit, non-maintenance database:
 
 ```text
 sqlserver://USER:PASSWORD@localhost:1433?database=ObjectStore
 server=localhost;user id=USER;password=PASSWORD;database=ObjectStore
+postgres://USER:PASSWORD@localhost:5432/object_store
 ```
 
-JDBC connection strings are not supported. SQL Server is currently the only
-supported database.
+Supported dialect values are `sqlserver` and `postgres`. JDBC SQL Server
+connection strings are not supported. The dialect belongs to deployment
+configuration, not the release manifest; targets sharing a manifest must use
+the database syntax that manifest's migrations and objects were written for.
 
 ## Release workflow
 
@@ -86,6 +91,8 @@ entries, and records it before continuing.
 `database/migrations/00003_add_customer_email.sql`. Names are normalized to
 lowercase snake case.
 
+SQL Server migration:
+
 ```sql
 -- +goose Up
 ALTER TABLE dbo.customers ADD email NVARCHAR(320) NULL;
@@ -94,9 +101,10 @@ ALTER TABLE dbo.customers ADD email NVARCHAR(320) NULL;
 ALTER TABLE dbo.customers DROP COLUMN email;
 ```
 
-Use Goose annotations and transaction rules. Do not include SQL Server `GO`
-batch separators. A release's `migration_version` determines how far `apply` or
-`rollback` moves the schema.
+Write migrations in the selected database's native SQL. Use Goose annotations
+and transaction rules; SQL Server files must not contain `GO` batch separators.
+A release's `migration_version` determines how far `apply` or `rollback` moves
+the schema.
 
 `release create VERSION` selects the first migration above the latest release.
 If no migration is pending, it reuses the latest migration target for an
@@ -106,11 +114,18 @@ migration.
 ## Database objects
 
 Store one complete view, procedure, or function definition per SQL file below
-`database/objects`, normally using `CREATE OR ALTER`:
+`database/objects`. Use `CREATE OR ALTER` for SQL Server:
 
 ```sql
 CREATE OR ALTER VIEW dbo.customer_names AS
 SELECT id, name FROM dbo.customers;
+```
+
+Use `CREATE OR REPLACE` for PostgreSQL:
+
+```sql
+CREATE OR REPLACE VIEW public.customer_names AS
+SELECT id, name FROM public.customers;
 ```
 
 An object file must contain one SQL batch. Do not include Goose annotations,
@@ -124,6 +139,9 @@ deployment order.
 Object files must be committed before `release create`. The manifest pins their
 exact Git commits so deployments and rollbacks do not depend on the current
 working tree.
+
+Object identity is the schema-qualified name. Keep one view, procedure, or
+function per identity; overloaded PostgreSQL routines are rejected.
 
 ## Release manifests
 

@@ -37,7 +37,7 @@ func TestRollbackCommand(t *testing.T) {
 		goose := &fakeEngine{}
 		store := &fakeObjects{rollbackErr: failure, current: "30.2.0", currentSet: true}
 		var out bytes.Buffer
-		err := run(context.Background(), []string{"-manifest", path, "rollback"}, env(map[string]string{"GOOSE_DBSTRING": "dsn", "SAXBASE_OBJECTS_DIR": "absent"}), &out, func(migrations.Config) (migrations.Engine, error) { return goose, nil }, func(string) (objects.Engine, error) { return store, nil })
+		err := run(context.Background(), []string{"-manifest", path, "rollback"}, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn", "SAXBASE_OBJECTS_DIR": "absent"}), &out, func(migrations.Config) (migrations.Engine, error) { return goose, nil }, func(migrations.Config) (objects.Engine, error) { return store, nil })
 		if !errors.Is(err, failure) || !goose.closed || !store.closed || store.command != "rollback" {
 			t.Fatalf("result: %v %+v %+v", err, goose, store)
 		}
@@ -81,9 +81,9 @@ func TestRollbackWalksRecordedReleasesOneStepAtATime(t *testing.T) {
 		{store: &fakeObjects{current: "30.2.0", currentSet: true}, steps: []string{"30.2.0->30.1.0", "30.1.0->30.0.0"}},
 	} {
 		var out bytes.Buffer
-		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "rollback", "30.0.0"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
+		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "rollback", "30.0.0"}, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &out,
 			func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
-			func(string) (objects.Engine, error) { return tc.store, nil })
+			func(migrations.Config) (objects.Engine, error) { return tc.store, nil })
 		if err != nil || !reflect.DeepEqual(tc.store.rollbackSteps, tc.steps) {
 			t.Fatalf("rollback steps=%v, want %v: err=%v output=%s", tc.store.rollbackSteps, tc.steps, err, out.String())
 		}

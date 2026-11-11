@@ -7,6 +7,8 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/database"
+	"saxbase/internal/dialect"
 )
 
 func TestInspectDoesNotInitializeGoose(t *testing.T) {
@@ -29,7 +31,7 @@ func TestInspectDoesNotInitializeGoose(t *testing.T) {
 		if existing {
 			mock.ExpectQuery(`SELECT version_id, is_applied FROM dbo\.saxbase_schema_version`).WillReturnRows(sqlmock.NewRows([]string{"version_id", "is_applied"}).AddRow(2, true).AddRow(1, true).AddRow(0, true))
 		}
-		state, err := (&gooseEngine{db: db, provider: p}).Inspect(context.Background())
+		state, err := (&gooseEngine{db: db, provider: p, storeDialect: database.DialectMSSQL, tableName: "dbo.saxbase_schema_version", dialect: dialect.SQLServer}).Inspect(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}

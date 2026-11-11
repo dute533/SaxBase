@@ -40,7 +40,7 @@ func TestPlanCLI(t *testing.T) {
 		goose := &fakeEngine{}
 		db := &fakeObjects{currentSet: true}
 		var out bytes.Buffer
-		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "plan"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out, func(migrations.Config) (migrations.Engine, error) { return goose, nil }, func(string) (objects.Engine, error) { return db, nil })
+		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "plan"}, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &out, func(migrations.Config) (migrations.Engine, error) { return goose, nil }, func(migrations.Config) (objects.Engine, error) { return db, nil })
 		if err != nil || !goose.closed || !db.closed {
 			t.Fatalf("error=%v goose=%+v db=%+v", err, goose, db)
 		}
@@ -78,9 +78,9 @@ func TestPlanSelectsNextManifestHistoryRelease(t *testing.T) {
 	for _, test := range []struct{ current, target string }{{"", "30.0.0"}, {"30.0.0", "30.1.0"}, {"30.1.0", "30.1.0"}} {
 		db := &fakeObjects{current: test.current, currentSet: true}
 		var out bytes.Buffer
-		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "plan"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
+		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "plan"}, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &out,
 			func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
-			func(string) (objects.Engine, error) { return db, nil })
+			func(migrations.Config) (objects.Engine, error) { return db, nil })
 		if err != nil || !strings.Contains(out.String(), "-> "+test.target) || strings.Contains(out.String(), "BLOCKERS") {
 			t.Fatalf("current %q target %q: err=%v output=%s", test.current, test.target, err, out.String())
 		}

@@ -13,7 +13,7 @@ import (
 	"saxbase/internal/releases"
 )
 
-func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDir string, force bool, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {
+func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDir string, force bool, out io.Writer, open OpenFunc, openObjects OpenObjectsFunc) (err error) {
 	if manifestPath == "" {
 		manifestPath = "database/release.json"
 	}
@@ -26,7 +26,7 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 		return err
 	}
 	defer func() { err = errors.Join(err, goose.Close()) }()
-	db, err := openObjects(cfg.DSN)
+	db, err := openObjects(cfg)
 	if err != nil {
 		return err
 	}

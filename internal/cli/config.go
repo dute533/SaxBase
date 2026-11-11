@@ -9,12 +9,14 @@ import (
 
 	"github.com/joho/godotenv"
 	"go.yaml.in/yaml/v3"
+	"saxbase/internal/dialect"
 	"saxbase/internal/migrations"
 )
 
 type targetConfig struct {
 	DefaultTarget string `yaml:"default_target"`
 	Targets       map[string]struct {
+		Dialect             string `yaml:"dialect"`
 		ConnectionEnv       string `yaml:"connection_env"`
 		RequireConfirmation bool   `yaml:"require_confirmation"`
 	} `yaml:"targets"`
@@ -73,6 +75,11 @@ func selectTarget(filename, target string, getenv func(string) string, cfg *migr
 	if !ok {
 		return withNext(fmt.Errorf("unknown database target %q", target), "edit saxbase.yaml or select a configured -target")
 	}
+	dialectName, err := dialect.Parse(entry.Dialect)
+	if err != nil {
+		return withNext(fmt.Errorf("target %q: %w", target, err), "edit "+filename+" and set dialect to sqlserver or postgres")
+	}
+	cfg.Dialect = dialectName
 	if strings.TrimSpace(entry.ConnectionEnv) == "" {
 		return withNext(fmt.Errorf("target %q requires connection_env", target), "edit saxbase.yaml and set connection_env")
 	}

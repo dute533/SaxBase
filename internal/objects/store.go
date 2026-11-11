@@ -3,25 +3,35 @@ package objects
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 
-	"saxbase/internal/sqlserverdsn"
-
+	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/microsoft/go-mssqldb"
+	"saxbase/internal/migrations"
 )
 
-type store struct{ db *sql.DB }
+type store struct {
+	db      *sql.DB
+	dialect objectDialect
+}
 
-func Open(dsn string) (Engine, error) {
-	if err := sqlserverdsn.Validate(dsn); err != nil {
+func Open(cfg migrations.Config) (Engine, error) {
+	connection, err := cfg.Dialect.Connection()
+	if err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlserver", dsn)
-	if err != nil {
-		return nil, errors.New("open SQL Server connection: invalid connection string")
+	if err := connection.ValidateDSN(cfg.DSN); err != nil {
+		return nil, err
 	}
-	return &store{db: db}, nil
+	dialectSpec, err := objectDialectFor(cfg.Dialect)
+	if err != nil {
+		return nil, err
+	}
+	db, err := sql.Open(connection.Driver, cfg.DSN)
+	if err != nil {
+		return nil, fmt.Errorf("open %s connection: invalid connection string", cfg.Dialect)
+	}
+	return &store{db: db, dialect: dialectSpec}, nil
 }
 func (s *store) Close() error { return s.db.Close() }
 
@@ -43,12 +53,15 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files, basel
 	if err := validateFiles(baseline); err != nil {
 		return nil, fmt.Errorf("invalid release baseline: %w", err)
 	}
+	if err := validateObjectTransition(files, baseline); err != nil {
+		return nil, err
+	}
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	if err := checkReleaseSchema(ctx, tx, release.MigrationVersion); err != nil {
+	if err := s.checkReleaseSchema(ctx, tx, release.MigrationVersion); err != nil {
 		return nil, err
 	}
 	result := Compare(files, baseline)
@@ -64,12 +77,12 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files, basel
 		}
 	}
 	alreadyCurrent := false
-	created, err := prepareRelease(ctx, tx, release, force)
+	created, err := s.prepareRelease(ctx, tx, release, force)
 	if err != nil {
 		return nil, err
 	}
 	if !created && !force {
-		current, err := currentVersion(ctx, tx)
+		current, err := s.currentVersion(ctx, tx)
 		if err != nil {
 			return nil, err
 		}
@@ -95,7 +108,7 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files, basel
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", file.Path, err)
 			}
-			if _, err := tx.ExecContext(ctx, id.drop()); err != nil {
+			if _, err := tx.ExecContext(ctx, s.dialect.drop(id)); err != nil {
 				return nil, fmt.Errorf("drop %s: %w", file.Path, err)
 			}
 			continue
@@ -108,7 +121,7 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files, basel
 		}
 	}
 
-	if err := setCurrent(ctx, tx, release.Version); err != nil {
+	if err := s.setCurrent(ctx, tx, release.Version); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {

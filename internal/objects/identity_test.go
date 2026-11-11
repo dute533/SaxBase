@@ -3,6 +3,8 @@ package objects
 import (
 	"strings"
 	"testing"
+
+	"saxbase/internal/dialect"
 )
 
 func TestObjectIdentity(t *testing.T) {
@@ -26,8 +28,12 @@ func TestObjectIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if id.drop() != "DROP VIEW IF EXISTS [a;b].[v]];--];" {
-		t.Fatal(id.drop())
+	spec, err := objectDialectFor(dialect.SQLServer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.drop(id) != "DROP VIEW IF EXISTS [a;b].[v]];--];" {
+		t.Fatal(spec.drop(id))
 	}
 }
 
@@ -46,10 +52,14 @@ func TestSnapshotValidationForRollback(t *testing.T) {
 func TestRestoreCreateDefinition(t *testing.T) {
 	input := "-- header\nCREATE /* comment */ VIEW dbo.v AS SELECT N'CREATE' AS n;"
 	want := "-- header\nCREATE OR ALTER /* comment */ VIEW dbo.v AS SELECT N'CREATE' AS n;"
-	if got := restoreDefinition(input); got != want {
+	if got := restoreDefinition(input, dialect.SQLServer); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
-	if got := restoreDefinition(want); got != want {
+	if got := restoreDefinition(want, dialect.SQLServer); got != want {
 		t.Fatalf("changed CREATE OR ALTER: %q", got)
+	}
+	postgres := "-- header\nCREATE OR REPLACE /* comment */ VIEW dbo.v AS SELECT N'CREATE' AS n;"
+	if got := restoreDefinition(input, dialect.Postgres); got != postgres {
+		t.Fatalf("PostgreSQL restore = %q, want %q", got, postgres)
 	}
 }

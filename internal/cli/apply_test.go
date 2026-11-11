@@ -38,9 +38,9 @@ func TestApplyCLI(t *testing.T) {
 		}
 		goose, db := &fakeEngine{}, &fakeObjects{currentSet: true}
 		var out bytes.Buffer
-		err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
+		err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &out,
 			func(migrations.Config) (migrations.Engine, error) { return goose, nil },
-			func(string) (objects.Engine, error) { return db, nil })
+			func(migrations.Config) (objects.Engine, error) { return db, nil })
 		if !goose.closed || !db.closed {
 			t.Fatal("engines were not closed")
 		}
@@ -77,9 +77,9 @@ func TestApplyAdvancesEntireManifestHistoryAndIsIdempotent(t *testing.T) {
 	apply := func(db *fakeObjects) string {
 		t.Helper()
 		var out bytes.Buffer
-		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
+		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &out,
 			func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
-			func(string) (objects.Engine, error) { return db, nil })
+			func(migrations.Config) (objects.Engine, error) { return db, nil })
 		if err != nil {
 			t.Fatalf("apply: err=%v current=%q output=%s", err, db.current, out.String())
 		}
@@ -128,9 +128,9 @@ func TestApplyStopsAtFailedRelease(t *testing.T) {
 	failure := errors.New("object deployment failed")
 	db := &fakeObjects{currentSet: true, applyErrAt: "30.1.0", applyErr: failure}
 	var out bytes.Buffer
-	err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
+	err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &out,
 		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
-		func(string) (objects.Engine, error) { return db, nil })
+		func(migrations.Config) (objects.Engine, error) { return db, nil })
 	if !errors.Is(err, failure) || db.current != "30.0.0" || strings.Join(db.appliedVersions, ",") != "30.0.0" {
 		t.Fatalf("failed apply: err=%v current=%q applied=%v", err, db.current, db.appliedVersions)
 	}
@@ -155,9 +155,9 @@ func TestForceApplyReappliesCurrentRelease(t *testing.T) {
 	}
 	db := &fakeObjects{}
 	var out bytes.Buffer
-	err = run(context.Background(), []string{"-f", "-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
+	err = run(context.Background(), []string{"-f", "-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &out,
 		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
-		func(string) (objects.Engine, error) { return db, nil })
+		func(migrations.Config) (objects.Engine, error) { return db, nil })
 	if err != nil || !db.force || !strings.Contains(out.String(), "Force-applied release 30.0.0") {
 		t.Fatalf("force apply: err=%v force=%v output=%s", err, db.force, out.String())
 	}

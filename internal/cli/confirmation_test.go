@@ -18,14 +18,17 @@ func TestProtectedWritesRejectBeforeDatabaseAccess(t *testing.T) {
 		for _, answer := range []string{"no\n", "\n", "", "yes"} {
 			t.Run(strings.Join(command, " ")+"/"+answer, func(t *testing.T) {
 				t.Chdir(t.TempDir())
-				writeConfigFixture(t, "saxbase.yaml", "default_target: prod\ntargets: {prod: {connection_env: DSN, require_confirmation: true}}")
+				writeConfigFixture(t, "saxbase.yaml", "default_target: prod\ntargets: {prod: {dialect: sqlserver, connection_env: DSN, require_confirmation: true}}")
 				var out bytes.Buffer
 				err := run(context.Background(), command, env(map[string]string{"DSN": "secret"}), &out,
 					func(migrations.Config) (migrations.Engine, error) {
 						t.Fatal("opened migrations before confirmation")
 						return nil, nil
 					},
-					func(string) (objects.Engine, error) { t.Fatal("opened objects before confirmation"); return nil, nil },
+					func(migrations.Config) (objects.Engine, error) {
+						t.Fatal("opened objects before confirmation")
+						return nil, nil
+					},
 					runEnvironment{diagnostics: &out, input: strings.NewReader(answer)})
 				if err == nil || !strings.Contains(err.Error(), "cancelled") {
 					t.Fatalf("%v", err)
@@ -63,11 +66,11 @@ func TestConfirmationSelectionAndBypass(t *testing.T) {
 			if tc.protected {
 				flag = "true"
 			}
-			writeConfigFixture(t, "saxbase.yaml", "default_target: prod\ntargets: {prod: {connection_env: DSN, require_confirmation: "+flag+"}}")
+			writeConfigFixture(t, "saxbase.yaml", "default_target: prod\ntargets: {prod: {dialect: sqlserver, connection_env: DSN, require_confirmation: "+flag+"}}")
 			var out, diagnostics bytes.Buffer
 			opened := false
 			err := run(context.Background(), tc.args, env(map[string]string{"DSN": "secret"}), &out,
-				func(migrations.Config) (migrations.Engine, error) { opened = true; return &fakeEngine{}, nil }, func(string) (objects.Engine, error) { return &fakeObjects{}, nil },
+				func(migrations.Config) (migrations.Engine, error) { opened = true; return &fakeEngine{}, nil }, func(migrations.Config) (objects.Engine, error) { return &fakeObjects{}, nil },
 				runEnvironment{diagnostics: &diagnostics, input: strings.NewReader(tc.answer)})
 			if !opened || (err == nil && tc.prompt) {
 				t.Fatalf("%v", err)

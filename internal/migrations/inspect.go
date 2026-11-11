@@ -3,21 +3,23 @@ package migrations
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"sort"
 
 	"github.com/pressly/goose/v3/database"
+	"saxbase/internal/dialect"
 )
 
 // Inspect never initializes Goose's version table, unlike Provider.Status.
 func (g *gooseEngine) Inspect(ctx context.Context) (Inspection, error) {
 	result := Inspection{Migrations: make([]Status, 0)}
-	var table sql.NullInt64
-	if err := g.db.QueryRowContext(ctx, "SELECT OBJECT_ID(N'dbo.saxbase_schema_version',N'U')").Scan(&table); err != nil {
+	exists, err := g.migrationTableExists(ctx)
+	if err != nil {
 		return result, err
 	}
 	applied := map[int64]bool{}
-	if table.Valid {
-		store, err := database.NewStore(database.DialectMSSQL, schemaVersionTable)
+	if exists {
+		store, err := database.NewStore(g.storeDialect, g.tableName)
 		if err != nil {
 			return result, err
 		}
@@ -55,4 +57,23 @@ func (g *gooseEngine) Inspect(ctx context.Context) (Inspection, error) {
 	}
 	sort.Slice(result.Migrations, func(i, j int) bool { return result.Migrations[i].Version < result.Migrations[j].Version })
 	return result, nil
+}
+
+func (g *gooseEngine) migrationTableExists(ctx context.Context) (bool, error) {
+	if g.dialect == dialect.SQLServer {
+		var table sql.NullInt64
+		if err := g.db.QueryRowContext(ctx, "SELECT OBJECT_ID(N'dbo.saxbase_schema_version',N'U')").Scan(&table); err != nil {
+			return false, err
+		}
+		return table.Valid, nil
+	}
+	store, err := database.NewStore(g.storeDialect, g.tableName)
+	if err != nil {
+		return false, err
+	}
+	extended, ok := store.(database.StoreExtender)
+	if !ok {
+		return false, fmt.Errorf("%s migration store cannot inspect its metadata table", g.dialect)
+	}
+	return extended.TableExists(ctx, g.db)
 }

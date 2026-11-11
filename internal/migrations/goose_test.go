@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"saxbase/internal/dialect"
 )
 
 func TestOpenDiscoversGooseSQLMigrations(t *testing.T) {
@@ -13,7 +15,7 @@ func TestOpenDiscoversGooseSQLMigrations(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	e, err := Open(Config{DSN: "sqlserver://localhost?database=saxbase_test", Dir: dir})
+	e, err := Open(Config{Dialect: dialect.SQLServer, DSN: "sqlserver://localhost?database=saxbase_test", Dir: dir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,8 +36,8 @@ func TestOpenRejectsInvalidConfiguration(t *testing.T) {
 	}
 	for _, cfg := range []Config{
 		{Dir: dir},
-		{DSN: "sqlserver://localhost?database=saxbase_test", Dir: filepath.Join(dir, "missing")},
-		{DSN: "sqlserver://localhost?database=saxbase_test", Dir: file},
+		{Dialect: dialect.SQLServer, DSN: "sqlserver://localhost?database=saxbase_test", Dir: filepath.Join(dir, "missing")},
+		{Dialect: dialect.SQLServer, DSN: "sqlserver://localhost?database=saxbase_test", Dir: file},
 	} {
 		if e, err := Open(cfg); err == nil {
 			e.Close()

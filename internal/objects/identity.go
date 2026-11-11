@@ -4,17 +4,13 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+
+	"saxbase/internal/dialect"
 )
 
 type identity struct{ kind, schema, name string }
 
 func (i identity) key() string { return strings.ToLower(i.schema + "\x00" + i.name) }
-func (i identity) qualified() string {
-	return "[" + strings.ReplaceAll(i.schema, "]", "]]") + "].[" + strings.ReplaceAll(i.name, "]", "]]") + "]"
-}
-func (i identity) drop() string {
-	return "DROP " + i.kind + " IF EXISTS [" + strings.ReplaceAll(i.schema, "]", "]]") + "].[" + strings.ReplaceAll(i.name, "]", "]]") + "];"
-}
 
 // Read only the DDL header, never interpolate raw SQL into a DROP statement.
 // Schema qualification is required because a login's default schema can change.
@@ -38,8 +34,9 @@ func objectIdentity(definition string) (identity, error) {
 		return identity{}, err
 	}
 	if !quoted && strings.EqualFold(kind, "OR") {
-		if err := keyword("ALTER"); err != nil {
-			return identity{}, err
+		replacement, replacementQuoted, err := l.next()
+		if err != nil || replacementQuoted || (!strings.EqualFold(replacement, "ALTER") && !strings.EqualFold(replacement, "REPLACE")) {
+			return identity{}, fmt.Errorf("expected ALTER or REPLACE in object definition")
 		}
 		kind, quoted, err = l.next()
 		if err != nil {
@@ -51,7 +48,7 @@ func objectIdentity(definition string) (identity, error) {
 		kind = "PROCEDURE"
 	}
 	if quoted || (kind != "VIEW" && kind != "PROCEDURE" && kind != "FUNCTION") {
-		return identity{}, fmt.Errorf("rollback supports CREATE [OR ALTER] VIEW, PROCEDURE or FUNCTION")
+		return identity{}, fmt.Errorf("rollback supports CREATE [OR ALTER|REPLACE] VIEW, PROCEDURE or FUNCTION")
 	}
 	schema, _, err := l.next()
 	if err != nil || schema == "" || schema == "." {
@@ -79,9 +76,9 @@ type headerLexer struct {
 	pos   int
 }
 
-// Historical files may use CREATE rather than CREATE OR ALTER. Make only the
-// DDL verb repeatable; preserve the stored source/checksum and the object's body.
-func restoreDefinition(definition string) string {
+// Historical files may use CREATE rather than a repeatable DDL form. Make only
+// the verb repeatable; preserve the stored source/checksum and object body.
+func restoreDefinition(definition string, name dialect.Name) string {
 	l := headerLexer{input: []rune(strings.TrimPrefix(definition, "\ufeff"))}
 	_, _, _ = l.next()
 	afterCreate := l.pos
@@ -89,7 +86,11 @@ func restoreDefinition(definition string) string {
 	if strings.EqualFold(next, "OR") {
 		return definition
 	}
-	return string(l.input[:afterCreate]) + " OR ALTER" + string(l.input[afterCreate:])
+	replacement := " OR ALTER"
+	if name == dialect.Postgres {
+		replacement = " OR REPLACE"
+	}
+	return string(l.input[:afterCreate]) + replacement + string(l.input[afterCreate:])
 }
 
 func (l *headerLexer) next() (string, bool, error) {
@@ -181,4 +182,32 @@ func snapshotFiles(snapshot Snapshot) ([]File, []identity, error) {
 		ids = append(ids, id)
 	}
 	return files, ids, validateFiles(files)
+}
+
+func validateObjectTransition(files, baseline []File) error {
+	state := make(map[string]File, len(baseline)+len(files))
+	for _, file := range baseline {
+		if !file.Delete {
+			state[file.Path] = file
+		}
+	}
+	for _, file := range files {
+		if file.Delete {
+			delete(state, file.Path)
+		} else {
+			state[file.Path] = file
+		}
+	}
+	seen := make(map[string]string, len(state))
+	for path, file := range state {
+		id, err := objectIdentity(file.SQL)
+		if err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		if previous, ok := seen[id.key()]; ok {
+			return fmt.Errorf("duplicate database object %s.%s in %s and %s", id.schema, id.name, previous, path)
+		}
+		seen[id.key()] = path
+	}
+	return nil
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"saxbase/internal/dialect"
 	"saxbase/internal/migrations"
 	"saxbase/internal/objects"
 	"saxbase/internal/releases"
@@ -47,9 +48,9 @@ func TestUnifiedStatus(t *testing.T) {
 	}
 	goose, db := &fakeEngine{}, &fakeObjects{}
 	var out bytes.Buffer
-	err := run(context.Background(), []string{"-objects-dir", dir, "status"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
+	err := run(context.Background(), []string{"-objects-dir", dir, "status"}, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &out,
 		func(migrations.Config) (migrations.Engine, error) { return goose, nil },
-		func(string) (objects.Engine, error) { return db, nil })
+		func(migrations.Config) (objects.Engine, error) { return db, nil })
 	if err != nil || !goose.closed || !db.closed || db.command != "inspect" {
 		t.Fatalf("status: %v goose=%+v db=%+v", err, goose, db)
 	}
@@ -82,9 +83,9 @@ func TestStatusResolvesCompleteManifestHistory(t *testing.T) {
 	}
 	db := &fakeObjects{}
 	var out bytes.Buffer
-	err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "status"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
+	err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "status"}, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &out,
 		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
-		func(string) (objects.Engine, error) { return db, nil })
+		func(migrations.Config) (objects.Engine, error) { return db, nil })
 	if err != nil || !strings.Contains(out.String(), "a.sql") || !strings.Contains(out.String(), "b.sql") {
 		t.Fatalf("status output=%s err=%v", out.String(), err)
 	}
@@ -96,22 +97,36 @@ func TestConfigurationPrecedence(t *testing.T) {
 		args []string
 		want migrations.Config
 	}{
-		{"environment", []string{"status"}, migrations.Config{DSN: "env-dsn", Dir: "env-dir"}},
-		{"arguments", []string{"-dir", "custom", "status"}, migrations.Config{DSN: "env-dsn", Dir: "custom"}},
-		{"arguments after command", []string{"status", "-dir", "custom"}, migrations.Config{DSN: "env-dsn", Dir: "custom"}},
+		{"environment", []string{"status"}, migrations.Config{Dialect: dialect.SQLServer, DSN: "env-dsn", Dir: "env-dir"}},
+		{"arguments", []string{"-dir", "custom", "status"}, migrations.Config{Dialect: dialect.SQLServer, DSN: "env-dsn", Dir: "custom"}},
+		{"arguments after command", []string{"status", "-dir", "custom"}, migrations.Config{Dialect: dialect.SQLServer, DSN: "env-dsn", Dir: "custom"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			err := run(context.Background(), append([]string{"-objects-dir", dir}, tc.args...), env(map[string]string{"GOOSE_DBSTRING": "env-dsn", "GOOSE_MIGRATION_DIR": "env-dir"}), &bytes.Buffer{}, func(cfg migrations.Config) (migrations.Engine, error) {
+			err := run(context.Background(), append([]string{"-objects-dir", dir}, tc.args...), env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "env-dsn", "SAXBASE_MIGRATIONS_DIR": "env-dir"}), &bytes.Buffer{}, func(cfg migrations.Config) (migrations.Engine, error) {
 				if cfg != tc.want {
 					t.Fatalf("config = %+v, want %+v", cfg, tc.want)
 				}
 				return &fakeEngine{}, nil
-			}, func(string) (objects.Engine, error) { return &fakeObjects{}, nil })
+			}, func(migrations.Config) (objects.Engine, error) { return &fakeObjects{}, nil })
 			if err != nil {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestLegacyGooseEnvironmentIsNotAccepted(t *testing.T) {
+	t.Chdir(t.TempDir())
+	err := Run(context.Background(), []string{"status"}, env(map[string]string{
+		"GOOSE_DBSTRING":      "sqlserver://localhost?database=legacy",
+		"GOOSE_MIGRATION_DIR": "legacy-migrations",
+	}), &bytes.Buffer{}, func(migrations.Config) (migrations.Engine, error) {
+		t.Fatal("opened database with legacy environment")
+		return nil, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "dialect") {
+		t.Fatalf("legacy environment error = %v", err)
 	}
 }
 
@@ -164,9 +179,9 @@ func TestErrorsAndCleanup(t *testing.T) {
 	closeFailure := errors.New("close failed")
 	dir := t.TempDir()
 	f := &fakeEngine{err: failure, closeErr: closeFailure}
-	err := run(context.Background(), []string{"-objects-dir", dir, "status"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &bytes.Buffer{},
+	err := run(context.Background(), []string{"-objects-dir", dir, "status"}, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &bytes.Buffer{},
 		func(migrations.Config) (migrations.Engine, error) { return f, nil },
-		func(string) (objects.Engine, error) { return &fakeObjects{}, nil })
+		func(migrations.Config) (objects.Engine, error) { return &fakeObjects{}, nil })
 	if !errors.Is(err, failure) || !errors.Is(err, closeFailure) || !f.closed {
 		t.Fatalf("error %v, closed %v", err, f.closed)
 	}

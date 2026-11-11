@@ -46,12 +46,15 @@ func TestGitResolutionFailsBeforeDatabaseOpen(t *testing.T) {
 	for _, command := range [][]string{{"apply"}, {"plan"}, {"rollback", "30.0.0"}} {
 		prefix := []string{"-manifest", path}
 		args := append(prefix, command...)
-		err := run(context.Background(), args, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &bytes.Buffer{},
+		err := run(context.Background(), args, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &bytes.Buffer{},
 			func(migrations.Config) (migrations.Engine, error) {
 				t.Fatal("opened Goose before resolving all SQL")
 				return nil, nil
 			},
-			func(string) (objects.Engine, error) { t.Fatal("opened DB before resolving all SQL"); return nil, nil })
+			func(migrations.Config) (objects.Engine, error) {
+				t.Fatal("opened DB before resolving all SQL")
+				return nil, nil
+			})
 		if err == nil {
 			t.Fatalf("accepted %v", command)
 		}

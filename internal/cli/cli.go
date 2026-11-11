@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 
+	"saxbase/internal/dialect"
 	"saxbase/internal/migrations"
 	"saxbase/internal/objects"
 )
@@ -36,8 +37,9 @@ Commands:
   release validate        Check the manifest against current object files
 
 Environment:
-  GOOSE_DBSTRING  SQL Server connection string with an explicit database
-  GOOSE_MIGRATION_DIR  Migration directory (default database/migrations)
+  SAXBASE_DIALECT  Database dialect: sqlserver or postgres
+  SAXBASE_DSN  Database connection string
+  SAXBASE_MIGRATIONS_DIR  Migration directory (default database/migrations)
   SAXBASE_OBJECTS_DIR  Object directory (default database/objects)
 
 Configuration:
@@ -54,6 +56,7 @@ Options may appear before or after the command.
 `
 
 type OpenFunc func(migrations.Config) (migrations.Engine, error)
+type OpenObjectsFunc func(migrations.Config) (objects.Engine, error)
 
 func Run(ctx context.Context, args []string, getenv func(string) string, out io.Writer, open OpenFunc) (err error) {
 	return run(ctx, args, getenv, out, open, objects.Open)
@@ -71,7 +74,7 @@ func RunWithLookup(ctx context.Context, args []string, lookup func(string) (stri
 	return run(ctx, args, getenv, out, open, objects.Open, runEnvironment{lookup: lookup, diagnostics: diagnostics, input: os.Stdin})
 }
 
-func run(ctx context.Context, args []string, getenv func(string) string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error), environment ...runEnvironment) (err error) {
+func run(ctx context.Context, args []string, getenv func(string) string, out io.Writer, open OpenFunc, openObjects OpenObjectsFunc, environment ...runEnvironment) (err error) {
 	if len(args) == 0 {
 		_, err = io.WriteString(out, usage)
 		return err
@@ -126,7 +129,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	if err != nil {
 		return err
 	}
-	cfg := migrations.Config{DSN: getenv("GOOSE_DBSTRING"), Dir: getenv("GOOSE_MIGRATION_DIR")}
+	dialectName, dialectErr := dialect.Parse(getenv("SAXBASE_DIALECT"))
+	cfg := migrations.Config{Dialect: dialectName, DSN: getenv("SAXBASE_DSN"), Dir: getenv("SAXBASE_MIGRATIONS_DIR")}
 	if cfg.Dir == "" {
 		cfg.Dir = "database/migrations"
 	}
@@ -157,6 +161,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		if err := resolveTarget("rollback"); err != nil {
 			return err
 		}
+		if err := cfg.Dialect.Validate(); err != nil {
+			return err
+		}
 		return runRollback(ctx, pos[1:], cfg, manifestPath, objectDir, out, open, openObjects)
 	}
 	if len(pos) > 0 && pos[0] == "migration" {
@@ -177,8 +184,14 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	if err := resolveTarget(command); err != nil {
 		return err
 	}
+	if err := cfg.Dialect.Validate(); err != nil {
+		if dialectErr != nil {
+			return dialectErr
+		}
+		return err
+	}
 	if cfg.DSN == "" {
-		return withNext(errors.New("no database connection is configured"), "set GOOSE_DBSTRING or configure saxbase.yaml")
+		return withNext(errors.New("no database connection is configured"), "set SAXBASE_DSN and SAXBASE_DIALECT or configure saxbase.yaml")
 	}
 	if command == "apply" {
 		return runApply(ctx, cfg, manifestPath, objectDir, force, out, open, openObjects)

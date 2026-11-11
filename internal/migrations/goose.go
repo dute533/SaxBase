@@ -6,21 +6,48 @@ import (
 	"fmt"
 	"os"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/microsoft/go-mssqldb"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/database"
-	"saxbase/internal/sqlserverdsn"
+	"saxbase/internal/dialect"
 )
 
 type gooseEngine struct {
-	db       *sql.DB
-	provider *goose.Provider
+	db           *sql.DB
+	provider     *goose.Provider
+	storeDialect database.Dialect
+	tableName    string
+	dialect      dialect.Name
 }
 
-const schemaVersionTable = "dbo.saxbase_schema_version"
+type gooseSettings struct {
+	gooseDialect goose.Dialect
+	storeDialect database.Dialect
+	tableName    string
+}
+
+func gooseSettingsFor(name dialect.Name) (gooseSettings, error) {
+	switch name {
+	case dialect.SQLServer:
+		return gooseSettings{gooseDialect: goose.DialectMSSQL, storeDialect: database.DialectMSSQL, tableName: "dbo.saxbase_schema_version"}, nil
+	case dialect.Postgres:
+		return gooseSettings{gooseDialect: goose.DialectPostgres, storeDialect: database.DialectPostgres, tableName: "public.saxbase_schema_version"}, nil
+	default:
+		return gooseSettings{}, fmt.Errorf("unsupported database dialect %q", name)
+	}
+}
 
 func Open(cfg Config) (Engine, error) {
-	if err := sqlserverdsn.Validate(cfg.DSN); err != nil {
+	connection, err := cfg.Dialect.Connection()
+	if err != nil {
+		return nil, err
+	}
+	settings, err := gooseSettingsFor(cfg.Dialect)
+	if err != nil {
+		return nil, err
+	}
+	if err := connection.ValidateDSN(cfg.DSN); err != nil {
 		return nil, err
 	}
 	info, err := os.Stat(cfg.Dir)
@@ -30,23 +57,23 @@ func Open(cfg Config) (Engine, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("migration path %q is not a directory", cfg.Dir)
 	}
-	db, err := sql.Open("sqlserver", cfg.DSN)
+	db, err := sql.Open(connection.Driver, cfg.DSN)
 	if err != nil {
 		// Driver parsing errors can include the DSN, which may contain a password.
-		return nil, fmt.Errorf("open SQL Server connection: invalid connection string")
+		return nil, fmt.Errorf("open %s connection: invalid connection string", cfg.Dialect)
 	}
 	p, err := goose.NewProvider(
-		goose.DialectMSSQL,
+		settings.gooseDialect,
 		db,
 		os.DirFS(cfg.Dir),
 		goose.WithDisableGlobalRegistry(true),
-		goose.WithTableName(schemaVersionTable),
+		goose.WithTableName(settings.tableName),
 	)
 	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("initialize Goose: %w", err)
 	}
-	return &gooseEngine{db: db, provider: p}, nil
+	return &gooseEngine{db: db, provider: p, storeDialect: settings.storeDialect, tableName: settings.tableName, dialect: cfg.Dialect}, nil
 }
 
 func (g *gooseEngine) UpTo(ctx context.Context, version int64) error {
@@ -70,7 +97,7 @@ func (g *gooseEngine) ValidateDownTo(ctx context.Context, target int64) error {
 	if target < 0 || target > current {
 		return fmt.Errorf("cannot roll schema %d back to %d", current, target)
 	}
-	store, err := database.NewStore(database.DialectMSSQL, schemaVersionTable)
+	store, err := database.NewStore(g.storeDialect, g.tableName)
 	if err != nil {
 		return err
 	}

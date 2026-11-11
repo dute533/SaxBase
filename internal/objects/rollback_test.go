@@ -47,33 +47,44 @@ func expectCurrentRelease(mock sqlmock.Sqlmock, version string) {
 	)
 }
 
-func TestReconciledChecksStoredDefinitions(t *testing.T) {
+func TestReconciledChecksStoredFingerprint(t *testing.T) {
 	for _, tc := range []struct {
-		name, actual string
-		want         bool
+		name        string
+		fingerprint string
+		want        bool
 	}{
-		{name: "matching", actual: "CREATE VIEW dbo.a AS SELECT 1 AS n;\r\n", want: true},
-		{name: "changed", actual: "CREATE VIEW dbo.a AS SELECT 2 AS n;", want: false},
-		{name: "missing", want: false},
+		{name: "matching", want: true},
+		{name: "changed", fingerprint: "different", want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, mock := mockStore(t)
 			file := objectFile("a.sql", "CREATE OR ALTER VIEW dbo.a AS SELECT 1 AS n;\n")
 			release := snapshot("2.1.0", 2, []File{file}, file)
 			expectCurrentRelease(mock, release.Version)
-			row := sqlmock.NewRows([]string{"definition"})
-			if tc.actual == "" {
-				row.AddRow(nil)
-			} else {
-				row.AddRow(tc.actual)
+			fingerprint := tc.fingerprint
+			if fingerprint == "" {
+				fingerprint = release.Fingerprint
 			}
-			mock.ExpectQuery("SELECT OBJECT_DEFINITION").WithArgs("[dbo].[a]").WillReturnRows(row)
+			mock.ExpectQuery("SELECT OBJECT_ID.*saxbase_releases").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+			mock.ExpectQuery("SELECT version, fingerprint").WithArgs(release.Version).WillReturnRows(
+				sqlmock.NewRows([]string{"version", "fingerprint"}).AddRow(release.Version, fingerprint),
+			)
 
 			got, err := s.Reconciled(context.Background(), release)
 			if err != nil || got != tc.want {
 				t.Fatalf("reconciled=%v, want %v: %v", got, tc.want, err)
 			}
 		})
+	}
+}
+
+func TestRollbackCheckpointIsDistinctFromManifestRewrite(t *testing.T) {
+	fingerprint := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	if !IsRollbackCheckpoint(rollbackMarker(fingerprint), fingerprint) {
+		t.Fatal("rollback checkpoint was not recognized")
+	}
+	if IsRollbackCheckpoint("different", fingerprint) || IsRollbackCheckpoint(fingerprint, fingerprint) {
+		t.Fatal("ordinary fingerprints were recognized as rollback checkpoints")
 	}
 }
 
@@ -92,6 +103,7 @@ func TestStructuralRollbackCheckpointsTargetBeforeGooseDown(t *testing.T) {
 	expectCurrentRelease(mock, source.Version)
 	mock.ExpectBegin()
 	mock.ExpectExec("DROP VIEW IF EXISTS.*dbo.*b").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("UPDATE dbo.saxbase_releases SET fingerprint").WithArgs(rollbackMarker(target.Fingerprint), target.Version).WillReturnResult(sqlmock.NewResult(0, 1))
 	expectCurrent(mock, target.Version)
 	mock.ExpectCommit()
 	mock.ExpectQuery("DECLARE.*sp_releaseapplock").WillReturnRows(sqlmock.NewRows([]string{"code"}).AddRow(0))

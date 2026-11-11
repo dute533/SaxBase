@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"saxbase/internal/dialect"
 )
 
 func objectFile(path, definition string) File {
@@ -26,7 +27,11 @@ func mockStore(t *testing.T) (*store, sqlmock.Sqlmock) {
 		}
 		db.Close()
 	})
-	return &store{db: db}, mock
+	spec, err := objectDialectFor(dialect.SQLServer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &store{db: db, dialect: spec}, mock
 }
 
 func expectReleaseStart(mock sqlmock.Sqlmock, schema int64) {
@@ -190,7 +195,8 @@ func TestReleaseRechecksGooseVersion(t *testing.T) {
 }
 
 func expectCurrent(mock sqlmock.Sqlmock, version string) {
-	mock.ExpectExec("UPDATE dbo.saxbase_releases").WithArgs(version).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE dbo.saxbase_releases SET is_current=0").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE dbo.saxbase_releases SET is_current=1").WithArgs(version).WillReturnResult(sqlmock.NewResult(0, 1))
 }
 
 func TestReleaseHistoryBeforeFirstDeployment(t *testing.T) {

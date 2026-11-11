@@ -1,8 +1,8 @@
 # SaxBase
 
-SaxBase deploys SQL Server migrations and versioned views, procedures, and
-functions as one release. Goose manages structural migrations; SaxBase applies
-complete object definitions in dependency order.
+SaxBase deploys SQL Server and PostgreSQL migrations with versioned views,
+procedures, and functions as one release. Goose manages structural migrations;
+SaxBase applies complete object definitions in dependency order.
 
 Use migrations for tables and data changes. Use object definitions for views,
 procedures, and functions.
@@ -16,11 +16,20 @@ or build from source:
 go build -o saxbase .
 ```
 
-Copy the configuration templates and provide a SQL Server connection string:
+Copy the configuration templates and provide a database connection string:
 
 ```sh
 cp saxbase.yaml.example saxbase.yaml
 cp .env.example .env
+```
+
+Every target selects its database explicitly:
+
+```yaml
+targets:
+  local:
+    dialect: sqlserver # or postgres
+    connection_env: SAXBASE_LOCAL_DSN
 ```
 
 SaxBase expects this layout by default:

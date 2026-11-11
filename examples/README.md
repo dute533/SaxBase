@@ -24,7 +24,8 @@ From the repository root:
 ```sh
 go build -o saxbase .
 cd examples
-export GOOSE_DBSTRING='sqlserver://USER:PASSWORD@localhost:1433?database=SaxBaseExample'
+export SAXBASE_DIALECT=sqlserver
+export SAXBASE_DSN='sqlserver://USER:PASSWORD@localhost:1433?database=SaxBaseExample'
 ```
 
 Create the database, then create one release for each example migration and

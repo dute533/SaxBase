@@ -22,7 +22,7 @@ jobs:
       - run: go test ./...
       - run: go vet ./...
 
-  sqlserver:
+  integration:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -31,5 +31,5 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Create SQL Server, test migrations and releases, and clean up
+      - name: Test SQL Server and PostgreSQL migrations and releases
         run: bash scripts/test-integration.sh

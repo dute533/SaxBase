@@ -304,6 +304,9 @@ func requireReconciledCurrent(ctx context.Context, history []resolvedRelease, st
 	// A deliberately changed manifest is handled by the normal immutable
 	// release checks. It is not evidence of an interrupted rollback.
 	if recorded.Fingerprint != current.Fingerprint {
+		if objects.IsRollbackCheckpoint(recorded.Fingerprint, current.Fingerprint) {
+			return withNext(errors.New(retry), "saxbase rollback "+state.Current)
+		}
 		return nil
 	}
 	ok, err := db.Reconciled(ctx, current)
@@ -316,7 +319,7 @@ func requireReconciledCurrent(ctx context.Context, history []resolvedRelease, st
 	return nil
 }
 
-func runRollback(ctx context.Context, args []string, cfg migrations.Config, manifestPath, objectDir string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {
+func runRollback(ctx context.Context, args []string, cfg migrations.Config, manifestPath, objectDir string, out io.Writer, open OpenFunc, openObjects OpenObjectsFunc) (err error) {
 	if len(args) > 1 {
 		return withNext(errors.New("expected rollback [VERSION]"), "saxbase rollback -h")
 	}
@@ -326,7 +329,7 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 		}
 	}
 	if cfg.DSN == "" {
-		return withNext(errors.New("no database connection is configured"), "set GOOSE_DBSTRING or configure saxbase.yaml")
+		return withNext(errors.New("no database connection is configured"), "set SAXBASE_DSN and SAXBASE_DIALECT or configure saxbase.yaml")
 	}
 	if manifestPath == "" {
 		manifestPath = "database/release.json"
@@ -335,7 +338,7 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 	if err != nil {
 		return err
 	}
-	engine, err := openObjects(cfg.DSN)
+	engine, err := openObjects(cfg)
 	if err != nil {
 		return err
 	}

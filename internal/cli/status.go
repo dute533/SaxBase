@@ -15,7 +15,7 @@ import (
 
 // runStatus presents the structural migration, release, and object state
 // together so users do not need separate commands for one database.
-func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectDir string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {
+func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectDir string, out io.Writer, open OpenFunc, openObjects OpenObjectsFunc) (err error) {
 	explicitManifest := manifestPath != ""
 	if manifestPath == "" {
 		manifestPath = "database/release.json"
@@ -45,7 +45,7 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 		return err
 	}
 	defer func() { err = errors.Join(err, goose.Close()) }()
-	db, err := openObjects(cfg.DSN)
+	db, err := openObjects(cfg)
 	if err != nil {
 		return err
 	}

@@ -30,8 +30,8 @@ func validateFiles(files []File) error {
 	return nil
 }
 
-func checkReleaseSchema(ctx context.Context, tx *sql.Tx, want int64) error {
-	current, err := migrations.VersionInTransaction(ctx, tx)
+func (s *store) checkReleaseSchema(ctx context.Context, tx *sql.Tx, want int64) error {
+	current, err := migrations.VersionInTransaction(ctx, tx, s.dialect.name)
 	if err != nil {
 		return fmt.Errorf("read Goose version for release: %w", err)
 	}
@@ -41,26 +41,15 @@ func checkReleaseSchema(ctx context.Context, tx *sql.Tx, want int64) error {
 	return nil
 }
 
-const releaseTables = `IF OBJECT_ID(N'dbo.saxbase_releases', N'U') IS NULL
- BEGIN
- CREATE TABLE dbo.saxbase_releases (
- version varchar(39) NOT NULL CONSTRAINT PK_saxbase_releases PRIMARY KEY,
- fingerprint char(64) NOT NULL,
- is_current bit NOT NULL CONSTRAINT DF_saxbase_releases_is_current DEFAULT 0
- );
- CREATE UNIQUE INDEX UX_saxbase_releases_current
- ON dbo.saxbase_releases(is_current) WHERE is_current=1;
- END;`
-
-func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, force bool) (bool, error) {
+func (s *store) prepareRelease(ctx context.Context, tx *sql.Tx, release Release, force bool) (bool, error) {
 	if err := releaseversion.Validate(release.Version); err != nil {
 		return false, err
 	}
-	if _, err := tx.ExecContext(ctx, releaseTables); err != nil {
+	if _, err := tx.ExecContext(ctx, s.dialect.initializeReleases); err != nil {
 		return false, fmt.Errorf("initialize release history: %w", err)
 	}
 	var fingerprint string
-	err := tx.QueryRowContext(ctx, "SELECT fingerprint FROM dbo.saxbase_releases WHERE version=@version", sql.Named("version", release.Version)).Scan(&fingerprint)
+	err := tx.QueryRowContext(ctx, s.dialect.selectFingerprint, s.dialect.versionArg(release.Version)...).Scan(&fingerprint)
 	exists := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, err
@@ -73,7 +62,7 @@ func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, force bool
 		if !force {
 			return false, fmt.Errorf("release %s is immutable; use a new release version or force a development rewrite", release.Version)
 		}
-		if _, err := tx.ExecContext(ctx, "UPDATE dbo.saxbase_releases SET fingerprint=@fingerprint WHERE version=@version", sql.Named("fingerprint", requestedFingerprint), sql.Named("version", release.Version)); err != nil {
+		if _, err := tx.ExecContext(ctx, s.dialect.updateFingerprint, s.dialect.fingerprintArgs(requestedFingerprint, release.Version)...); err != nil {
 			return false, fmt.Errorf("rewrite release fingerprint: %w", err)
 		}
 	}
@@ -81,7 +70,7 @@ func prepareRelease(ctx context.Context, tx *sql.Tx, release Release, force bool
 		return false, nil
 	}
 
-	if _, err := tx.ExecContext(ctx, "INSERT INTO dbo.saxbase_releases(version,fingerprint) VALUES(@version,@fingerprint)", sql.Named("version", release.Version), sql.Named("fingerprint", requestedFingerprint)); err != nil {
+	if _, err := tx.ExecContext(ctx, s.dialect.insertRelease, s.dialect.insertArgs(release.Version, requestedFingerprint)...); err != nil {
 		return false, fmt.Errorf("record release: %w", err)
 	}
 	return true, nil
@@ -123,19 +112,13 @@ func ReleaseFingerprint(migrationVersion int64, files []File) string {
 	return fmt.Sprintf("%x", sha256.Sum256(data))
 }
 
-func historyExists(ctx context.Context, db reader) (bool, error) {
-	var id sql.NullInt64
-	err := db.QueryRowContext(ctx, "SELECT OBJECT_ID(N'dbo.saxbase_releases', N'U')").Scan(&id)
-	return id.Valid, err
-}
-
 func (s *store) History(ctx context.Context) ([]Release, error) {
 	var result []Release
-	exists, err := historyExists(ctx, s.db)
+	exists, err := s.dialect.historyExists(ctx, s.db)
 	if err != nil || !exists {
 		return []Release{}, err
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT version FROM dbo.saxbase_releases")
+	rows, err := s.db.QueryContext(ctx, s.dialect.selectHistory)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +141,7 @@ func (s *store) History(ctx context.Context) ([]Release, error) {
 
 func (s *store) Snapshot(ctx context.Context, version string) (Snapshot, error) {
 	var snapshot Snapshot
-	exists, err := historyExists(ctx, s.db)
+	exists, err := s.dialect.historyExists(ctx, s.db)
 	if err != nil {
 		return snapshot, err
 	}
@@ -166,7 +149,7 @@ func (s *store) Snapshot(ctx context.Context, version string) (Snapshot, error) 
 		return snapshot, fmt.Errorf("release %s not found", version)
 	}
 	var fingerprint string
-	err = s.db.QueryRowContext(ctx, "SELECT version, fingerprint FROM dbo.saxbase_releases WHERE version=@version", sql.Named("version", version)).Scan(&snapshot.Version, &fingerprint)
+	err = s.db.QueryRowContext(ctx, s.dialect.selectSnapshot, s.dialect.versionArg(version)...).Scan(&snapshot.Version, &fingerprint)
 	if errors.Is(err, sql.ErrNoRows) {
 		return snapshot, fmt.Errorf("release %s not found", version)
 	}

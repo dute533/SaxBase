@@ -1,11 +1,16 @@
 // Package migrations isolates SaxBase from its structural migration engine.
 package migrations
 
-import "context"
+import (
+	"context"
+
+	"saxbase/internal/dialect"
+)
 
 type Config struct {
-	DSN string
-	Dir string
+	Dialect dialect.Name
+	DSN     string
+	Dir     string
 }
 
 type Status struct {

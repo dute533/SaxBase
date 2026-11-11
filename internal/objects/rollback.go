@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 
 	"saxbase/internal/deploymentlock"
 	"saxbase/internal/migrations"
@@ -17,55 +16,34 @@ type Rollback struct {
 	TargetVersion string
 }
 
-// Reconciled verifies the durable release pointer against the target manifest
-// and the definitions currently stored in SQL Server. This distinguishes a
-// completed rollback step from a process failure after Goose reached its target
-// but before the target objects were restored.
+// Reconciled verifies the durable release pointer and fingerprint. Object
+// changes and the final fingerprint are committed in the same transaction.
 func (s *store) Reconciled(ctx context.Context, target Snapshot) (bool, error) {
-	files, ids, err := snapshotFiles(target)
-	if err != nil {
-		return false, err
-	}
-	current, err := currentVersion(ctx, s.db)
+	current, err := s.currentVersion(ctx, s.db)
 	if err != nil || current != target.Version {
 		return false, err
 	}
-	for i, id := range ids {
-		var definition sql.NullString
-		if err := s.db.QueryRowContext(ctx, "SELECT OBJECT_DEFINITION(OBJECT_ID(@name))", sql.Named("name", id.qualified())).Scan(&definition); err != nil {
-			return false, err
-		}
-		if !definition.Valid {
-			return false, nil
-		}
-		if canonicalDefinition(definition.String) != canonicalDefinition(files[i].SQL) {
-			return false, nil
-		}
-		actualID, err := objectIdentity(definition.String)
-		if err != nil || actualID.kind != id.kind || actualID.key() != id.key() {
-			return false, nil
-		}
-	}
-	return true, nil
+	recorded, err := s.Snapshot(ctx, target.Version)
+	return err == nil && recorded.Fingerprint == target.Fingerprint, err
 }
 
 // Reconcile completes a rollback step whose target release was made current
 // before Goose or object restoration finished. Repeating it is safe: Goose
-// resumes from its recorded version and CREATE OR ALTER restores target state.
+// resumes from its recorded version and repeatable DDL restores target state.
 func (s *store) Reconcile(ctx context.Context, target Snapshot, goose migrations.Engine) (err error) {
 	targetFiles, _, err := snapshotFiles(target)
 	if err != nil {
 		return err
 	}
-	conn, unlock, err := deploymentlock.Acquire(ctx, s.db)
+	conn, unlock, err := deploymentlock.Acquire(ctx, s.db, s.dialect.name)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, unlock()) }()
-	if err := s.verifySnapshot(ctx, target); err != nil {
+	if err := s.verifyRollbackTarget(ctx, target); err != nil {
 		return err
 	}
-	currentRelease, err := currentVersion(ctx, conn)
+	currentRelease, err := s.currentVersion(ctx, conn)
 	if err != nil {
 		return err
 	}
@@ -88,13 +66,13 @@ func (s *store) Reconcile(ctx context.Context, target Snapshot, goose migrations
 		}
 	}
 	if err := rollbackTransaction(ctx, conn, func(tx *sql.Tx) error {
-		if err := checkReleaseSchema(ctx, tx, target.MigrationVersion); err != nil {
+		if err := s.checkReleaseSchema(ctx, tx, target.MigrationVersion); err != nil {
 			return err
 		}
-		if err := restoreFiles(ctx, tx, targetFiles); err != nil {
+		if err := s.restoreFiles(ctx, tx, targetFiles); err != nil {
 			return err
 		}
-		if err := setCurrent(ctx, tx, target.Version); err != nil {
+		if err := s.setCurrentFingerprint(ctx, tx, target.Version, target.Fingerprint); err != nil {
 			return err
 		}
 		return nil
@@ -129,7 +107,7 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 			return result, fmt.Errorf("object type changed for %s.%s; automatic rollback is unsupported", id.schema, id.name)
 		}
 	}
-	conn, unlock, err := deploymentlock.Acquire(ctx, s.db)
+	conn, unlock, err := deploymentlock.Acquire(ctx, s.db, s.dialect.name)
 	if err != nil {
 		return result, err
 	}
@@ -139,7 +117,7 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 			return result, err
 		}
 	}
-	currentRelease, err := currentVersion(ctx, conn)
+	currentRelease, err := s.currentVersion(ctx, conn)
 	if err != nil {
 		return result, err
 	}
@@ -166,7 +144,7 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 			if _, keep := targetByName[sourceIDs[i].key()]; keep {
 				continue
 			}
-			if _, err := tx.ExecContext(ctx, sourceIDs[i].drop()); err != nil {
+			if _, err := tx.ExecContext(ctx, s.dialect.drop(sourceIDs[i])); err != nil {
 				return fmt.Errorf("drop %s: %w", sourceFiles[i].Path, err)
 			}
 		}
@@ -180,7 +158,7 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 			if err := dropExtra(tx); err != nil {
 				return err
 			}
-			return setCurrent(ctx, tx, target.Version)
+			return s.setCurrentFingerprint(ctx, tx, target.Version, rollbackMarker(target.Fingerprint))
 		}); err != nil {
 			return result, fmt.Errorf("prepare rollback to %s: %w", target.Version, err)
 		}
@@ -189,16 +167,16 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 		}
 	}
 	if err := rollbackTransaction(ctx, conn, func(tx *sql.Tx) error {
-		if err := checkReleaseSchema(ctx, tx, target.MigrationVersion); err != nil {
+		if err := s.checkReleaseSchema(ctx, tx, target.MigrationVersion); err != nil {
 			return err
 		}
-		if err := restoreFiles(ctx, tx, targetFiles); err != nil {
+		if err := s.restoreFiles(ctx, tx, targetFiles); err != nil {
 			return err
 		}
 		if err := dropExtra(tx); err != nil {
 			return err
 		}
-		if err := setCurrent(ctx, tx, target.Version); err != nil {
+		if err := s.setCurrentFingerprint(ctx, tx, target.Version, target.Fingerprint); err != nil {
 			return err
 		}
 		return nil
@@ -219,36 +197,24 @@ func (s *store) verifySnapshot(ctx context.Context, supplied Snapshot) error {
 	return nil
 }
 
-func restoreFiles(ctx context.Context, tx *sql.Tx, files []File) error {
-	for _, file := range files {
-		if _, err := tx.ExecContext(ctx, restoreDefinition(file.SQL)); err != nil {
-			return fmt.Errorf("restore %s: %w", file.Path, err)
-		}
+func (s *store) verifyRollbackTarget(ctx context.Context, supplied Snapshot) error {
+	recorded, err := s.Snapshot(ctx, supplied.Version)
+	if err != nil {
+		return err
+	}
+	if recorded.Fingerprint != supplied.Fingerprint && recorded.Fingerprint != rollbackMarker(supplied.Fingerprint) {
+		return fmt.Errorf("manifest for release %s does not match its recorded fingerprint", supplied.Version)
 	}
 	return nil
 }
 
-func canonicalDefinition(definition string) string {
-	definition = strings.TrimPrefix(definition, "\ufeff")
-	definition = strings.ReplaceAll(definition, "\r\n", "\n")
-	definition = restoreDefinition(definition)
-	runes := []rune(definition)
-	lexer := headerLexer{input: runes}
-	for _, want := range []string{"CREATE", "OR", "ALTER"} {
-		token, _, err := lexer.next()
-		if err != nil || !strings.EqualFold(token, want) {
-			return strings.TrimSpace(definition)
+func (s *store) restoreFiles(ctx context.Context, tx *sql.Tx, files []File) error {
+	for _, file := range files {
+		if _, err := tx.ExecContext(ctx, s.dialect.restore(file.SQL)); err != nil {
+			return fmt.Errorf("restore %s: %w", file.Path, err)
 		}
 	}
-	afterAlter := lexer.pos
-	next := afterAlter
-	for next < len(runes) && (runes[next] == ' ' || runes[next] == '\t' || runes[next] == '\n' || runes[next] == '\r') {
-		next++
-	}
-	if next > afterAlter {
-		definition = string(runes[:afterAlter]) + " " + string(runes[next:])
-	}
-	return strings.TrimSpace(definition)
+	return nil
 }
 
 func rollbackTransaction(ctx context.Context, conn *sql.Conn, fn func(*sql.Tx) error) error {

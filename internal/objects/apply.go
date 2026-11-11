@@ -21,7 +21,7 @@ func (s *store) Apply(ctx context.Context, files, baseline []File, release Relea
 	if err := validateFiles(baseline); err != nil {
 		return nil, fmt.Errorf("invalid release baseline: %w", err)
 	}
-	conn, unlock, err := deploymentlock.Acquire(ctx, s.db)
+	conn, unlock, err := deploymentlock.Acquire(ctx, s.db, s.dialect.name)
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +39,7 @@ func (s *store) Apply(ctx context.Context, files, baseline []File, release Relea
 	if inspection.Version < release.MigrationVersion {
 		// Invalidate before Goose: even a failed nontransactional migration can
 		// change the database without advancing its recorded schema version.
-		if err := deploymentlock.Invalidate(ctx, conn); err != nil {
+		if err := deploymentlock.Invalidate(ctx, conn, s.dialect.name); err != nil {
 			return nil, err
 		}
 		if err := goose.UpTo(ctx, release.MigrationVersion); err != nil {

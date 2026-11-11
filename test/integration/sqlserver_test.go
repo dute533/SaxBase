@@ -103,9 +103,6 @@ func integrationDatabase(t *testing.T) (context.Context, *sql.DB, string, func(.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(filepath.Join(workDir, "database/release.json")); err != nil {
-		t.Fatal(err)
-	}
 	if err := manifest.Write(filepath.Join(workDir, "database/release.json")); err != nil {
 		t.Fatal(err)
 	}
@@ -113,13 +110,13 @@ func integrationDatabase(t *testing.T) (context.Context, *sql.DB, string, func(.
 		t.Helper()
 		cmd := exec.CommandContext(ctx, binary, command...)
 		cmd.Dir = workDir
-		// Keep developer Goose settings from changing this test's target.
+		// Keep developer settings from changing this test's target.
 		for _, value := range os.Environ() {
-			if !strings.HasPrefix(value, "GOOSE_") && !strings.HasPrefix(value, "SAXBASE_OBJECTS_DIR=") {
+			if !strings.HasPrefix(value, "GOOSE_") && !strings.HasPrefix(value, "SAXBASE_") {
 				cmd.Env = append(cmd.Env, value)
 			}
 		}
-		cmd.Env = append(cmd.Env, "GOOSE_DBSTRING="+dsn)
+		cmd.Env = append(cmd.Env, "SAXBASE_DIALECT=sqlserver", "SAXBASE_DSN="+dsn)
 		output, err := cmd.CombinedOutput()
 		return strings.TrimSpace(string(output)), err
 	}

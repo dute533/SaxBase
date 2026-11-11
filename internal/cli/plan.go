@@ -9,11 +9,10 @@ import (
 	"text/tabwriter"
 
 	"saxbase/internal/migrations"
-	"saxbase/internal/objects"
 	"saxbase/internal/releases"
 )
 
-func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir string, out io.Writer, open OpenFunc, openObjects func(string) (objects.Engine, error)) (err error) {
+func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir string, out io.Writer, open OpenFunc, openObjects OpenObjectsFunc) (err error) {
 	if manifestPath == "" {
 		manifestPath = "database/release.json"
 	}
@@ -26,7 +25,7 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 		return err
 	}
 	defer func() { err = errors.Join(err, goose.Close()) }()
-	db, err := openObjects(cfg.DSN)
+	db, err := openObjects(cfg)
 	if err != nil {
 		return err
 	}
