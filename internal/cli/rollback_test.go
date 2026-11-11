@@ -24,8 +24,8 @@ func TestRollbackCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, _ := releases.New("30.1", 30, files)
-	source, _ := releases.NewDelta("30.2", 30, files, files)
+	target, _ := releases.New("30.1.0", 30, files)
+	source, _ := releases.NewDelta("30.2.0", 30, files, files)
 	path := filepath.Join(dir, "release.json")
 	if err := target.Write(path); err != nil {
 		t.Fatal(err)
@@ -35,13 +35,13 @@ func TestRollbackCommand(t *testing.T) {
 	}
 	for _, failure := range []error{nil, errors.New("rollback failed")} {
 		goose := &fakeEngine{}
-		store := &fakeObjects{rollbackErr: failure, current: "30.2", currentSet: true}
+		store := &fakeObjects{rollbackErr: failure, current: "30.2.0", currentSet: true}
 		var out bytes.Buffer
 		err := run(context.Background(), []string{"-manifest", path, "rollback"}, env(map[string]string{"GOOSE_DBSTRING": "dsn", "SAXBASE_OBJECTS_DIR": "absent"}), &out, func(migrations.Config) (migrations.Engine, error) { return goose, nil }, func(string) (objects.Engine, error) { return store, nil })
 		if !errors.Is(err, failure) || !goose.closed || !store.closed || store.command != "rollback" {
 			t.Fatalf("result: %v %+v %+v", err, goose, store)
 		}
-		if failure == nil && !strings.Contains(out.String(), "30.2 to 30.1") {
+		if failure == nil && !strings.Contains(out.String(), "30.2.0 to 30.1.0") {
 			t.Fatal(out.String())
 		}
 		if failure != nil && out.Len() != 0 {
@@ -56,13 +56,13 @@ func TestRollbackWalksRecordedReleasesOneStepAtATime(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "release.json")
-	base := releases.Manifest{Version: "30", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	base := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
 	if err := base.Write(path); err != nil {
 		t.Fatal(err)
 	}
 	for _, manifest := range []releases.Manifest{
-		{Version: "30.1", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}},
-		{Version: "30.2", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}},
+		{Version: "30.1.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}},
+		{Version: "30.2.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}},
 	} {
 		if err := releases.Append(path, manifest); err != nil {
 			t.Fatal(err)
@@ -72,11 +72,11 @@ func TestRollbackWalksRecordedReleasesOneStepAtATime(t *testing.T) {
 		store *fakeObjects
 		steps []string
 	}{
-		{store: &fakeObjects{current: "30.1", currentSet: true}, steps: []string{"30.1->30"}},
-		{store: &fakeObjects{current: "30.2", currentSet: true}, steps: []string{"30.2->30.1", "30.1->30"}},
+		{store: &fakeObjects{current: "30.1.0", currentSet: true}, steps: []string{"30.1.0->30.0.0"}},
+		{store: &fakeObjects{current: "30.2.0", currentSet: true}, steps: []string{"30.2.0->30.1.0", "30.1.0->30.0.0"}},
 	} {
 		var out bytes.Buffer
-		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "rollback", "30"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
+		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "rollback", "30.0.0"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
 			func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
 			func(string) (objects.Engine, error) { return tc.store, nil })
 		if err != nil || !reflect.DeepEqual(tc.store.rollbackSteps, tc.steps) {

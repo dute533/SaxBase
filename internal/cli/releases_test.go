@@ -28,12 +28,12 @@ func TestReleaseCommandsOffline(t *testing.T) {
 	}
 	manifest := filepath.Join(root, "release.json")
 	args := []string{"-objects-dir", dir, "-manifest", manifest, "release"}
-	for _, suffix := range [][]string{{"create", "30.1"}, {"validate"}} {
+	for _, suffix := range [][]string{{"create", "30.1.0"}, {"validate"}} {
 		var out bytes.Buffer
 		if err := run(context.Background(), append(append([]string{}, args...), suffix...), env(nil), &out, nil, nil); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(out.String(), "30.1") {
+		if !strings.Contains(out.String(), "30.1.0") {
 			t.Fatal(out.String())
 		}
 	}
@@ -217,24 +217,24 @@ func TestReleaseCreateSemanticVersionsTrackMigrations(t *testing.T) {
 
 func TestEffectiveCurrentRecoversNewestRecordedManifestRelease(t *testing.T) {
 	history := []resolvedRelease{
-		{manifest: releases.Manifest{Version: "2"}},
-		{manifest: releases.Manifest{Version: "2.1"}},
-		{manifest: releases.Manifest{Version: "3"}},
+		{manifest: releases.Manifest{Version: "2.0.0"}},
+		{manifest: releases.Manifest{Version: "2.1.0"}},
+		{manifest: releases.Manifest{Version: "3.0.0"}},
 	}
-	state := objects.Inspection{History: []objects.Release{{Version: "2"}, {Version: "2.1"}}}
+	state := objects.Inspection{History: []objects.Release{{Version: "2.0.0"}, {Version: "2.1.0"}}}
 	got, err := effectiveCurrent(history, state)
-	if err != nil || got != "2.1" {
+	if err != nil || got != "2.1.0" {
 		t.Fatalf("current=%q err=%v", got, err)
 	}
-	state.Current = "2"
-	if got, err = effectiveCurrent(history, state); err != nil || got != "2" {
+	state.Current = "2.0.0"
+	if got, err = effectiveCurrent(history, state); err != nil || got != "2.0.0" {
 		t.Fatalf("explicit current=%q err=%v", got, err)
 	}
 }
 
 func TestEffectiveCurrentRejectsUnrelatedRecordedHistory(t *testing.T) {
-	history := []resolvedRelease{{manifest: releases.Manifest{Version: "2"}}}
-	state := objects.Inspection{History: []objects.Release{{Version: "1"}}}
+	history := []resolvedRelease{{manifest: releases.Manifest{Version: "2.0.0"}}}
+	state := objects.Inspection{History: []objects.Release{{Version: "1.0.0"}}}
 	if _, err := effectiveCurrent(history, state); err == nil {
 		t.Fatal("accepted unrelated database history")
 	}

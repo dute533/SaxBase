@@ -36,7 +36,7 @@ func (f *fakeObjects) Inspect(context.Context) (objects.Inspection, error) {
 	if f.currentSet {
 		return objects.Inspection{Current: f.current, History: f.history}, f.err
 	}
-	return objects.Inspection{Current: "30"}, f.err
+	return objects.Inspection{Current: "30.0.0"}, f.err
 }
 func (f *fakeObjects) Rollback(_ context.Context, target, source objects.Snapshot, _ migrations.Engine) (objects.Rollback, error) {
 	f.command = "rollback"
@@ -61,12 +61,12 @@ func (f *fakeObjects) Current(context.Context) (string, error) {
 	if f.currentSet {
 		return f.current, f.err
 	}
-	return "30.1", f.err
+	return "30.1.0", f.err
 }
 
 func (f *fakeObjects) History(context.Context) ([]objects.Release, error) {
 	f.command = "history"
-	return []objects.Release{{Version: "30.1"}}, f.err
+	return []objects.Release{{Version: "30.1.0"}}, f.err
 }
 func (f *fakeObjects) Snapshot(_ context.Context, version string) (objects.Snapshot, error) {
 	f.command = "show"

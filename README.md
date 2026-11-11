@@ -57,7 +57,7 @@ git commit -m "Create database release"
 ./saxbase status
 ```
 
-Release versions can use SemVer. SaxBase records the target Goose migration
+Release versions must use SemVer. SaxBase records the target Goose migration
 separately, so object-only releases can advance from `1.0.0` to `1.0.1` without
 adding a migration. Every manifest entry declares its migration target.
 

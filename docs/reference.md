@@ -182,7 +182,7 @@ Objects within a release execute from top to bottom. Edit that release's
 `objects` array when dependencies require a different order. A `delete` entry
 removes an object from the database and must use a historical commit hash.
 
-`version` is the database release identifier and may use SemVer, such as
+`version` is the database release identifier and must use SemVer, such as
 `1.4.0` or `2.0.0-rc.1`. `migration_version` is the Goose migration that release
 targets. Keeping them separate lets `1.4.1` and `1.4.2` represent object-only
 changes at the same migration. Release order is the manifest order, not a

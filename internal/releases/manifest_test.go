@@ -79,17 +79,17 @@ func TestInvalidManifests(t *testing.T) {
 	sum := strings.Repeat("a", 64)
 	for _, body := range []string{
 		`{"version":30,"objects":[]}`,
-		`{"version":"30","objects":[]}`,
+		`{"version":"30.0.0","objects":[]}`,
 		`{"releases":[]}`,
-		`{"releases":[{"version":"30","migration_version":30,"objects":null}]}`,
-		`{"releases":[{"version":"30","migration_version":30,"objects":[],"typo":true}]}`,
-		`{"releases":[{"version":"30","migration_version":30,"parent":"29","objects":[]}]}`,
-		`{"releases":[{"version":"1","objects":[]},{"version":"2","objects":[]}]}`,
-		`{"releases":[{"version":"30","migration_version":30,"objects":[]}]} {}`,
-		`{"releases":[{"version":"30","migration_version":30,"objects":[{"path":"../a.sql","commit":"` + sum + `"}]}]}`,
-		`{"releases":[{"version":"30","migration_version":30,"objects":[{"path":"a.sql","commit":"bad"}]}]}`,
-		`{"releases":[{"version":"30","migration_version":30,"objects":[{"path":"a.sql","commit":"` + sum + `"},{"path":"a.sql","commit":"` + sum + `"}]}]}`,
-		`{"releases":[{"version":"30","migration_version":30,"objects":[{"path":"a.sql","commit":"` + sum + `","delete":true}]}]}`,
+		`{"releases":[{"version":"30.0.0","migration_version":30,"objects":null}]}`,
+		`{"releases":[{"version":"30.0.0","migration_version":30,"objects":[],"typo":true}]}`,
+		`{"releases":[{"version":"30.0.0","migration_version":30,"parent":"29.0.0","objects":[]}]}`,
+		`{"releases":[{"version":"1.0.0","objects":[]},{"version":"2.0.0","objects":[]}]}`,
+		`{"releases":[{"version":"30.0.0","migration_version":30,"objects":[]}]} {}`,
+		`{"releases":[{"version":"30.0.0","migration_version":30,"objects":[{"path":"../a.sql","commit":"` + sum + `"}]}]}`,
+		`{"releases":[{"version":"30.0.0","migration_version":30,"objects":[{"path":"a.sql","commit":"bad"}]}]}`,
+		`{"releases":[{"version":"30.0.0","migration_version":30,"objects":[{"path":"a.sql","commit":"` + sum + `"},{"path":"a.sql","commit":"` + sum + `"}]}]}`,
+		`{"releases":[{"version":"30.0.0","migration_version":30,"objects":[{"path":"a.sql","commit":"` + sum + `","delete":true}]}]}`,
 	} {
 		file := filepath.Join(t.TempDir(), "release.json")
 		if err := os.WriteFile(file, []byte(body), 0600); err != nil {
@@ -103,10 +103,10 @@ func TestInvalidManifests(t *testing.T) {
 
 func TestAppendStoresNewestReleaseFirst(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), "release.json")
-	if err := (Manifest{Version: "1", MigrationVersion: int64Pointer(1), Objects: []Object{}}).Write(filename); err != nil {
+	if err := (Manifest{Version: "1.0.0", MigrationVersion: int64Pointer(1), Objects: []Object{}}).Write(filename); err != nil {
 		t.Fatal(err)
 	}
-	if err := Append(filename, Manifest{Version: "2", MigrationVersion: int64Pointer(2), Objects: []Object{}}); err != nil {
+	if err := Append(filename, Manifest{Version: "2.0.0", MigrationVersion: int64Pointer(2), Objects: []Object{}}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filename)
@@ -117,14 +117,14 @@ func TestAppendStoresNewestReleaseFirst(t *testing.T) {
 	if err := json.Unmarshal(data, &stored); err != nil {
 		t.Fatal(err)
 	}
-	if len(stored.Releases) != 2 || stored.Releases[0].Version != "2" || stored.Releases[1].Version != "1" {
+	if len(stored.Releases) != 2 || stored.Releases[0].Version != "2.0.0" || stored.Releases[1].Version != "1.0.0" {
 		t.Fatalf("stored history=%+v", stored.Releases)
 	}
 	history, err := LoadAll(filename)
-	if err != nil || history[0].Version != "1" || history[1].Version != "2" {
+	if err != nil || history[0].Version != "1.0.0" || history[1].Version != "2.0.0" {
 		t.Fatalf("chronological history=%+v err=%v", history, err)
 	}
-	replacement := Manifest{Version: "2", MigrationVersion: int64Pointer(2), Objects: []Object{{Path: "a.sql", Commit: strings.Repeat("a", 40)}}}
+	replacement := Manifest{Version: "2.0.0", MigrationVersion: int64Pointer(2), Objects: []Object{{Path: "a.sql", Commit: strings.Repeat("a", 40)}}}
 	if err := ReplaceLatest(filename, replacement); err != nil {
 		t.Fatal(err)
 	}
@@ -132,13 +132,13 @@ func TestAppendStoresNewestReleaseFirst(t *testing.T) {
 	if err != nil || len(history[1].Objects) != 1 || history[1].Objects[0].Path != "a.sql" {
 		t.Fatalf("replaced history=%+v err=%v", history, err)
 	}
-	if err := ReplaceLatest(filename, Manifest{Version: "1", MigrationVersion: int64Pointer(1), Objects: []Object{}}); err == nil {
+	if err := ReplaceLatest(filename, Manifest{Version: "1.0.0", MigrationVersion: int64Pointer(1), Objects: []Object{}}); err == nil {
 		t.Fatal("replaced a non-latest release")
 	}
 }
 
 func TestFirstReleaseCannotBeADeletion(t *testing.T) {
-	m := Manifest{Version: "1", MigrationVersion: int64Pointer(1), Objects: []Object{{Path: "a.sql", Commit: strings.Repeat("a", 40), Delete: true}}}
+	m := Manifest{Version: "1.0.0", MigrationVersion: int64Pointer(1), Objects: []Object{{Path: "a.sql", Commit: strings.Repeat("a", 40), Delete: true}}}
 	if err := m.Write(filepath.Join(t.TempDir(), "release.json")); err == nil {
 		t.Fatal("wrote deletion as the initial release")
 	}
@@ -153,7 +153,7 @@ func TestNewDeltaContainsOnlyChanges(t *testing.T) {
 		{Path: "a.sql", Commit: strings.Repeat("c", 40), SQL: "SELECT 3;", Checksum: strings.Repeat("3", 64)},
 		{Path: "c.sql", Commit: strings.Repeat("d", 40), SQL: "SELECT 4;", Checksum: strings.Repeat("4", 64)},
 	}
-	m, err := NewDelta("2.1", 2, current, old)
+	m, err := NewDelta("2.1.0", 2, current, old)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestNewDeltaContainsOnlyChanges(t *testing.T) {
 func TestNewDeltaDetectsLatestContentChanges(t *testing.T) {
 	old := []objects.File{{Path: "a.sql", Commit: "latest", SQL: "SELECT 1;", Checksum: "old"}}
 	current := []objects.File{{Path: "a.sql", Commit: "latest", SQL: "SELECT 2;", Checksum: "new"}}
-	m, err := NewDelta("2", 2, current, old)
+	m, err := NewDelta("2.0.0", 2, current, old)
 	if err != nil {
 		t.Fatal(err)
 	}

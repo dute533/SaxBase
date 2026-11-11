@@ -42,8 +42,8 @@ Create or validate release manifest entries.
 const releaseCreateUsage = `Usage:
   saxbase [options] release create VERSION
 
-Create a release from committed object files. VERSION may be semantic, such as
-1.2.0. SaxBase infers the target migration.
+Create a release from committed object files. VERSION must be SemVer, such as
+1.2.0 or 2.0.0-rc.1. SaxBase infers the target migration.
 `
 
 const releaseValidateUsage = `Usage:

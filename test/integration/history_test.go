@@ -49,10 +49,10 @@ func TestSQLServerManifestHistoryWorkflow(t *testing.T) {
 	if err != nil || len(history) != 2 || len(history[1].Objects) != 1 {
 		t.Fatalf("history=%+v err=%v", history, err)
 	}
-	if output := run("plan"); !strings.Contains(output, "-> 2") {
-		t.Fatalf("fresh plan did not select release 2: %s", output)
+	if output := run("plan"); !strings.Contains(output, "-> 2.0.0") {
+		t.Fatalf("fresh plan did not select release 2.0.0: %s", output)
 	}
-	if output := run("apply"); !strings.Contains(output, "Applied release 2 ") || !strings.Contains(output, "Applied release 2.0.1 ") {
+	if output := run("apply"); !strings.Contains(output, "Applied release 2.0.0 ") || !strings.Contains(output, "Applied release 2.0.1 ") {
 		t.Fatalf("fresh apply did not deploy the full release chain: %s", output)
 	}
 	assertValue(2)
@@ -81,7 +81,7 @@ func TestSQLServerManifestHistoryWorkflow(t *testing.T) {
 	// A newer, undeployed entry must not be mistaken for the rollback source.
 	writeView("3")
 	run("release", "create", "2.0.4")
-	run("rollback", "2")
+	run("rollback", "2.0.0")
 	assertValue(1)
 }
 
@@ -105,27 +105,27 @@ func TestSQLServerForceRewritesCurrentDevelopmentRelease(t *testing.T) {
 
 	run("apply")
 	writeView("2")
-	run("release", "create", "2.1")
+	run("release", "create", "2.0.1")
 	run("apply")
 	assertValue(2)
 	var oldFingerprint string
-	if err := db.QueryRowContext(ctx, "SELECT fingerprint FROM dbo.saxbase_releases WHERE version='2.1'").Scan(&oldFingerprint); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT fingerprint FROM dbo.saxbase_releases WHERE version='2.0.1'").Scan(&oldFingerprint); err != nil {
 		t.Fatal(err)
 	}
 
 	writeView("3")
-	if output := run("release", "create", "2.1"); !strings.Contains(output, "Updated release 2.1") {
+	if output := run("release", "create", "2.0.1"); !strings.Contains(output, "Updated release 2.0.1") {
 		t.Fatal(output)
 	}
 	if output, err := execute("apply"); err == nil || !strings.Contains(output, "immutable") {
 		t.Fatalf("normal apply accepted rewrite: %v %s", err, output)
 	}
-	if output := run("-f", "apply"); !strings.Contains(output, "Force-applied release 2.1") {
+	if output := run("-f", "apply"); !strings.Contains(output, "Force-applied release 2.0.1") {
 		t.Fatal(output)
 	}
 	assertValue(3)
 	var newFingerprint string
-	if err := db.QueryRowContext(ctx, "SELECT fingerprint FROM dbo.saxbase_releases WHERE version='2.1'").Scan(&newFingerprint); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT fingerprint FROM dbo.saxbase_releases WHERE version='2.0.1'").Scan(&newFingerprint); err != nil {
 		t.Fatal(err)
 	}
 	if newFingerprint == oldFingerprint {

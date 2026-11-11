@@ -34,7 +34,7 @@ func TestGitResolutionFailsBeforeDatabaseOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := releases.New("30", 30, files)
+	m, err := releases.New("30.0.0", 30, files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestGitResolutionFailsBeforeDatabaseOpen(t *testing.T) {
 	if err := m.Write(path); err != nil {
 		t.Fatal(err)
 	}
-	for _, command := range [][]string{{"apply"}, {"plan"}, {"rollback", "30"}} {
+	for _, command := range [][]string{{"apply"}, {"plan"}, {"rollback", "30.0.0"}} {
 		prefix := []string{"-manifest", path}
 		args := append(prefix, command...)
 		err := run(context.Background(), args, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &bytes.Buffer{},
@@ -70,7 +70,7 @@ func TestReleaseCreateAppendsDeltaToHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifestPath := filepath.Join(dir, "release.json")
-	base, err := releases.New("1", 1, files)
+	base, err := releases.New("1.0.0", 1, files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestReleaseCreateAppendsDeltaToHistory(t *testing.T) {
 		}
 	}
 	var out bytes.Buffer
-	if err := run(context.Background(), []string{"-objects-dir", ".", "-manifest", manifestPath, "release", "create", "2"}, env(nil), &out, nil, nil); err != nil {
+	if err := run(context.Background(), []string{"-objects-dir", ".", "-manifest", manifestPath, "release", "create", "2.0.0"}, env(nil), &out, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	history, err := releases.LoadAll(manifestPath)
@@ -109,7 +109,7 @@ func TestReleaseCreateWithoutGitUsesLatest(t *testing.T) {
 	}
 	manifestPath := filepath.Join(dir, "release.json")
 	var out bytes.Buffer
-	if err := run(context.Background(), []string{"-objects-dir", dir, "-manifest", manifestPath, "release", "create", "1"}, env(nil), &out, nil, nil); err != nil {
+	if err := run(context.Background(), []string{"-objects-dir", dir, "-manifest", manifestPath, "release", "create", "1.0.0"}, env(nil), &out, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	m, err := releases.Load(manifestPath)
@@ -122,7 +122,7 @@ func TestReleaseCreateWithoutGitUsesLatest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 2;"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	err = run(context.Background(), []string{"-objects-dir", dir, "-manifest", manifestPath, "release", "create", "2"}, env(nil), &bytes.Buffer{}, nil, nil)
+	err = run(context.Background(), []string{"-objects-dir", dir, "-manifest", manifestPath, "release", "create", "2.0.0"}, env(nil), &bytes.Buffer{}, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "latest") {
 		t.Fatalf("new release with latest references: %v", err)
 	}

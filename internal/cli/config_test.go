@@ -107,7 +107,7 @@ func TestDotEnvAndLocalCommands(t *testing.T) {
 	if _, err := committedFixture(t, "."); err != nil {
 		t.Fatal(err)
 	}
-	if err := Run(context.Background(), []string{"-objects-dir", "objects", "-manifest", "release.json", "release", "create", "0"}, env(nil), &out, nil); err != nil {
+	if err := Run(context.Background(), []string{"-objects-dir", "objects", "-manifest", "release.json", "release", "create", "0.0.0"}, env(nil), &out, nil); err != nil {
 		t.Fatal(err)
 	}
 	writeConfigFixture(t, ".env", "PASSWORD='do-not-print\n")

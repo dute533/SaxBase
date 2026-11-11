@@ -23,9 +23,9 @@ func TestApplyCLI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, version := range []string{"30.2", "29"} {
+	for _, version := range []string{"30.2.0", "29.0.0"} {
 		migrationVersion := int64(30)
-		if version == "29" {
+		if version == "29.0.0" {
 			migrationVersion = 29
 		}
 		manifest, err := releases.New(version, migrationVersion, files)
@@ -44,11 +44,11 @@ func TestApplyCLI(t *testing.T) {
 		if !goose.closed || !db.closed {
 			t.Fatal("engines were not closed")
 		}
-		if version == "29" {
+		if version == "29.0.0" {
 			if err == nil || !strings.Contains(err.Error(), "apply blocked") || db.command != "inspect" {
 				t.Fatalf("blocked apply: %v %+v", err, db)
 			}
-		} else if err != nil || db.version != "30.2" || !strings.Contains(out.String(), "Applied release 30.2") {
+		} else if err != nil || db.version != "30.2.0" || !strings.Contains(out.String(), "Applied release 30.2.0") {
 			t.Fatalf("apply: %v %+v %s", err, db, out.String())
 		}
 	}
@@ -60,11 +60,11 @@ func TestApplyAdvancesEntireManifestHistoryAndIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "release.json")
-	base := releases.Manifest{Version: "30", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	base := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
 	if err := base.Write(path); err != nil {
 		t.Fatal(err)
 	}
-	delta := releases.Manifest{Version: "30.1", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	delta := releases.Manifest{Version: "30.1.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
 	if err := releases.Append(path, delta); err != nil {
 		t.Fatal(err)
 	}
@@ -83,20 +83,20 @@ func TestApplyAdvancesEntireManifestHistoryAndIsIdempotent(t *testing.T) {
 
 	fresh := &fakeObjects{currentSet: true}
 	output := apply(fresh)
-	if fresh.current != "30.1" || strings.Join(fresh.appliedVersions, ",") != "30,30.1" ||
-		!strings.Contains(output, "Applied release 30") || !strings.Contains(output, "Applied release 30.1") {
+	if fresh.current != "30.1.0" || strings.Join(fresh.appliedVersions, ",") != "30.0.0,30.1.0" ||
+		!strings.Contains(output, "Applied release 30.0.0") || !strings.Contains(output, "Applied release 30.1.0") {
 		t.Fatalf("fresh apply: current=%q applied=%v output=%s", fresh.current, fresh.appliedVersions, output)
 	}
 
-	current := &fakeObjects{current: "30", currentSet: true}
+	current := &fakeObjects{current: "30.0.0", currentSet: true}
 	output = apply(current)
-	if current.current != "30.1" || strings.Join(current.appliedVersions, ",") != "30.1" || !strings.Contains(output, "Applied release 30.1") {
+	if current.current != "30.1.0" || strings.Join(current.appliedVersions, ",") != "30.1.0" || !strings.Contains(output, "Applied release 30.1.0") {
 		t.Fatalf("partial apply: current=%q applied=%v output=%s", current.current, current.appliedVersions, output)
 	}
 
 	current.appliedVersions = nil
 	output = apply(current)
-	if strings.Join(current.appliedVersions, ",") != "30.1" || !strings.Contains(output, "Release 30.1 is already applied") || !strings.Contains(output, "Next: no action required") {
+	if strings.Join(current.appliedVersions, ",") != "30.1.0" || !strings.Contains(output, "Release 30.1.0 is already applied") || !strings.Contains(output, "Next: no action required") {
 		t.Fatalf("idempotent apply: applied=%v output=%s", current.appliedVersions, output)
 	}
 }
@@ -107,24 +107,24 @@ func TestApplyStopsAtFailedRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "release.json")
-	base := releases.Manifest{Version: "30", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	base := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
 	if err := base.Write(path); err != nil {
 		t.Fatal(err)
 	}
-	if err := releases.Append(path, releases.Manifest{Version: "30.1", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}); err != nil {
+	if err := releases.Append(path, releases.Manifest{Version: "30.1.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}); err != nil {
 		t.Fatal(err)
 	}
 
 	failure := errors.New("object deployment failed")
-	db := &fakeObjects{currentSet: true, applyErrAt: "30.1", applyErr: failure}
+	db := &fakeObjects{currentSet: true, applyErrAt: "30.1.0", applyErr: failure}
 	var out bytes.Buffer
 	err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
 		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
 		func(string) (objects.Engine, error) { return db, nil })
-	if !errors.Is(err, failure) || db.current != "30" || strings.Join(db.appliedVersions, ",") != "30" {
+	if !errors.Is(err, failure) || db.current != "30.0.0" || strings.Join(db.appliedVersions, ",") != "30.0.0" {
 		t.Fatalf("failed apply: err=%v current=%q applied=%v", err, db.current, db.appliedVersions)
 	}
-	if !strings.Contains(out.String(), "Applied release 30") || strings.Contains(out.String(), "Applied release 30.1") {
+	if !strings.Contains(out.String(), "Applied release 30.0.0") || strings.Contains(out.String(), "Applied release 30.1.0") {
 		t.Fatalf("failed apply output: %s", out.String())
 	}
 }
@@ -135,7 +135,7 @@ func TestForceApplyReappliesCurrentRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "release.json")
-	manifest := releases.Manifest{Version: "30", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	manifest := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
 	if err := manifest.Write(path); err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestForceApplyReappliesCurrentRelease(t *testing.T) {
 	err := run(context.Background(), []string{"-f", "-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
 		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
 		func(string) (objects.Engine, error) { return db, nil })
-	if err != nil || !db.force || !strings.Contains(out.String(), "Force-applied release 30") {
+	if err != nil || !db.force || !strings.Contains(out.String(), "Force-applied release 30.0.0") {
 		t.Fatalf("force apply: err=%v force=%v output=%s", err, db.force, out.String())
 	}
 }

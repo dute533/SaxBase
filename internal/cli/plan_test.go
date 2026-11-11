@@ -23,7 +23,7 @@ func TestPlanCLI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := releases.New("30.1", 30, files)
+	manifest, err := releases.New("30.1.0", 30, files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestPlanCLI(t *testing.T) {
 		if goose.command != "" || db.command != "inspect" {
 			t.Fatal("planner called a migration/deployment operation")
 		}
-		if !strings.Contains(out.String(), "(unversioned) -> 30.1") || !strings.Contains(out.String(), "No database changes made") {
+		if !strings.Contains(out.String(), "(unversioned) -> 30.1.0") || !strings.Contains(out.String(), "No database changes made") {
 			t.Fatal(out.String())
 		}
 		if strings.Contains(out.String(), "BLOCKERS") {
@@ -62,15 +62,15 @@ func TestPlanSelectsNextManifestHistoryRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "release.json")
-	base := releases.Manifest{Version: "30", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	base := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
 	if err := base.Write(path); err != nil {
 		t.Fatal(err)
 	}
-	delta := releases.Manifest{Version: "30.1", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	delta := releases.Manifest{Version: "30.1.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
 	if err := releases.Append(path, delta); err != nil {
 		t.Fatal(err)
 	}
-	for _, test := range []struct{ current, target string }{{"", "30"}, {"30", "30.1"}, {"30.1", "30.1"}} {
+	for _, test := range []struct{ current, target string }{{"", "30.0.0"}, {"30.0.0", "30.1.0"}, {"30.1.0", "30.1.0"}} {
 		db := &fakeObjects{current: test.current, currentSet: true}
 		var out bytes.Buffer
 		err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "plan"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
@@ -79,7 +79,7 @@ func TestPlanSelectsNextManifestHistoryRelease(t *testing.T) {
 		if err != nil || !strings.Contains(out.String(), "-> "+test.target) || strings.Contains(out.String(), "BLOCKERS") {
 			t.Fatalf("current %q target %q: err=%v output=%s", test.current, test.target, err, out.String())
 		}
-		if test.current == "" && !strings.Contains(out.String(), "Pending releases:  30 -> 30.1") {
+		if test.current == "" && !strings.Contains(out.String(), "Pending releases:  30.0.0 -> 30.1.0") {
 			t.Fatalf("fresh plan omitted pending release chain: %s", out.String())
 		}
 	}

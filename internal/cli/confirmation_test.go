@@ -14,7 +14,7 @@ import (
 )
 
 func TestProtectedWritesRejectBeforeDatabaseAccess(t *testing.T) {
-	for _, command := range [][]string{{"apply"}, {"rollback", "30"}} {
+	for _, command := range [][]string{{"apply"}, {"rollback", "30.0.0"}} {
 		for _, answer := range []string{"no\n", "\n", "", "yes"} {
 			t.Run(strings.Join(command, " ")+"/"+answer, func(t *testing.T) {
 				t.Chdir(t.TempDir())

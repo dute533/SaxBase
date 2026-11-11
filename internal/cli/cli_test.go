@@ -71,11 +71,11 @@ func TestStatusResolvesCompleteManifestHistory(t *testing.T) {
 		}
 	}
 	path := filepath.Join(dir, "release.json")
-	base := releases.Manifest{Version: "30", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "a.sql", Commit: "latest"}, {Path: "b.sql", Commit: "latest"}}}
+	base := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "a.sql", Commit: "latest"}, {Path: "b.sql", Commit: "latest"}}}
 	if err := base.Write(path); err != nil {
 		t.Fatal(err)
 	}
-	delta := releases.Manifest{Version: "30.1", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "a.sql", Commit: "latest"}}}
+	delta := releases.Manifest{Version: "30.1.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "a.sql", Commit: "latest"}}}
 	if err := releases.Append(path, delta); err != nil {
 		t.Fatal(err)
 	}

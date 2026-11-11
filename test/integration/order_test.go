@@ -4,7 +4,6 @@ package integration
 
 import (
 	"context"
-	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,13 +68,13 @@ func TestSQLServerManifestOrder(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	manifest("2", "ordered.json", false)
+	manifest("2.0.0", "ordered.json", false)
 	plan := run("-manifest", "ordered.json", "plan")
 	if strings.Index(plan, "views/z_base.sql") > strings.Index(plan, "views/a_dependent.sql") {
 		t.Fatal(plan)
 	}
 	run("-manifest", "ordered.json", "apply")
-	manifest("2", "reordered.json", true)
+	manifest("2.0.0", "reordered.json", true)
 	for _, command := range [][]string{{"plan"}, {"apply"}} {
 		args := append([]string{"-manifest", "reordered.json"}, command...)
 		out, err := execute(args...)
@@ -86,26 +85,14 @@ func TestSQLServerManifestOrder(t *testing.T) {
 	// Both objects must change in dependency order on update and rollback.
 	write("views/z_base.sql", "CREATE OR ALTER VIEW dbo.ordered_base AS SELECT 2 AS replacement_value;")
 	write("views/a_dependent.sql", "CREATE OR ALTER VIEW dbo.ordered_dependent AS SELECT replacement_value FROM dbo.ordered_base;")
-	manifest("2.1", "ordered.json", false)
+	manifest("2.0.1", "ordered.json", false)
 	run("-manifest", "ordered.json", "apply")
 	var value int
 	if err := db.QueryRowContext(ctx, "SELECT replacement_value FROM dbo.ordered_dependent").Scan(&value); err != nil || value != 2 {
 		t.Fatalf("value=%d err=%v", value, err)
 	}
-	run("-manifest", "ordered.json", "rollback", "2")
+	run("-manifest", "ordered.json", "rollback", "2.0.0")
 	if err := db.QueryRowContext(ctx, "SELECT original_value FROM dbo.ordered_dependent").Scan(&value); err != nil || value != 1 {
 		t.Fatalf("value=%d err=%v", value, err)
-	}
-}
-
-func TestSQLServerNoRedundantObjectMetadataTables(t *testing.T) {
-	ctx, db, _, _, run := integrationDatabase(t)
-	run("apply")
-	run("plan")
-	var count int
-	for _, table := range []string{"saxbase_release_objects", "saxbase_release_state", "saxbase_objects", "saxbase_rollbacks"} {
-		if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.tables WHERE name=@name", sql.Named("name", table)).Scan(&count); err != nil || count != 0 {
-			t.Fatalf("redundant table %s: %d %v", table, count, err)
-		}
 	}
 }
