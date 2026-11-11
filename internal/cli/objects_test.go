@@ -56,18 +56,6 @@ func (f *fakeObjects) Reconcile(_ context.Context, target objects.Snapshot, _ mi
 func (f *fakeObjects) Reconciled(context.Context, objects.Snapshot) (bool, error) {
 	return !f.unreconciled, f.err
 }
-func (f *fakeObjects) Current(context.Context) (string, error) {
-	f.command = "current"
-	if f.currentSet {
-		return f.current, f.err
-	}
-	return "30.1.0", f.err
-}
-
-func (f *fakeObjects) History(context.Context) ([]objects.Release, error) {
-	f.command = "history"
-	return []objects.Release{{Version: "30.1.0"}}, f.err
-}
 func (f *fakeObjects) Snapshot(_ context.Context, version string) (objects.Snapshot, error) {
 	f.command = "show"
 	return objects.Snapshot{Release: objects.Release{Version: version}, Objects: []objects.SnapshotObject{{Path: "view.sql", SQL: "SELECT 1;"}}}, f.err

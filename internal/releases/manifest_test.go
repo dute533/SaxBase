@@ -165,9 +165,10 @@ func TestNewDeltaContainsOnlyChanges(t *testing.T) {
 	}
 }
 
-func TestNewDeltaDetectsLatestContentChanges(t *testing.T) {
-	old := []objects.File{{Path: "a.sql", Commit: "latest", SQL: "SELECT 1;", Checksum: "old"}}
-	current := []objects.File{{Path: "a.sql", Commit: "latest", SQL: "SELECT 2;", Checksum: "new"}}
+func TestNewDeltaDetectsContentChangesAtSameCommit(t *testing.T) {
+	commit := strings.Repeat("a", 40)
+	old := []objects.File{{Path: "a.sql", Commit: commit, SQL: "SELECT 1;", Checksum: "old"}}
+	current := []objects.File{{Path: "a.sql", Commit: commit, SQL: "SELECT 2;", Checksum: "new"}}
 	m, err := NewDelta("2.0.0", 2, current, old)
 	if err != nil {
 		t.Fatal(err)

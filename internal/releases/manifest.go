@@ -18,7 +18,7 @@ import (
 	"saxbase/internal/releaseversion"
 )
 
-var commitPattern = regexp.MustCompile(`^(latest|[0-9a-f]{40}|[0-9a-f]{64})$`)
+var commitPattern = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
 
 type Object struct {
 	Path   string `json:"path"`
@@ -103,24 +103,6 @@ func marshalHistory(releases []Manifest) ([]byte, error) {
 	return json.MarshalIndent(manifestDocument{Releases: reverseHistory(releases)}, "", "  ")
 }
 
-// LoadVersion returns a specific release from a manifest file. An empty
-// version selects the newest release.
-func LoadVersion(filename, version string) (Manifest, error) {
-	releases, err := LoadAll(filename)
-	if err != nil {
-		return Manifest{}, err
-	}
-	if version == "" {
-		return releases[len(releases)-1], nil
-	}
-	for _, m := range releases {
-		if m.Version == version {
-			return m, nil
-		}
-	}
-	return Manifest{}, fmt.Errorf("release %s not found in %s", version, filename)
-}
-
 func decodeExactly(data []byte, value any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -182,10 +164,7 @@ func (m Manifest) check() error {
 		}
 		seen[p] = true
 		if !commitPattern.MatchString(object.Commit) {
-			return fmt.Errorf("invalid commit reference for %s: use a full Git commit hash or latest", p)
-		}
-		if object.Delete && object.Commit == "latest" {
-			return fmt.Errorf("deleted object %s requires a historical Git commit", p)
+			return fmt.Errorf("invalid commit reference for %s: use a full Git commit hash", p)
 		}
 	}
 	return nil
@@ -237,17 +216,11 @@ func (m Manifest) Write(filename string) error {
 
 // Append adds a newer release to the history and writes it first in filename.
 func Append(filename string, m Manifest) error {
-	if err := m.check(); err != nil {
-		return err
-	}
 	releases, err := LoadAll(filename)
 	if errors.Is(err, os.ErrNotExist) {
 		return m.Write(filename)
 	}
 	if err != nil {
-		return err
-	}
-	if err := validateHistory(releases); err != nil {
 		return err
 	}
 	releases = append(releases, m)
@@ -265,9 +238,6 @@ func Append(filename string, m Manifest) error {
 // entry. It is used to correct a release before it has been recorded in a
 // database; recorded fingerprints still enforce deployment immutability.
 func ReplaceLatest(filename string, m Manifest) error {
-	if err := m.check(); err != nil {
-		return err
-	}
 	releases, err := LoadAll(filename)
 	if err != nil {
 		return err

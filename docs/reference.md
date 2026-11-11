@@ -59,7 +59,7 @@ JDBC strings such as `jdbc:sqlserver://...;databaseName=...` are not supported.
 SaxBase rejects missing database names and SQL Server system databases rather
 than allowing the driver to fall back to the login's default database.
 
-Only SQL Server is supported. The default driver is `mssql`.
+Only SQL Server is supported.
 
 ## Everyday commands
 
@@ -173,10 +173,8 @@ contains only changes from the entry immediately below it:
 }
 ```
 
-Each entry has a repository-relative `path` and either a full Git commit hash or
-`"latest"`. A commit hash makes the release reproducible by resolving the file
-from that commit. `latest` reads the working tree, but a history containing it
-cannot be extended because its previous contents are not recoverable.
+Each entry has a repository-relative `path` and a full Git commit hash. SaxBase
+resolves every definition from that commit, making releases reproducible.
 
 Objects within a release execute from top to bottom. Edit that release's
 `objects` array when dependencies require a different order. A `delete` entry

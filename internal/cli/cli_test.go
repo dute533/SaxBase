@@ -34,9 +34,6 @@ func (f *fakeEngine) Inspect(context.Context) (migrations.Inspection, error) {
 func (f *fakeEngine) Version(ctx context.Context) (int64, error) {
 	return 20260905123456, f.call(ctx, "version")
 }
-func (f *fakeEngine) Status(ctx context.Context) ([]migrations.Status, error) {
-	return []migrations.Status{{Version: 30, State: "applied", Path: "00030_schema.sql"}, {Version: 31, State: "pending", Path: "00031_next.sql"}}, f.call(ctx, "status")
-}
 func (f *fakeEngine) Close() error { f.closed = true; return f.closeErr }
 
 func env(values map[string]string) func(string) string {
@@ -70,18 +67,22 @@ func TestStatusResolvesCompleteManifestHistory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	files, err := committedFixture(t, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(dir, "release.json")
-	base := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "a.sql", Commit: "latest"}, {Path: "b.sql", Commit: "latest"}}}
+	base := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "a.sql", Commit: files[0].Commit}, {Path: "b.sql", Commit: files[1].Commit}}}
 	if err := base.Write(path); err != nil {
 		t.Fatal(err)
 	}
-	delta := releases.Manifest{Version: "30.1.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "a.sql", Commit: "latest"}}}
+	delta := releases.Manifest{Version: "30.1.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "a.sql", Commit: files[0].Commit}}}
 	if err := releases.Append(path, delta); err != nil {
 		t.Fatal(err)
 	}
 	db := &fakeObjects{}
 	var out bytes.Buffer
-	err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "status"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
+	err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "status"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
 		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
 		func(string) (objects.Engine, error) { return db, nil })
 	if err != nil || !strings.Contains(out.String(), "a.sql") || !strings.Contains(out.String(), "b.sql") {
@@ -95,13 +96,13 @@ func TestConfigurationPrecedence(t *testing.T) {
 		args []string
 		want migrations.Config
 	}{
-		{"environment", []string{"status"}, migrations.Config{Driver: "sqlserver", DSN: "env-dsn", Dir: "env-dir"}},
-		{"arguments", []string{"-dir", "custom", "status"}, migrations.Config{Driver: "sqlserver", DSN: "env-dsn", Dir: "custom"}},
-		{"arguments after command", []string{"status", "-dir", "custom"}, migrations.Config{Driver: "sqlserver", DSN: "env-dsn", Dir: "custom"}},
+		{"environment", []string{"status"}, migrations.Config{DSN: "env-dsn", Dir: "env-dir"}},
+		{"arguments", []string{"-dir", "custom", "status"}, migrations.Config{DSN: "env-dsn", Dir: "custom"}},
+		{"arguments after command", []string{"status", "-dir", "custom"}, migrations.Config{DSN: "env-dsn", Dir: "custom"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			err := run(context.Background(), append([]string{"-objects-dir", dir}, tc.args...), env(map[string]string{"GOOSE_DRIVER": "sqlserver", "GOOSE_DBSTRING": "env-dsn", "GOOSE_MIGRATION_DIR": "env-dir"}), &bytes.Buffer{}, func(cfg migrations.Config) (migrations.Engine, error) {
+			err := run(context.Background(), append([]string{"-objects-dir", dir}, tc.args...), env(map[string]string{"GOOSE_DBSTRING": "env-dsn", "GOOSE_MIGRATION_DIR": "env-dir"}), &bytes.Buffer{}, func(cfg migrations.Config) (migrations.Engine, error) {
 				if cfg != tc.want {
 					t.Fatalf("config = %+v, want %+v", cfg, tc.want)
 				}

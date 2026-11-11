@@ -59,12 +59,17 @@ func TestApplyAdvancesEntireManifestHistoryAndIsIdempotent(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 1;"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	files, err := committedFixture(t, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit := files[0].Commit
 	path := filepath.Join(dir, "release.json")
-	base := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	base := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: commit}}}
 	if err := base.Write(path); err != nil {
 		t.Fatal(err)
 	}
-	delta := releases.Manifest{Version: "30.1.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	delta := releases.Manifest{Version: "30.1.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: commit}}}
 	if err := releases.Append(path, delta); err != nil {
 		t.Fatal(err)
 	}
@@ -106,19 +111,24 @@ func TestApplyStopsAtFailedRelease(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 1;"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	files, err := committedFixture(t, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit := files[0].Commit
 	path := filepath.Join(dir, "release.json")
-	base := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	base := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: commit}}}
 	if err := base.Write(path); err != nil {
 		t.Fatal(err)
 	}
-	if err := releases.Append(path, releases.Manifest{Version: "30.1.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}); err != nil {
+	if err := releases.Append(path, releases.Manifest{Version: "30.1.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: commit}}}); err != nil {
 		t.Fatal(err)
 	}
 
 	failure := errors.New("object deployment failed")
 	db := &fakeObjects{currentSet: true, applyErrAt: "30.1.0", applyErr: failure}
 	var out bytes.Buffer
-	err := run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
+	err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
 		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
 		func(string) (objects.Engine, error) { return db, nil })
 	if !errors.Is(err, failure) || db.current != "30.0.0" || strings.Join(db.appliedVersions, ",") != "30.0.0" {
@@ -134,14 +144,18 @@ func TestForceApplyReappliesCurrentRelease(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 1;"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	files, err := committedFixture(t, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(dir, "release.json")
-	manifest := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	manifest := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: files[0].Commit}}}
 	if err := manifest.Write(path); err != nil {
 		t.Fatal(err)
 	}
 	db := &fakeObjects{}
 	var out bytes.Buffer
-	err := run(context.Background(), []string{"-f", "-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
+	err = run(context.Background(), []string{"-f", "-manifest", path, "-objects-dir", dir, "apply"}, env(map[string]string{"GOOSE_DBSTRING": "dsn"}), &out,
 		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
 		func(string) (objects.Engine, error) { return db, nil })
 	if err != nil || !db.force || !strings.Contains(out.String(), "Force-applied release 30.0.0") {

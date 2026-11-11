@@ -31,7 +31,6 @@ func mockStore(t *testing.T) (*store, sqlmock.Sqlmock) {
 
 func expectReleaseStart(mock sqlmock.Sqlmock, schema int64) {
 	mock.ExpectBegin()
-	mock.ExpectQuery("DECLARE @result int;").WillReturnRows(sqlmock.NewRows([]string{"result"}).AddRow(0))
 	mock.ExpectQuery(`SELECT MAX\(version_id\) FROM dbo\.saxbase_schema_version`).WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow(schema))
 }
 
@@ -49,6 +48,10 @@ func releaseFor(version string, migrationVersion int64, files []File) *Release {
 	return &Release{Version: version, MigrationVersion: migrationVersion, Fingerprint: ReleaseFingerprint(migrationVersion, files)}
 }
 
+func applyRelease(s *store, files, baseline []File, release *Release) ([]Status, error) {
+	return s.applyOn(context.Background(), s.db, files, baseline, *release, false)
+}
+
 func TestReleaseCommitsFingerprintWithoutSQLSnapshot(t *testing.T) {
 	s, mock := mockStore(t)
 	files := []File{objectFile("a.sql", "CREATE OR ALTER VIEW dbo.a AS SELECT N'Grüße' AS n;\r\n"), objectFile("b.sql", "CREATE OR ALTER VIEW dbo.b AS SELECT 2 AS n;")}
@@ -58,7 +61,7 @@ func TestReleaseCommitsFingerprintWithoutSQLSnapshot(t *testing.T) {
 	expectObjectApply(mock, files[0])
 	expectCurrent(mock, "30.1.0")
 	mock.ExpectCommit()
-	rows, err := s.apply(context.Background(), files, files[1:], releaseFor("30.1.0", 30, files))
+	rows, err := applyRelease(s, files, files[1:], releaseFor("30.1.0", 30, files))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +90,7 @@ func TestReleaseRollsBackOnObjectOrCommitFailure(t *testing.T) {
 			} else {
 				mock.ExpectRollback()
 			}
-			rows, err := s.apply(context.Background(), []File{file}, nil, releaseFor("30.0.0", 30, []File{file}))
+			rows, err := applyRelease(s, []File{file}, nil, releaseFor("30.0.0", 30, []File{file}))
 			if !errors.Is(err, failure) || rows != nil {
 				t.Fatalf("result=%v error=%v", rows, err)
 			}
@@ -123,7 +126,7 @@ func TestReleaseIdentityAndOrdering(t *testing.T) {
 			if scenario != "retry" {
 				baseline = []File{file}
 			}
-			rows, err := s.apply(context.Background(), []File{file}, baseline, releaseFor("30.2.0", 30, []File{file}))
+			rows, err := applyRelease(s, []File{file}, baseline, releaseFor("30.2.0", 30, []File{file}))
 			if scenario == "retry" {
 				if err != nil || rows[0].State != "current" {
 					t.Fatalf("retry: %v %v", rows, err)
@@ -155,7 +158,7 @@ func TestForceApplyRewritesFingerprintAndEveryDeltaEntry(t *testing.T) {
 	expectCurrent(mock, "30.1.0")
 	mock.ExpectCommit()
 
-	rows, err := s.applyOn(context.Background(), s.db, files, nil, releaseFor("30.1.0", 30, files), true, true)
+	rows, err := s.applyOn(context.Background(), s.db, files, nil, *releaseFor("30.1.0", 30, files), true)
 	if err != nil || len(rows) != 2 || rows[0].State != "applied" || rows[1].State != "delete" {
 		t.Fatalf("rows=%+v err=%v", rows, err)
 	}
@@ -176,24 +179,13 @@ func TestFingerprintIncludesOperationButNotCommit(t *testing.T) {
 	}
 }
 
-func TestReleaseRechecksGooseVersionAndLock(t *testing.T) {
-	for _, scenario := range []string{"schema", "lock"} {
-		t.Run(scenario, func(t *testing.T) {
-			s, mock := mockStore(t)
-			mock.ExpectBegin()
-			code := 0
-			if scenario == "lock" {
-				code = -1
-			}
-			mock.ExpectQuery("DECLARE @result int;").WillReturnRows(sqlmock.NewRows([]string{"result"}).AddRow(code))
-			if scenario == "schema" {
-				mock.ExpectQuery(`SELECT MAX\(version_id\) FROM dbo\.saxbase_schema_version`).WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow(31))
-			}
-			mock.ExpectRollback()
-			if _, err := s.apply(context.Background(), nil, nil, &Release{Version: "30.1.0", MigrationVersion: 30}); err == nil {
-				t.Fatal("guard failed")
-			}
-		})
+func TestReleaseRechecksGooseVersion(t *testing.T) {
+	s, mock := mockStore(t)
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT MAX\(version_id\) FROM dbo\.saxbase_schema_version`).WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow(31))
+	mock.ExpectRollback()
+	if _, err := applyRelease(s, nil, nil, &Release{Version: "30.1.0", MigrationVersion: 30}); err == nil {
+		t.Fatal("guard failed")
 	}
 }
 
@@ -254,11 +246,11 @@ func TestStoredReleaseMetadata(t *testing.T) {
 func TestInvalidReleaseInput(t *testing.T) {
 	s, _ := mockStore(t)
 	file := objectFile("a.sql", "SELECT 1;")
-	if _, err := s.apply(context.Background(), []File{file, file}, nil, &Release{Version: "30.1.0", MigrationVersion: 30}); err == nil {
+	if _, err := applyRelease(s, []File{file, file}, nil, &Release{Version: "30.1.0", MigrationVersion: 30}); err == nil {
 		t.Fatal("duplicate accepted")
 	}
 	file.Checksum = "bad"
-	if _, err := s.apply(context.Background(), []File{file}, nil, &Release{Version: "30.1.0", MigrationVersion: 30}); err == nil {
+	if _, err := applyRelease(s, []File{file}, nil, &Release{Version: "30.1.0", MigrationVersion: 30}); err == nil {
 		t.Fatal("incorrect checksum accepted")
 	}
 }

@@ -55,14 +55,19 @@ func TestRollbackWalksRecordedReleasesOneStepAtATime(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("CREATE OR ALTER VIEW dbo.v AS SELECT 1 AS n;"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	files, err := committedFixture(t, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit := files[0].Commit
 	path := filepath.Join(dir, "release.json")
-	base := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	base := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: commit}}}
 	if err := base.Write(path); err != nil {
 		t.Fatal(err)
 	}
 	for _, manifest := range []releases.Manifest{
-		{Version: "30.1.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}},
-		{Version: "30.2.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}},
+		{Version: "30.1.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: commit}}},
+		{Version: "30.2.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: commit}}},
 	} {
 		if err := releases.Append(path, manifest); err != nil {
 			t.Fatal(err)

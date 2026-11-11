@@ -3,7 +3,6 @@ package objects
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"saxbase/internal/deploymentlock"
 )
 
@@ -27,15 +26,4 @@ func currentVersion(ctx context.Context, db reader) (string, error) {
 		return "", err
 	}
 	return version.String, nil
-}
-
-func (s *store) Current(ctx context.Context) (string, error) {
-	version, err := currentVersion(ctx, s.db)
-	if err != nil {
-		return "", err
-	}
-	if version == "" {
-		return "", fmt.Errorf("current state is not associated with a release; apply a manifest first")
-	}
-	return version, nil
 }

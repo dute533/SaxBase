@@ -36,7 +36,6 @@ Commands:
   release validate        Check the manifest against current object files
 
 Environment:
-  GOOSE_DRIVER    mssql (default) or sqlserver
   GOOSE_DBSTRING  SQL Server connection string with an explicit database
   GOOSE_MIGRATION_DIR  Migration directory (default database/migrations)
   SAXBASE_OBJECTS_DIR  Object directory (default database/objects)
@@ -127,10 +126,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	if err != nil {
 		return err
 	}
-	cfg := migrations.Config{Driver: getenv("GOOSE_DRIVER"), DSN: getenv("GOOSE_DBSTRING"), Dir: getenv("GOOSE_MIGRATION_DIR")}
-	if cfg.Driver == "" {
-		cfg.Driver = "mssql"
-	}
+	cfg := migrations.Config{DSN: getenv("GOOSE_DBSTRING"), Dir: getenv("GOOSE_MIGRATION_DIR")}
 	if cfg.Dir == "" {
 		cfg.Dir = "database/migrations"
 	}
@@ -169,11 +165,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	if len(pos) > 0 && pos[0] == "release" {
 		return runRelease(ctx, pos[1:], manifestPath, objectDir, cfg.Dir, out)
 	}
-	var command string
 	if len(pos) != 1 {
 		return withNext(errors.New("expected COMMAND"), "saxbase -h")
 	}
-	command = pos[0]
+	command := pos[0]
 	switch command {
 	case "apply", "status", "plan":
 	default:
@@ -181,12 +176,6 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	if err := resolveTarget(command); err != nil {
 		return err
-	}
-	if cfg.Driver != "mssql" && cfg.Driver != "sqlserver" {
-		return withNext(fmt.Errorf("unsupported driver %q", cfg.Driver), "set GOOSE_DRIVER=mssql")
-	}
-	if manifestPath != "" && command != "plan" && command != "apply" && command != "status" {
-		return withNext(errors.New("-manifest is supported only for plan, apply, status, and release commands"), "saxbase -h")
 	}
 	if cfg.DSN == "" {
 		return withNext(errors.New("no database connection is configured"), "set GOOSE_DBSTRING or configure saxbase.yaml")

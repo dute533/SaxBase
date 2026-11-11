@@ -79,7 +79,11 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 		return writeNext(out, "no action required")
 	}
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(w, "Database schema:\t%d\nRelease:\t%s\n\n", migrationsState.Version, statusValue(databaseState.Current))
+	recorded := databaseState.Current
+	if recorded == "" {
+		recorded = "(none)"
+	}
+	fmt.Fprintf(w, "Database schema:\t%d\nRelease:\t%s\n\n", migrationsState.Version, recorded)
 	fmt.Fprintln(w, "MIGRATION\tSTATE\tFILE")
 	for _, row := range migrationsState.Migrations {
 		fmt.Fprintf(w, "%d\t%s\t%s\n", row.Version, row.State, row.Path)
@@ -147,11 +151,4 @@ func cleanStatus(history []resolvedRelease, current, recorded string, migrationR
 		}
 	}
 	return true
-}
-
-func statusValue(value string) string {
-	if value == "" {
-		return "(none)"
-	}
-	return value
 }

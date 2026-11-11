@@ -119,7 +119,7 @@ func integrationDatabase(t *testing.T) (context.Context, *sql.DB, string, func(.
 				cmd.Env = append(cmd.Env, value)
 			}
 		}
-		cmd.Env = append(cmd.Env, "GOOSE_DRIVER=mssql", "GOOSE_DBSTRING="+dsn)
+		cmd.Env = append(cmd.Env, "GOOSE_DBSTRING="+dsn)
 		output, err := cmd.CombinedOutput()
 		return strings.TrimSpace(string(output)), err
 	}

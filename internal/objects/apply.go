@@ -53,7 +53,7 @@ func (s *store) Apply(ctx context.Context, files, baseline []File, release Relea
 	if actual != release.MigrationVersion {
 		return nil, fmt.Errorf("apply expected Goose version %d, got %d", release.MigrationVersion, actual)
 	}
-	rows, err = s.applyOn(ctx, conn, files, baseline, &release, force, false)
+	rows, err = s.applyOn(ctx, conn, files, baseline, release, force)
 	if err != nil {
 		return nil, fmt.Errorf("apply objects at Goose version %d: %w; release success was not confirmed; completed Goose migrations remain, inspect the failure and retry apply", release.MigrationVersion, err)
 	}

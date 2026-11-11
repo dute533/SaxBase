@@ -61,12 +61,17 @@ func TestPlanSelectsNextManifestHistoryRelease(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 1;"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	files, err := committedFixture(t, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit := files[0].Commit
 	path := filepath.Join(dir, "release.json")
-	base := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	base := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: commit}}}
 	if err := base.Write(path); err != nil {
 		t.Fatal(err)
 	}
-	delta := releases.Manifest{Version: "30.1.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: "latest"}}}
+	delta := releases.Manifest{Version: "30.1.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: commit}}}
 	if err := releases.Append(path, delta); err != nil {
 		t.Fatal(err)
 	}

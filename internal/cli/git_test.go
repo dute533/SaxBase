@@ -102,32 +102,18 @@ func TestReleaseCreateAppendsDeltaToHistory(t *testing.T) {
 	}
 }
 
-func TestReleaseCreateWithoutGitUsesLatest(t *testing.T) {
+func TestReleaseCreateRequiresGit(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 1;"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	manifestPath := filepath.Join(dir, "release.json")
 	var out bytes.Buffer
-	if err := run(context.Background(), []string{"-objects-dir", dir, "-manifest", manifestPath, "release", "create", "1.0.0"}, env(nil), &out, nil, nil); err != nil {
-		t.Fatal(err)
+	err := run(context.Background(), []string{"-objects-dir", dir, "-manifest", manifestPath, "release", "create", "1.0.0"}, env(nil), &out, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "Git") {
+		t.Fatalf("release outside Git: %v", err)
 	}
-	m, err := releases.Load(manifestPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(m.Objects) != 1 || m.Objects[0].Commit != "latest" {
-		t.Fatalf("manifest=%+v", m)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 2;"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	err = run(context.Background(), []string{"-objects-dir", dir, "-manifest", manifestPath, "release", "create", "2.0.0"}, env(nil), &bytes.Buffer{}, nil, nil)
-	if err == nil || !strings.Contains(err.Error(), "latest") {
-		t.Fatalf("new release with latest references: %v", err)
-	}
-	history, err := releases.LoadAll(manifestPath)
-	if err != nil || len(history) != 1 {
-		t.Fatalf("manifest changed after rejected append: %+v %v", history, err)
+	if _, statErr := os.Stat(manifestPath); !os.IsNotExist(statErr) {
+		t.Fatalf("manifest created after rejected release: %v", statErr)
 	}
 }

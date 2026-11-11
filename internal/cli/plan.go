@@ -42,13 +42,14 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 	if err := requireReconciledCurrent(ctx, history, state, goose, db); err != nil {
 		return err
 	}
-	selected, err := selectNextRelease(history, current)
+	pending, err := pendingReleases(history, current)
 	if err != nil {
 		return err
 	}
-	pending, err := pendingReleaseVersions(history, current)
-	if err != nil {
-		return err
+	selected := pending[0]
+	pendingVersions := make([]string, 0, len(pending))
+	for _, release := range pending {
+		pendingVersions = append(pendingVersions, release.manifest.Version)
 	}
 	manifest, files := selected.manifest, selected.files
 	baseline, err := releaseBaseline(history, current)
@@ -77,8 +78,8 @@ func runPlan(ctx context.Context, cfg migrations.Config, manifestPath, objectDir
 		fmt.Fprintf(w, " -> %d\n", plan.TargetSchema)
 	}
 	fmt.Fprintln(w)
-	if len(pending) > 1 {
-		fmt.Fprintf(w, "Pending releases:\t%s\n\n", strings.Join(pending, " -> "))
+	if len(pendingVersions) > 1 {
+		fmt.Fprintf(w, "Pending releases:\t%s\n\n", strings.Join(pendingVersions, " -> "))
 	}
 	var migrationActions, objectActions int
 	for _, row := range plan.Migrations {

@@ -21,12 +21,10 @@ type File struct {
 type Status struct{ Path, State, Checksum string }
 type Engine interface {
 	Apply(context.Context, []File, []File, Release, bool, migrations.Engine, func(context.Context) error) ([]Status, error)
-	History(context.Context) ([]Release, error)
 	Snapshot(context.Context, string) (Snapshot, error)
 	Rollback(context.Context, Snapshot, Snapshot, migrations.Engine) (Rollback, error)
 	Reconcile(context.Context, Snapshot, migrations.Engine) error
 	Reconciled(context.Context, Snapshot) (bool, error)
-	Current(context.Context) (string, error)
 	Inspect(context.Context) (Inspection, error)
 	Close() error
 }

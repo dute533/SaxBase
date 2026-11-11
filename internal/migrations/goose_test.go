@@ -13,18 +13,16 @@ func TestOpenDiscoversGooseSQLMigrations(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, driver := range []string{"mssql", "sqlserver"} {
-		e, err := Open(Config{Driver: driver, DSN: "sqlserver://localhost?database=saxbase_test", Dir: dir})
-		if err != nil {
-			t.Fatal(err)
-		}
-		sources := e.(*gooseEngine).provider.ListSources()
-		if len(sources) != 2 || sources[0].Version != 30 || sources[1].Version != 31 {
-			t.Fatalf("unexpected sources: %+v", sources)
-		}
-		if err := e.Close(); err != nil {
-			t.Fatal(err)
-		}
+	e, err := Open(Config{DSN: "sqlserver://localhost?database=saxbase_test", Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sources := e.(*gooseEngine).provider.ListSources()
+	if len(sources) != 2 || sources[0].Version != 30 || sources[1].Version != 31 {
+		t.Fatalf("unexpected sources: %+v", sources)
+	}
+	if err := e.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -35,9 +33,9 @@ func TestOpenRejectsInvalidConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, cfg := range []Config{
-		{Driver: "postgres", Dir: dir},
-		{Driver: "mssql", Dir: filepath.Join(dir, "missing")},
-		{Driver: "mssql", Dir: file},
+		{Dir: dir},
+		{DSN: "sqlserver://localhost?database=saxbase_test", Dir: filepath.Join(dir, "missing")},
+		{DSN: "sqlserver://localhost?database=saxbase_test", Dir: file},
 	} {
 		if e, err := Open(cfg); err == nil {
 			e.Close()

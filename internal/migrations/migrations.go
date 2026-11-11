@@ -4,9 +4,8 @@ package migrations
 import "context"
 
 type Config struct {
-	Driver string
-	DSN    string
-	Dir    string
+	DSN string
+	Dir string
 }
 
 type Status struct {
@@ -23,7 +22,6 @@ type Engine interface {
 	// DownTo is used by the release coordinator while it holds the deployment lock.
 	DownTo(context.Context, int64) error
 	ValidateDownTo(context.Context, int64) error
-	Status(context.Context) ([]Status, error)
 	Inspect(context.Context) (Inspection, error)
 	Version(context.Context) (int64, error)
 	Close() error

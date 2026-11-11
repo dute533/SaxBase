@@ -63,81 +63,72 @@ func runRelease(ctx context.Context, args []string, filename, dir, migrationDir 
 	if err != nil {
 		return err
 	}
-	if args[0] == "create" {
-		var m releases.Manifest
-		history, loadErr := releases.LoadAll(filename)
-		switch {
-		case loadErr == nil:
-			latest := history[len(history)-1]
-			for _, existing := range history[:len(history)-1] {
-				if args[1] == existing.Version {
-					return fmt.Errorf("release version %s already exists", args[1])
-				}
+	var m releases.Manifest
+	history, loadErr := releases.LoadAll(filename)
+	switch {
+	case loadErr == nil:
+		latest := history[len(history)-1]
+		for _, existing := range history[:len(history)-1] {
+			if args[1] == existing.Version {
+				return fmt.Errorf("release version %s already exists", args[1])
 			}
-			latestMigration, migrationErr := latest.TargetMigration()
-			if migrationErr != nil {
-				return migrationErr
+		}
+		latestMigration, migrationErr := latest.TargetMigration()
+		if migrationErr != nil {
+			return migrationErr
+		}
+		sameVersion := args[1] == latest.Version
+		if migrationVersion == latestMigration {
+			latestFiles, resolveErr := releases.ResolveStateVersion(ctx, filename, dir, latest.Version)
+			if resolveErr != nil {
+				return fmt.Errorf("resolve latest release: %w", resolveErr)
 			}
-			sameVersion := args[1] == latest.Version
-			if migrationVersion == latestMigration {
-				latestFiles, resolveErr := releases.ResolveStateVersion(ctx, filename, dir, latest.Version)
-				if resolveErr != nil {
-					return fmt.Errorf("resolve latest release: %w", resolveErr)
-				}
-				if !sameVersion && containsLatest(latestFiles) {
-					return withNext(errors.New("cannot add a release after one containing latest references"), "commit the object files and recreate the initial release with Git-backed references")
-				}
-				if objects.Fingerprint(files) == objects.Fingerprint(latestFiles) {
-					if _, err := fmt.Fprintf(out, "Release %s is current.\nNo committed object changes found.\n", latest.Version); err != nil {
-						return err
-					}
-					return writeNext(out, "no action required")
-				}
-			}
-			var previous []objects.File
-			if sameVersion && len(history) == 1 {
-				m, err = releases.New(args[1], migrationVersion, files)
-			} else {
-				previousVersion := latest.Version
-				if sameVersion {
-					previousVersion = history[len(history)-2].Version
-				}
-				previous, err = releases.ResolveStateVersion(ctx, filename, dir, previousVersion)
-				if err != nil {
-					return fmt.Errorf("resolve existing manifest: %w", err)
-				}
-				if containsLatest(previous) {
-					return withNext(errors.New("cannot add a release after one containing latest references"), "commit the object files and recreate the initial release with Git-backed references")
-				}
-				m, err = releases.NewDelta(args[1], migrationVersion, files, previous)
-			}
-			if err == nil && sameVersion {
-				err = releases.ReplaceLatest(filename, m)
-				if err == nil {
-					_, err = fmt.Fprintf(out, "Updated release %s: %s\n", m.Version, filename)
-				}
-				if err != nil {
+			if objects.Fingerprint(files) == objects.Fingerprint(latestFiles) {
+				if _, err := fmt.Fprintf(out, "Release %s is current.\nNo committed object changes found.\n", latest.Version); err != nil {
 					return err
 				}
-				return writeNext(out, "saxbase plan")
+				return writeNext(out, "no action required")
 			}
-		case errors.Is(loadErr, os.ErrNotExist):
+		}
+		var previous []objects.File
+		if sameVersion && len(history) == 1 {
 			m, err = releases.New(args[1], migrationVersion, files)
-		default:
-			return loadErr
+		} else {
+			previousVersion := latest.Version
+			if sameVersion {
+				previousVersion = history[len(history)-2].Version
+			}
+			previous, err = releases.ResolveStateVersion(ctx, filename, dir, previousVersion)
+			if err != nil {
+				return fmt.Errorf("resolve existing manifest: %w", err)
+			}
+			m, err = releases.NewDelta(args[1], migrationVersion, files, previous)
 		}
-		if err != nil {
-			return err
+		if err == nil && sameVersion {
+			err = releases.ReplaceLatest(filename, m)
+			if err == nil {
+				_, err = fmt.Fprintf(out, "Updated release %s: %s\n", m.Version, filename)
+			}
+			if err != nil {
+				return err
+			}
+			return writeNext(out, "saxbase plan")
 		}
-		if err := releases.Append(filename, m); err != nil {
-			return err
-		}
-		if _, err = fmt.Fprintf(out, "Created release %s at migration %d: %s\n", m.Version, migrationVersion, filename); err != nil {
-			return err
-		}
-		return writeNext(out, "saxbase plan")
+	case errors.Is(loadErr, os.ErrNotExist):
+		m, err = releases.New(args[1], migrationVersion, files)
+	default:
+		return loadErr
 	}
-	return errors.New("unsupported local release command")
+	if err != nil {
+		return err
+	}
+	if err := releases.Append(filename, m); err != nil {
+		return err
+	}
+	if _, err = fmt.Fprintf(out, "Created release %s at migration %d: %s\n", m.Version, migrationVersion, filename); err != nil {
+		return err
+	}
+	return writeNext(out, "saxbase plan")
 }
 
 func inferMigrationVersion(filename, migrationDir, requestedVersion string) (int64, error) {
@@ -177,15 +168,6 @@ func availableMigrationVersions(dir string) ([]int64, error) {
 		return nil, nil
 	}
 	return versions, err
-}
-
-func containsLatest(files []objects.File) bool {
-	for _, file := range files {
-		if file.Commit == "latest" {
-			return true
-		}
-	}
-	return false
 }
 
 type resolvedRelease struct {
@@ -285,30 +267,6 @@ func pendingReleases(history []resolvedRelease, current string) ([]resolvedRelea
 	return nil, fmt.Errorf("current release %s is not in manifest history", current)
 }
 
-// selectNextRelease returns only the immediate step for plan output.
-func selectNextRelease(history []resolvedRelease, current string) (resolvedRelease, error) {
-	pending, err := pendingReleases(history, current)
-	if err != nil {
-		return resolvedRelease{}, err
-	}
-	return pending[0], nil
-}
-
-// pendingReleaseVersions returns the releases that apply will visit, in order.
-// The current release is omitted unless it is already the newest release, in
-// which case it is returned so an idempotent plan can still describe its target.
-func pendingReleaseVersions(history []resolvedRelease, current string) ([]string, error) {
-	pending, err := pendingReleases(history, current)
-	if err != nil {
-		return nil, err
-	}
-	versions := make([]string, 0, len(pending))
-	for _, release := range pending {
-		versions = append(versions, release.manifest.Version)
-	}
-	return versions, nil
-}
-
 func releaseIndex(history []resolvedRelease, version string) int {
 	for i := range history {
 		if history[i].manifest.Version == version {
@@ -366,9 +324,6 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 		if err := releaseversion.Validate(args[0]); err != nil {
 			return withNext(err, "saxbase rollback -h")
 		}
-	}
-	if cfg.Driver != "mssql" && cfg.Driver != "sqlserver" {
-		return withNext(fmt.Errorf("unsupported driver %q", cfg.Driver), "set GOOSE_DRIVER=mssql")
 	}
 	if cfg.DSN == "" {
 		return withNext(errors.New("no database connection is configured"), "set GOOSE_DBSTRING or configure saxbase.yaml")
