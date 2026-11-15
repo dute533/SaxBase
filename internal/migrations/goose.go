@@ -4,7 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"strings"
+	"testing/fstest"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/microsoft/go-mssqldb"
@@ -62,10 +66,15 @@ func Open(cfg Config) (Engine, error) {
 		// Driver parsing errors can include the DSN, which may contain a password.
 		return nil, fmt.Errorf("open %s connection: invalid connection string", cfg.Dialect)
 	}
+	migrationFS, err := gooseFilesystem(cfg.Dir)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
 	p, err := goose.NewProvider(
 		settings.gooseDialect,
 		db,
-		os.DirFS(cfg.Dir),
+		migrationFS,
 		goose.WithDisableGlobalRegistry(true),
 		goose.WithTableName(settings.tableName),
 	)
@@ -74,6 +83,57 @@ func Open(cfg Config) (Engine, error) {
 		return nil, fmt.Errorf("initialize Goose: %w", err)
 	}
 	return &gooseEngine{db: db, provider: p, storeDialect: settings.storeDialect, tableName: settings.tableName, dialect: cfg.Dialect}, nil
+}
+
+// gooseFilesystem translates SaxBase's migration markers for Goose while
+// leaving the files on disk in SaxBase syntax.
+func gooseFilesystem(root string) (fs.FS, error) {
+	files := fstest.MapFS{}
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("migration file is not regular: %s", path)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.EqualFold(filepath.Ext(path), ".sql") {
+			data = translateAnnotations(data)
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		files[filepath.ToSlash(relative)] = &fstest.MapFile{Data: data, Mode: info.Mode()}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read migration files: %w", err)
+	}
+	return files, nil
+}
+
+func translateAnnotations(data []byte) []byte {
+	lines := strings.SplitAfter(string(data), "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "-- migration Up" {
+			lines[i] = strings.Replace(line, "-- migration Up", "-- +goose Up", 1)
+		} else if trimmed == "-- migration Down" {
+			lines[i] = strings.Replace(line, "-- migration Down", "-- +goose Down", 1)
+		}
+	}
+	return []byte(strings.Join(lines, ""))
 }
 
 func (g *gooseEngine) UpTo(ctx context.Context, version int64) error {

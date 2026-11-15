@@ -2,12 +2,6 @@ package cli
 
 import "strings"
 
-const planUsage = `Usage:
-  saxbase [options] plan
-
-Preview the next release's schema and object actions without changing the database.
-`
-
 const applyUsage = `Usage:
   saxbase [options] apply
 
@@ -17,13 +11,15 @@ Apply every pending release in order. Use -f only to rewrite the current develop
 const statusUsage = `Usage:
   saxbase [options] status
 
-Show the current database schema, release, migrations, objects, and next action.
+Show current release and schema, pending changes, deployment blockers, and next action.
+Status is read-only and is not required before apply.
 `
 
 const rollbackUsage = `Usage:
   saxbase [options] rollback [VERSION]
 
-Restore the previous recorded release, or traverse back to VERSION when supplied.
+Restore the previous release, or the initial state (schema 0) from the first release.
+Traverse back to VERSION when supplied.
 `
 
 const migrationUsage = `Usage:
@@ -57,8 +53,6 @@ func commandHelp(args []string) (string, bool) {
 		return "", false
 	}
 	switch strings.Join(args[:len(args)-1], " ") {
-	case "plan":
-		return planUsage, true
 	case "apply":
 		return applyUsage, true
 	case "status":

@@ -62,7 +62,7 @@ func (s *store) Reconcile(ctx context.Context, target Snapshot, goose migrations
 			return fmt.Errorf("rollback preflight: %w", err)
 		}
 		if err := goose.DownTo(ctx, target.MigrationVersion); err != nil {
-			return fmt.Errorf("Goose rollback may be partially applied; repair the migration and retry rollback %s: %w", target.Version, err)
+			return fmt.Errorf("Goose rollback may be partially applied; repair the migration and retry %s: %w", rollbackCommand(target.Version), err)
 		}
 	}
 	if err := rollbackTransaction(ctx, conn, func(tx *sql.Tx) error {
@@ -113,6 +113,13 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 	}
 	defer func() { err = errors.Join(err, unlock()) }()
 	for _, supplied := range []Snapshot{target, source} {
+		if supplied.Version == "" {
+			initial := InitialSnapshot()
+			if supplied.MigrationVersion != 0 || len(supplied.Objects) != 0 || supplied.Fingerprint != initial.Fingerprint {
+				return result, errors.New("invalid initial rollback target")
+			}
+			continue
+		}
 		if err := s.verifySnapshot(ctx, supplied); err != nil {
 			return result, err
 		}
@@ -139,6 +146,18 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 			return result, fmt.Errorf("rollback preflight: %w", err)
 		}
 	}
+	if target.Version == "" {
+		if err := rollbackTransaction(ctx, conn, func(tx *sql.Tx) error {
+			var fingerprint string
+			err := tx.QueryRowContext(ctx, s.dialect.selectFingerprint, s.dialect.versionArg("")...).Scan(&fingerprint)
+			if errors.Is(err, sql.ErrNoRows) {
+				_, err = tx.ExecContext(ctx, s.dialect.insertRelease, s.dialect.insertArgs("", target.Fingerprint)...)
+			}
+			return err
+		}); err != nil {
+			return result, fmt.Errorf("prepare initial state: %w", err)
+		}
+	}
 	dropExtra := func(tx *sql.Tx) error {
 		for i := len(sourceIDs) - 1; i >= 0; i-- {
 			if _, keep := targetByName[sourceIDs[i].key()]; keep {
@@ -163,7 +182,7 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 			return result, fmt.Errorf("prepare rollback to %s: %w", target.Version, err)
 		}
 		if err := goose.DownTo(ctx, target.MigrationVersion); err != nil {
-			return result, fmt.Errorf("Goose rollback may be partially applied; repair the migration and retry rollback %s: %w", target.Version, err)
+			return result, fmt.Errorf("Goose rollback may be partially applied; repair the migration and retry %s: %w", rollbackCommand(target.Version), err)
 		}
 	}
 	if err := rollbackTransaction(ctx, conn, func(tx *sql.Tx) error {
@@ -227,4 +246,11 @@ func rollbackTransaction(ctx context.Context, conn *sql.Conn, fn func(*sql.Tx) e
 		return err
 	}
 	return tx.Commit()
+}
+
+func rollbackCommand(version string) string {
+	if version == "" {
+		return "saxbase rollback"
+	}
+	return "saxbase rollback " + version
 }

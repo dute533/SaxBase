@@ -11,7 +11,7 @@ import (
 func TestOpenDiscoversGooseSQLMigrations(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"00031_next.sql", "00030_schema.sql"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte("-- +goose Up\nSELECT 1;\n-- +goose Down\nSELECT 1;\n"), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("-- migration Up\nSELECT 1;\n-- migration Down\nSELECT 1;\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -156,7 +156,7 @@ func (s *store) Snapshot(ctx context.Context, version string) (Snapshot, error) 
 	if err != nil {
 		return snapshot, err
 	}
-	if err := releaseversion.Validate(snapshot.Version); err != nil {
+	if err := releaseversion.Validate(snapshot.Version); err != nil && !(version == "" && snapshot.Version == "") {
 		return snapshot, fmt.Errorf("invalid recorded release version: %w", err)
 	}
 	snapshot.Fingerprint = fingerprint

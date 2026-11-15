@@ -21,13 +21,8 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 		manifestPath = "database/release.json"
 	}
 	var files []objects.File
-	var history []resolvedRelease
-	var current string
 	if _, loadErr := releases.Load(manifestPath); loadErr == nil {
-		history, err = resolveReleaseHistory(ctx, manifestPath, objectDir)
-		if err == nil {
-			files = history[len(history)-1].state
-		}
+		return runReleaseStatus(ctx, cfg, manifestPath, objectDir, out, open, openObjects)
 	} else if explicitManifest || !errors.Is(loadErr, os.ErrNotExist) {
 		return loadErr
 	} else {
@@ -58,26 +53,7 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 	if err != nil {
 		return fmt.Errorf("inspect releases: %w", err)
 	}
-	var baseline []objects.File
-	if len(history) > 0 {
-		var currentErr error
-		current, currentErr = effectiveCurrent(history, databaseState)
-		if currentErr != nil {
-			return fmt.Errorf("resolve current release: %w", currentErr)
-		}
-		baseline, err = releaseBaseline(history, current)
-		if err != nil {
-			return fmt.Errorf("resolve current object state: %w", err)
-		}
-	}
-	objectRows := objects.Compare(files, baseline)
-	if cleanStatus(history, current, databaseState.Current, migrationsState.Migrations, objectRows, changed) {
-		latest := history[len(history)-1].manifest.Version
-		if _, err := fmt.Fprintf(out, "Release %s is current.\nDatabase schema %d is current.\nNo pending object changes.\n", latest, migrationsState.Version); err != nil {
-			return err
-		}
-		return writeNext(out, "no action required")
-	}
+	objectRows := objects.Compare(files, nil)
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	recorded := databaseState.Current
 	if recorded == "" {
@@ -99,30 +75,7 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 		}
 		fmt.Fprintln(w, "\nObject changes are not committed, so a reproducible release cannot be created.")
 	}
-	next := "no action required"
-	if len(history) == 0 {
-		next = "saxbase release create VERSION"
-	} else {
-		latest := history[len(history)-1].manifest.Version
-		if current != latest {
-			next = "saxbase plan"
-		} else {
-			latestMigration, migrationErr := history[len(history)-1].manifest.TargetMigration()
-			if migrationErr != nil {
-				return migrationErr
-			}
-			for _, row := range migrationsState.Migrations {
-				if row.State == "missing" || (row.State == "pending" && row.Version <= latestMigration) {
-					next = "saxbase plan"
-					break
-				}
-				if row.State == "pending" && row.Version > latestMigration {
-					next = "saxbase release create VERSION"
-					break
-				}
-			}
-		}
-	}
+	next := "saxbase release create VERSION"
 	if len(changed) > 0 {
 		next = gitCommitCommand(changed)
 	}
@@ -130,25 +83,4 @@ func runStatus(ctx context.Context, cfg migrations.Config, manifestPath, objectD
 		return err
 	}
 	return w.Flush()
-}
-
-func cleanStatus(history []resolvedRelease, current, recorded string, migrationRows []migrations.Status, objectRows []objects.Status, changed []string) bool {
-	if len(history) == 0 || len(changed) > 0 {
-		return false
-	}
-	latest := history[len(history)-1].manifest.Version
-	if current != latest || recorded != latest {
-		return false
-	}
-	for _, row := range migrationRows {
-		if row.State != "applied" {
-			return false
-		}
-	}
-	for _, row := range objectRows {
-		if row.State != "current" {
-			return false
-		}
-	}
-	return true
 }

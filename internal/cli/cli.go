@@ -20,7 +20,7 @@ const usage = `SaxBase
 
 Usage:
   saxbase --version
-  saxbase [-manifest database/release.json] plan|status
+  saxbase [-manifest database/release.json] status
   saxbase [-f] [-manifest database/release.json] apply
   saxbase rollback [VERSION]
   saxbase [-dir database/migrations] migration create NAME
@@ -28,9 +28,8 @@ Usage:
   saxbase [-manifest database/release.json] release validate
 
 Commands:
-  plan      Preview schema migrations and objects without changing the database
   apply     Apply every pending manifest release in order and record each one
-  status    Show database schema, release, and object state together
+  status    Show current state, pending changes, and deployment blockers
   rollback  Restore the previous or a specified recorded release
   migration create NAME  Create the next sequential Goose SQL migration
   release create VERSION    Add or refresh a release from current object files
@@ -177,7 +176,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	command := pos[0]
 	switch command {
-	case "apply", "status", "plan":
+	case "apply", "status":
 	default:
 		return withNext(fmt.Errorf("unknown command %q", command), "saxbase -h")
 	}
@@ -195,9 +194,6 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	if command == "apply" {
 		return runApply(ctx, cfg, manifestPath, objectDir, force, out, open, openObjects)
-	}
-	if command == "plan" {
-		return runPlan(ctx, cfg, manifestPath, objectDir, out, open, openObjects)
 	}
 	if command == "status" {
 		return runStatus(ctx, cfg, manifestPath, objectDir, out, open, openObjects)

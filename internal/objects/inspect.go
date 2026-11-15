@@ -6,7 +6,7 @@ import "context"
 func (s *store) Inspect(ctx context.Context) (Inspection, error) {
 	var result Inspection
 	var err error
-	result.Current, err = s.currentVersion(ctx, s.db)
+	result.Current, result.Initial, err = s.currentPosition(ctx, s.db)
 	if err != nil {
 		return result, err
 	}

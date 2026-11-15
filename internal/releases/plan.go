@@ -21,7 +21,7 @@ type Plan struct {
 	Blockers                      []string
 }
 
-// Small read-only interfaces prevent planning from invoking deployment methods.
+// Small read-only interfaces keep previews from invoking deployment methods.
 type MigrationInspector interface {
 	Inspect(context.Context) (migrations.Inspection, error)
 }
@@ -52,6 +52,15 @@ func BuildPlan(ctx context.Context, manifest Manifest, delta, force bool, files,
 	state, err := db.Inspect(ctx)
 	if err != nil {
 		return p, fmt.Errorf("inspect releases: %w", err)
+	}
+	if state.Initial {
+		initial, err := db.Snapshot(ctx, "")
+		if err != nil {
+			return p, fmt.Errorf("inspect initial state checkpoint: %w", err)
+		}
+		if initial.Fingerprint != objects.InitialSnapshot().Fingerprint {
+			p.Blockers = append(p.Blockers, "rollback to the initial state is incomplete; retry saxbase rollback")
+		}
 	}
 	p.CurrentRelease = state.Current
 	p.Objects = objects.Compare(files, baseline)

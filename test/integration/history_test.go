@@ -12,7 +12,7 @@ import (
 )
 
 func TestSQLServerManifestHistoryWorkflow(t *testing.T) {
-	ctx, db, workDir, _, run := integrationDatabase(t)
+	ctx, db, workDir, execute, run := integrationDatabase(t)
 	manifestPath := filepath.Join(workDir, "database", "release.json")
 	viewPath := filepath.Join(workDir, "database", "objects", "views", "value.sql")
 	writeView := func(value string) {
@@ -49,8 +49,8 @@ func TestSQLServerManifestHistoryWorkflow(t *testing.T) {
 	if err != nil || len(history) != 2 || len(history[1].Objects) != 1 {
 		t.Fatalf("history=%+v err=%v", history, err)
 	}
-	if output := run("plan"); !strings.Contains(output, "-> 2.0.0") {
-		t.Fatalf("fresh plan did not select release 2.0.0: %s", output)
+	if output := run("status"); !strings.Contains(output, "-> 2.0.0") {
+		t.Fatalf("fresh status did not select release 2.0.0: %s", output)
 	}
 	if output := run("apply"); !strings.Contains(output, "Applied release 2.0.0 ") || !strings.Contains(output, "Applied release 2.0.1 ") {
 		t.Fatalf("fresh apply did not deploy the full release chain: %s", output)
@@ -83,6 +83,35 @@ func TestSQLServerManifestHistoryWorkflow(t *testing.T) {
 	run("release", "create", "2.0.4")
 	run("rollback", "2.0.0")
 	assertValue(1)
+
+	// Initial-state rollback can resume after a partially completed Goose down.
+	migrationPath := filepath.Join(workDir, "database/migrations/00001_create_customers.sql")
+	original, err := os.ReadFile(migrationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brokenDown := strings.Replace(string(original), "DROP TABLE dbo.customers;", "THROW 51000, 'initial rollback failure', 1;", 1)
+	writeFixtureFile(t, migrationPath, brokenDown)
+	if output, err := execute("rollback"); err == nil || !strings.Contains(output, "initial rollback failure") {
+		t.Fatalf("initial rollback failure: %v %s", err, output)
+	}
+	if output, err := execute("apply"); err == nil || !strings.Contains(output, "initial state is incomplete") {
+		t.Fatalf("apply during initial rollback: %v %s", err, output)
+	}
+	writeFixtureFile(t, migrationPath, string(original))
+	if output := run("rollback"); !strings.Contains(output, "initial state (database schema 0)") {
+		t.Fatal(output)
+	}
+	assertView("saxbase_value", 0)
+	var tables int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.tables WHERE name='customers'").Scan(&tables); err != nil || tables != 0 {
+		t.Fatalf("customers tables=%d err=%v", tables, err)
+	}
+	if output := run("status"); !strings.Contains(output, "(unversioned) -> 2.0.0") {
+		t.Fatal(output)
+	}
+	run("apply")
+	assertValue(3)
 }
 
 func TestSQLServerForceRewritesCurrentDevelopmentRelease(t *testing.T) {

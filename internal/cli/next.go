@@ -7,6 +7,9 @@ import (
 )
 
 func writeNext(out io.Writer, action string) error {
+	if action == "" {
+		return nil
+	}
 	_, err := fmt.Fprintf(out, "\nNext: %s\n", action)
 	return err
 }

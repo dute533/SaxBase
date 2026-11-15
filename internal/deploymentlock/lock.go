@@ -91,17 +91,19 @@ func acquirePostgres(ctx context.Context, conn *sql.Conn) (*sql.Conn, func() err
 	return conn, release, nil
 }
 
+// Invalidate preserves the initial-state marker as the retry baseline until a
+// release is successfully applied. It has no managed objects to invalidate.
 func Invalidate(ctx context.Context, db Reader, name dialect.Name) error {
 	switch name {
 	case dialect.SQLServer:
-		_, err := db.ExecContext(ctx, "IF OBJECT_ID(N'dbo.saxbase_releases', N'U') IS NOT NULL UPDATE dbo.saxbase_releases SET is_current=0")
+		_, err := db.ExecContext(ctx, "IF OBJECT_ID(N'dbo.saxbase_releases', N'U') IS NOT NULL UPDATE dbo.saxbase_releases SET is_current=0 WHERE version <> ''")
 		return err
 	case dialect.Postgres:
 		var table sql.NullString
 		if err := db.QueryRowContext(ctx, "SELECT to_regclass('public.saxbase_releases')").Scan(&table); err != nil || !table.Valid {
 			return err
 		}
-		_, err := db.ExecContext(ctx, "UPDATE public.saxbase_releases SET is_current=false")
+		_, err := db.ExecContext(ctx, "UPDATE public.saxbase_releases SET is_current=false WHERE version <> ''")
 		return err
 	default:
 		return fmt.Errorf("unsupported database dialect %q", name)

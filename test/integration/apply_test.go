@@ -62,7 +62,6 @@ func TestSQLServerApply(t *testing.T) {
 	write("database/release.json", `{"releases":[{"version":"1.1.0","migration_version":2,"objects":[{"path":"database/objects/views/extra.sql","commit":"0000000000000000000000000000000000000000"}]}]}`)
 	fail("git", "apply")
 	count("SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped=0", 0)
-	manifest("1.0.0")
 	manifest("1.1.0")
 	apply()
 	assertVersion("2")
@@ -74,7 +73,7 @@ func TestSQLServerApply(t *testing.T) {
 	if out := apply(); !strings.Contains(out, "Release 1.1.0 is already applied") || !strings.Contains(out, "No object changes required") {
 		t.Fatal(out)
 	}
-	count("SELECT COUNT(*) FROM dbo.saxbase_releases", 2)
+	count("SELECT COUNT(*) FROM dbo.saxbase_releases", 1)
 	copyManifest("database/target.json", "database/release-2-base.json")
 	// An object-only revision does not apply migration 3.
 	write("database/objects/views/extra.sql", "CREATE OR ALTER VIEW dbo.extra AS SELECT 2 AS value;")
@@ -96,7 +95,7 @@ func TestSQLServerApply(t *testing.T) {
 	copyManifest("database/release-2-base.json", "database/conflicting.json")
 	run("-manifest", "database/conflicting.json", "release", "create", "1.1.1")
 	fail("immutable", "-manifest", "database/conflicting.json", "apply")
-	write("database/migrations/00003_next.sql", "-- +goose Up\nCREATE TABLE dbo.next_table(id INT);\n-- +goose Down\nDROP TABLE dbo.next_table;")
+	write("database/migrations/00003_next.sql", "-- migration Up\nCREATE TABLE dbo.next_table(id INT);\n-- migration Down\nDROP TABLE dbo.next_table;")
 	copyManifest("database/target.json", "database/future.json")
 	run("-manifest", "database/future.json", "release", "create", "9.0.0")
 	futurePath := filepath.Join(workDir, "database/future.json")
@@ -131,12 +130,12 @@ func TestSQLServerApply(t *testing.T) {
 	}
 	count("SELECT value FROM dbo.extra", 3)
 	// Structural failure leaves the old object state intact and releases the lock.
-	write("database/migrations/00004_failure.sql", "-- +goose Up\nTHROW 51000, 'intentional migration failure', 1;\n-- +goose Down\nSELECT 1;")
+	write("database/migrations/00004_failure.sql", "-- migration Up\nTHROW 51000, 'intentional migration failure', 1;\n-- migration Down\nSELECT 1;")
 	manifest("1.3.0")
 	fail("intentional migration failure", "-manifest", "database/target.json", "apply")
 	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='1.3.0'", 0)
 	count("SELECT value FROM dbo.extra", 3)
-	write("database/migrations/00004_failure.sql", "-- +goose Up\nCREATE TABLE dbo.recovered(id INT);\n-- +goose Down\nDROP TABLE dbo.recovered;")
+	write("database/migrations/00004_failure.sql", "-- migration Up\nCREATE TABLE dbo.recovered(id INT);\n-- migration Down\nDROP TABLE dbo.recovered;")
 	apply()
 	count("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='1.3.0'", 1)
 	fail("already exists", "-manifest", "database/target.json", "release", "create", "1.2.0")

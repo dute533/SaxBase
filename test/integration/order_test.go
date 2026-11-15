@@ -69,13 +69,13 @@ func TestSQLServerManifestOrder(t *testing.T) {
 		}
 	}
 	manifest("2.0.0", "ordered.json", false)
-	plan := run("-manifest", "ordered.json", "plan")
+	plan := run("-manifest", "ordered.json", "status")
 	if strings.Index(plan, "views/z_base.sql") > strings.Index(plan, "views/a_dependent.sql") {
 		t.Fatal(plan)
 	}
 	run("-manifest", "ordered.json", "apply")
 	manifest("2.0.0", "reordered.json", true)
-	for _, command := range [][]string{{"plan"}, {"apply"}} {
+	for _, command := range [][]string{{"status"}, {"apply"}} {
 		args := append([]string{"-manifest", "reordered.json"}, command...)
 		out, err := execute(args...)
 		if err == nil || !strings.Contains(out, "immutable") {

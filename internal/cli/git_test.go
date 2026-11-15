@@ -43,7 +43,7 @@ func TestGitResolutionFailsBeforeDatabaseOpen(t *testing.T) {
 	if err := m.Write(path); err != nil {
 		t.Fatal(err)
 	}
-	for _, command := range [][]string{{"apply"}, {"plan"}, {"rollback", "30.0.0"}} {
+	for _, command := range [][]string{{"apply"}, {"status"}, {"rollback", "30.0.0"}} {
 		prefix := []string{"-manifest", path}
 		args := append(prefix, command...)
 		err := run(context.Background(), args, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &bytes.Buffer{},

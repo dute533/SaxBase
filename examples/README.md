@@ -38,7 +38,7 @@ CREATE DATABASE SaxBaseExample;
 ```sh
 ../saxbase release create 1.0.0
 ../saxbase release create 1.1.0
-../saxbase plan
+../saxbase status
 ../saxbase apply
 ../saxbase status
 ```
@@ -61,7 +61,7 @@ creating the manifest entry:
 git add database/objects
 git commit -m "Update example objects"
 ../saxbase release create 1.1.1
-../saxbase plan
+../saxbase status
 ../saxbase apply
 ```
 

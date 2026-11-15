@@ -56,7 +56,7 @@ func TestReleaseCreateAppendsReleaseHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"00001_first.sql", "00002_second.sql"} {
-		if err := os.WriteFile(filepath.Join(migrationDir, name), []byte("-- +goose Up\nSELECT 1;\n"), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(migrationDir, name), []byte("-- migration Up\nSELECT 1;\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -157,11 +157,13 @@ func TestReleaseCreateSemanticVersionsTrackMigrations(t *testing.T) {
 	writeMigration := func(version, name string) {
 		t.Helper()
 		filename := filepath.Join(migrationDir, version+"_"+name+".sql")
-		if err := os.WriteFile(filename, []byte("-- +goose Up\nSELECT 1;\n-- +goose Down\nSELECT 1;\n"), 0600); err != nil {
+		if err := os.WriteFile(filename, []byte("-- migration Up\nSELECT 1;\n-- migration Down\nSELECT 1;\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	writeMigration("00001", "initial")
+	writeMigration("00002", "second")
+	writeMigration("00003", "third")
 	view := filepath.Join(objectDir, "view.sql")
 	if err := os.WriteFile(view, []byte("SELECT 1;"), 0600); err != nil {
 		t.Fatal(err)
@@ -193,15 +195,18 @@ func TestReleaseCreateSemanticVersionsTrackMigrations(t *testing.T) {
 	}
 	commitView("object patch")
 	create("1.0.1")
-	writeMigration("00002", "structural_change")
+	writeMigration("00004", "structural_change")
+	writeMigration("00007", "another_structural_change")
+	create("1.0.1") // Refreshing a release keeps its existing migration target.
 	create("1.1.0")
+	create("1.2.0") // No remaining migrations or object changes: no new entry.
 
 	history, err := releases.LoadAll(manifestPath)
 	if err != nil || len(history) != 3 {
 		t.Fatalf("history=%+v err=%v", history, err)
 	}
 	wantVersions := []string{"1.0.0", "1.0.1", "1.1.0"}
-	wantMigrations := []int64{1, 1, 2}
+	wantMigrations := []int64{3, 3, 7}
 	for i := range history {
 		target, targetErr := history[i].TargetMigration()
 		if targetErr != nil || history[i].MigrationVersion == nil || history[i].Version != wantVersions[i] || target != wantMigrations[i] {

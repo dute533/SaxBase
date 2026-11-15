@@ -142,7 +142,8 @@ func TestSQLServerMigration(t *testing.T) {
 	objectDir := filepath.Join(workDir, "database", "objects")
 	assertVersion := func(want string) {
 		t.Helper()
-		output := strings.Join(strings.Fields(run("status")), " ")
+		raw, _ := execute("status")
+		output := strings.Join(strings.Fields(raw), " ")
 		if !strings.Contains(output, "Database schema: "+want) && !strings.Contains(output, "Database schema "+want+" is current") {
 			t.Fatalf("status did not report database schema %q: %s", want, output)
 		}
@@ -178,13 +179,13 @@ func TestSQLServerMigration(t *testing.T) {
 	}
 
 	futureMigration := filepath.Join(workDir, "database/migrations/00099_future.sql")
-	if err := os.WriteFile(futureMigration, []byte("-- +goose Up\nCREATE TABLE dbo.future_table(id INT);\n-- +goose Down\nDROP TABLE dbo.future_table;\n"), 0600); err != nil {
+	if err := os.WriteFile(futureMigration, []byte("-- migration Up\nCREATE TABLE dbo.future_table(id INT);\n-- migration Down\nDROP TABLE dbo.future_table;\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	planOutput := strings.Join(strings.Fields(run("plan")), " ")
+	statusOutput := strings.Join(strings.Fields(run("status")), " ")
 	for _, want := range []string{"Database schema: 0 -> 2", "1 apply", "2 apply", "NOT INCLUDED", "Migration 99", "release 2.0.0 targets database schema 2", "Ready:"} {
-		if !strings.Contains(planOutput, want) {
-			t.Fatalf("plan missing %q: %s", want, planOutput)
+		if !strings.Contains(statusOutput, want) {
+			t.Fatalf("status missing %q: %s", want, statusOutput)
 		}
 	}
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped=0", 0)
@@ -193,7 +194,7 @@ func TestSQLServerMigration(t *testing.T) {
 	}
 	assertVersion("0")
 	assertCount("SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.saxbase_releases')", 0)
-	assertStatus("pending", "pending")
+	assertStatus("apply", "apply")
 	// Object status is read-only, including before its metadata table exists.
 	run("release", "validate")
 	run("-manifest", "database/wrong-schema.json", "release", "create", "3.0.0")
@@ -259,11 +260,11 @@ func TestSQLServerMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	run("-manifest", "database/release.json", "apply")
-	run("plan")
+	run("status")
 	assertCount("SELECT value FROM dbo.saxbase_value", 1)
 	run("release", "create", "2.0.1")
 	run("release", "validate")
-	if output := run("status"); strings.Count(output, "changed") != 1 || strings.Count(output, "current") != 2 {
+	if output := run("status"); strings.Count(output, "changed") != 1 || strings.Contains(output, "\nOBJECT") && strings.Contains(output, "  current") {
 		t.Fatalf("changed status: %s", output)
 	}
 	if output := run("apply"); strings.Count(output, "applied") != 1 || strings.Contains(output, "current") {
@@ -271,8 +272,8 @@ func TestSQLServerMigration(t *testing.T) {
 	}
 	assertCount("SELECT value FROM dbo.saxbase_value", 2)
 	assertCount("SELECT COUNT(*) FROM dbo.saxbase_releases WHERE version='2.0.1'", 1)
-	if output := run("plan"); !strings.Contains(output, "Ready:") || strings.Contains(output, "\nOBJECT") || !strings.Contains(output, "already current") {
-		t.Fatalf("action-only plan: %s", output)
+	if output := run("status"); strings.Contains(output, "\nOBJECT") || !strings.Contains(output, "Release 2.0.1 is current") {
+		t.Fatalf("current status: %s", output)
 	}
 	var retainedFingerprint string
 	if err := db.QueryRowContext(ctx, "SELECT fingerprint FROM dbo.saxbase_releases WHERE version='2.0.0'").Scan(&retainedFingerprint); err != nil {
@@ -303,8 +304,8 @@ func TestSQLServerMigration(t *testing.T) {
 	}
 	copyManifest("database/release-2-base.json", "database/conflicting-2.1.json")
 	run("-manifest", "database/conflicting-2.1.json", "release", "create", "2.0.1")
-	if output, err := execute("-manifest", "database/conflicting-2.1.json", "plan"); err == nil || !strings.Contains(output, "immutable") {
-		t.Fatalf("immutable plan: %v %s", err, output)
+	if output, err := execute("-manifest", "database/conflicting-2.1.json", "status"); err == nil || !strings.Contains(output, "immutable") {
+		t.Fatalf("immutable status: %v %s", err, output)
 	}
 	if output, err := execute("-manifest", "database/conflicting-2.1.json", "apply"); err == nil || !strings.Contains(output, "immutable") {
 		t.Fatalf("release identity conflict: %v %s", err, output)
@@ -393,10 +394,10 @@ func TestSQLServerMigration(t *testing.T) {
 		t.Fatalf("expected Goose rollback failure: %v %s", err, output)
 	}
 	assertVersion("3")
-	if output := strings.Join(strings.Fields(run("status")), " "); !strings.Contains(output, "Release: 2.0.3") {
-		t.Fatalf("rollback checkpoint was not advanced before Goose: %s", output)
+	if raw, _ := execute("status"); !strings.Contains(strings.Join(strings.Fields(raw), " "), "Release: 2.0.3") {
+		t.Fatalf("rollback checkpoint was not advanced before Goose: %s", raw)
 	}
-	for _, args := range [][]string{{"plan"}, {"apply"}} {
+	for _, args := range [][]string{{"status"}, {"apply"}} {
 		if output, err := execute(args...); err == nil || !strings.Contains(output, "not fully reconciled") {
 			t.Fatalf("pending rollback did not block %v: %v %s", args, err, output)
 		}

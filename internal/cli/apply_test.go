@@ -101,7 +101,7 @@ func TestApplyAdvancesEntireManifestHistoryAndIsIdempotent(t *testing.T) {
 
 	current.appliedVersions = nil
 	output = apply(current)
-	if strings.Join(current.appliedVersions, ",") != "30.1.0" || !strings.Contains(output, "Release 30.1.0 is already applied") || !strings.Contains(output, "Next: no action required") {
+	if strings.Join(current.appliedVersions, ",") != "30.1.0" || !strings.Contains(output, "Release 30.1.0 is already applied") || strings.Contains(output, "Next:") {
 		t.Fatalf("idempotent apply: applied=%v output=%s", current.appliedVersions, output)
 	}
 }

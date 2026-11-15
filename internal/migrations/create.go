@@ -11,14 +11,14 @@ import (
 	"strings"
 )
 
-const sqlMigrationTemplate = `-- +goose Up
+const sqlMigrationTemplate = `-- migration Up
 -- Write the forward migration here.
 
--- +goose Down
+-- migration Down
 -- Write the rollback migration here.
 `
 
-// Create creates the next sequential Goose SQL migration in dir.
+// Create creates the next sequential SQL migration in dir.
 func Create(dir, name string) (string, error) {
 	name = normalizeName(name)
 	if name == "" {

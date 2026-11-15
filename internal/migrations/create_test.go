@@ -25,7 +25,7 @@ func TestCreateMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, annotation := range []string{"-- +goose Up", "-- +goose Down"} {
+	for _, annotation := range []string{"-- migration Up", "-- migration Down"} {
 		if !strings.Contains(string(data), annotation) {
 			t.Fatalf("migration missing %q: %s", annotation, data)
 		}

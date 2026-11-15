@@ -76,12 +76,16 @@ git commit -m "Add customer email"
 git add database/release.json
 git commit -m "Create database release 1.4.0"
 
-./saxbase plan
+./saxbase status
 ./saxbase apply
 ./saxbase status
 ```
 
-`plan` previews the pending release chain. `apply` visits every pending release
+`status` shows current release and schema, the pending release chain, and the
+next release’s migration and object changes and blockers. It is read-only and
+optional before `apply`. When everything is current, it shows a brief summary.
+
+`apply` visits every pending release
 in order, advances Goose to that release's migration target, applies its object
 entries, and records it before continuing.
 
@@ -94,22 +98,24 @@ lowercase snake case.
 SQL Server migration:
 
 ```sql
--- +goose Up
+-- migration Up
 ALTER TABLE dbo.customers ADD email NVARCHAR(320) NULL;
 
--- +goose Down
+-- migration Down
 ALTER TABLE dbo.customers DROP COLUMN email;
 ```
 
-Write migrations in the selected database's native SQL. Use Goose annotations
-and transaction rules; SQL Server files must not contain `GO` batch separators.
+Write migrations in the selected database's native SQL. SaxBase accepts both
+`-- migration Up` / `-- migration Down` and `-- +goose Up` / `-- +goose Down`
+markers. SQL Server files must not contain `GO` batch separators.
 A release's `migration_version` determines how far `apply` or `rollback` moves
 the schema.
 
-`release create VERSION` selects the first migration above the latest release.
+`release create VERSION` selects the highest available migration for a new release,
+including all migrations up to that target.
 If no migration is pending, it reuses the latest migration target for an
-object-only release. Create another release to include another pending
-migration.
+object-only release. Refreshing the same release version preserves its migration
+target.
 
 ## Database objects
 
@@ -128,7 +134,7 @@ CREATE OR REPLACE VIEW public.customer_names AS
 SELECT id, name FROM public.customers;
 ```
 
-An object file must contain one SQL batch. Do not include Goose annotations,
+An object file must contain one SQL batch. Do not include migration annotations,
 `GO`, `USE`, or transaction-control statements.
 
 SaxBase does not infer dependencies. Objects execute from top to bottom in the
@@ -229,3 +235,10 @@ from the recorded checkpoint.
 
 See the [runnable example](../examples/README.md) and run `./saxbase -h` for the
 complete command and option list.
+
+### Rolling back the first release
+
+Running `saxbase rollback` from the first release removes its managed objects
+and runs migration Down steps to schema 0. Release history is retained; `apply`
+can deploy the release chain again. If a Down step fails, repair the migration
+and rerun `saxbase rollback` to finish returning to the initial state.

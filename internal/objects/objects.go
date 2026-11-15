@@ -30,6 +30,7 @@ type Engine interface {
 }
 
 type Inspection struct {
+	Initial bool
 	Current string
 	History []Release
 }

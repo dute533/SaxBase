@@ -66,14 +66,14 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 				return planErr
 			}
 			if len(plan.Blockers) > 0 {
-				return withNext(fmt.Errorf("apply blocked:\n- %s", strings.Join(plan.Blockers, "\n- ")), "saxbase plan")
+				return withNext(fmt.Errorf("apply blocked:\n- %s", strings.Join(plan.Blockers, "\n- ")), "saxbase status")
 			}
 			planCurrent := plan.CurrentRelease
 			if planCurrent == "" {
 				planCurrent = current
 			}
 			if selected.previous != "" && planCurrent != selected.previous && planCurrent != manifest.Version {
-				return withNext(fmt.Errorf("release %s must follow current release %s", manifest.Version, selected.previous), "saxbase plan")
+				return withNext(fmt.Errorf("release %s must follow current release %s", manifest.Version, selected.previous), "saxbase status")
 			}
 			return nil
 		})
@@ -95,7 +95,12 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 			action = "Force-applied"
 		}
 		changed = true
-		fmt.Fprintf(w, "%s release %s (database schema %d)\nSTATE\tFILE\tSHA256\n", action, manifest.Version, migrationVersion)
+		fmt.Fprintf(w, "%s release %s (database schema %d)\n", action, manifest.Version, migrationVersion)
+		if len(rows) == 0 {
+			fmt.Fprintln(w, "No object changes required.")
+		} else {
+			fmt.Fprintln(w, "\nObjects:\nSTATE\tFILE\tSHA256")
+		}
 		for _, row := range rows {
 			fmt.Fprintf(w, "%s\t%s\t%s\n", row.State, row.Path, row.Checksum)
 		}
@@ -103,7 +108,7 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 		baseline = selected.state
 	}
 	if !changed {
-		return writeNext(w, "no action required")
+		return nil
 	}
 	return writeNext(w, "saxbase status")
 }

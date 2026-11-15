@@ -38,17 +38,29 @@ func IsRollbackCheckpoint(recorded, fingerprint string) bool {
 }
 
 func (s *store) currentVersion(ctx context.Context, db reader) (string, error) {
+	version, _, err := s.currentPosition(ctx, db)
+	return version, err
+}
+
+// An empty-version metadata row records an explicit initial-state checkpoint.
+// It is not a release and is excluded from release history.
+func (s *store) currentPosition(ctx context.Context, db reader) (string, bool, error) {
 	exists, err := s.dialect.historyExists(ctx, db)
 	if err != nil || !exists {
-		return "", err
+		return "", false, err
 	}
 	var version sql.NullString
 	err = db.QueryRowContext(ctx, s.dialect.selectCurrent).Scan(&version)
 	if err == sql.ErrNoRows {
-		return "", nil
+		return "", false, nil
 	}
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	return version.String, nil
+	return version.String, version.Valid && version.String == "", nil
+}
+
+// InitialSnapshot describes schema zero with no managed objects.
+func InitialSnapshot() Snapshot {
+	return Snapshot{Release: Release{Fingerprint: ReleaseFingerprint(0, nil)}}
 }

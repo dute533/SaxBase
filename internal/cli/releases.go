@@ -37,7 +37,7 @@ func runRelease(ctx context.Context, args []string, filename, dir, migrationDir 
 		if _, err = fmt.Fprintf(out, "Release %s targets migration %d and resolves %d referenced object(s)\n", m.Version, migrationVersion, len(files)); err != nil {
 			return err
 		}
-		return writeNext(out, "saxbase plan")
+		return writeNext(out, "saxbase status")
 	}
 	if err := releaseversion.Validate(args[1]); err != nil {
 		return withNext(err, "saxbase release create -h")
@@ -87,7 +87,7 @@ func runRelease(ctx context.Context, args []string, filename, dir, migrationDir 
 				if _, err := fmt.Fprintf(out, "Release %s is current.\nNo committed object changes found.\n", latest.Version); err != nil {
 					return err
 				}
-				return writeNext(out, "no action required")
+				return nil
 			}
 		}
 		var previous []objects.File
@@ -112,7 +112,7 @@ func runRelease(ctx context.Context, args []string, filename, dir, migrationDir 
 			if err != nil {
 				return err
 			}
-			return writeNext(out, "saxbase plan")
+			return writeNext(out, "saxbase status")
 		}
 	case errors.Is(loadErr, os.ErrNotExist):
 		m, err = releases.New(args[1], migrationVersion, files)
@@ -128,7 +128,7 @@ func runRelease(ctx context.Context, args []string, filename, dir, migrationDir 
 	if _, err = fmt.Fprintf(out, "Created release %s at migration %d: %s\n", m.Version, migrationVersion, filename); err != nil {
 		return err
 	}
-	return writeNext(out, "saxbase plan")
+	return writeNext(out, "saxbase status")
 }
 
 func inferMigrationVersion(filename, migrationDir, requestedVersion string) (int64, error) {
@@ -139,7 +139,7 @@ func inferMigrationVersion(filename, migrationDir, requestedVersion string) (int
 	history, err := releases.LoadAll(filename)
 	if errors.Is(err, os.ErrNotExist) {
 		if len(versions) > 0 {
-			return versions[0], nil
+			return versions[len(versions)-1], nil
 		}
 		return 0, nil
 	}
@@ -156,7 +156,7 @@ func inferMigrationVersion(filename, migrationDir, requestedVersion string) (int
 	}
 	for _, version := range versions {
 		if version > current {
-			return version, nil
+			current = version
 		}
 	}
 	return current, nil
@@ -230,7 +230,7 @@ func effectiveCurrent(history []resolvedRelease, state objects.Inspection) (stri
 	if state.Current != "" {
 		return state.Current, nil
 	}
-	if len(state.History) == 0 {
+	if state.Initial || len(state.History) == 0 {
 		return "", nil
 	}
 	recorded := make(map[string]bool, len(state.History))
@@ -246,7 +246,7 @@ func effectiveCurrent(history []resolvedRelease, state objects.Inspection) (stri
 }
 
 // pendingReleases returns the releases apply must visit, in order. If the
-// newest entry is already current, it is returned so plan/apply remain
+// newest entry is already current, it is returned so status/apply remain
 // idempotent and can recheck that release.
 func pendingReleases(history []resolvedRelease, current string) ([]resolvedRelease, error) {
 	if len(history) == 0 {
@@ -347,18 +347,15 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 	if err != nil {
 		return fmt.Errorf("inspect current release: %w", err)
 	}
-	if inspection.Current == "" {
+	if inspection.Current == "" && !inspection.Initial {
 		return withNext(errors.New("current state is unversioned; apply a manifest first"), "saxbase apply")
 	}
 	currentIndex := releaseIndex(history, inspection.Current)
-	if currentIndex < 0 {
+	if currentIndex < 0 && !inspection.Initial {
 		return fmt.Errorf("current release %s not found in manifest %s", inspection.Current, manifestPath)
 	}
 	var targetIndex int
 	if len(args) == 0 {
-		if currentIndex == 0 {
-			return withNext(fmt.Errorf("release %s is the oldest recorded release; there is nothing to roll back", inspection.Current), "no action required")
-		}
 		targetIndex = currentIndex - 1
 	} else {
 		targetIndex = releaseIndex(history, args[0])
@@ -374,6 +371,15 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 		return err
 	}
 	defer func() { err = errors.Join(err, goose.Close()) }()
+	if inspection.Initial {
+		if err := engine.Reconcile(ctx, objects.InitialSnapshot(), goose); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(out, "Restored initial state (database schema 0)."); err != nil {
+			return err
+		}
+		return writeNext(out, "saxbase status")
+	}
 	current := releaseSnapshot(history[currentIndex])
 	schema, err := goose.Inspect(ctx)
 	if err != nil {
@@ -393,12 +399,19 @@ func runRollback(ctx context.Context, args []string, cfg migrations.Config, mani
 	}
 	for i := currentIndex; i > targetIndex; i-- {
 		source := releaseSnapshot(history[i])
-		target := releaseSnapshot(history[i-1])
+		target := objects.InitialSnapshot()
+		if i > 0 {
+			target = releaseSnapshot(history[i-1])
+		}
 		result, err := engine.Rollback(ctx, target, source, goose)
 		if err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(out, "Rolled back release %s to %s\n", result.SourceVersion, result.TargetVersion); err != nil {
+		targetLabel := result.TargetVersion
+		if targetLabel == "" {
+			targetLabel = "initial state (database schema 0)"
+		}
+		if _, err := fmt.Fprintf(out, "Rolled back release %s to %s\n", result.SourceVersion, targetLabel); err != nil {
 			return err
 		}
 	}

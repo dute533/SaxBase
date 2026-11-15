@@ -61,7 +61,7 @@ git commit -m "Add customer email"
 git add database/release.json
 git commit -m "Create database release"
 
-./saxbase plan
+./saxbase status
 ./saxbase apply
 ./saxbase status
 ```
@@ -70,12 +70,13 @@ Release versions must use SemVer. SaxBase records the target Goose migration
 separately, so object-only releases can advance from `1.0.0` to `1.0.1` without
 adding a migration. Every manifest entry declares its migration target.
 
-`plan` previews every pending migration and object change. `apply` deploys all
-pending releases in order. Use `-target NAME` to select a configured database.
+`status` shows current state, the pending release chain, and the next release’s
+migration and object changes and blockers. It is optional; `apply` validates and
+deploys all pending releases in order. Use `-target NAME` to select a configured database.
 
 ## Rollback
 
-Restore the preceding release:
+Restore the preceding release (or the initial state from the first release):
 
 ```sh
 ./saxbase rollback
@@ -94,9 +95,8 @@ migrations one release at a time.
 
 | Command | Purpose |
 | --- | --- |
-| `plan` | Preview pending migrations and objects |
 | `apply` | Apply every pending release |
-| `status` | Show schema, release, and object state |
+| `status` | Show current state, pending changes, and deployment blockers |
 | `rollback [VERSION]` | Restore the previous or specified release |
 | `migration create NAME` | Create a sequential Goose migration |
 | `release create VERSION` | Create or refresh a release manifest entry |

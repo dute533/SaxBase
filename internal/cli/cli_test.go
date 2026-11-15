@@ -61,7 +61,7 @@ func TestUnifiedStatus(t *testing.T) {
 	}
 }
 
-func TestStatusResolvesCompleteManifestHistory(t *testing.T) {
+func TestStatusPreviewsPendingManifestChanges(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"a.sql", "b.sql"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("SELECT 1;"), 0600); err != nil {
@@ -86,7 +86,7 @@ func TestStatusResolvesCompleteManifestHistory(t *testing.T) {
 	err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "status"}, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &out,
 		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
 		func(migrations.Config) (objects.Engine, error) { return db, nil })
-	if err != nil || !strings.Contains(out.String(), "a.sql") || !strings.Contains(out.String(), "b.sql") {
+	if err != nil || !strings.Contains(out.String(), "No schema or object changes in release 30.1.0") || strings.Contains(out.String(), "OBJECT") {
 		t.Fatalf("status output=%s err=%v", out.String(), err)
 	}
 }
@@ -131,7 +131,7 @@ func TestLegacyGooseEnvironmentIsNotAccepted(t *testing.T) {
 }
 
 func TestValidationBeforeOpeningDatabase(t *testing.T) {
-	for _, args := range [][]string{{"deploy"}, {"migration", "status"}, {"migration", "version"}, {"migration", "create"}, {"migration", "create", "one", "extra"}, {"objects", "apply"}, {"mssql", "dsn", "apply"}, {"-unknown"}, {"-f", "plan"}, {"-force", "status"}, {"-dir"}, {"migration", "up", "extra"}, {"migration", "up", "-dir", "custom"}} {
+	for _, args := range [][]string{{"deploy"}, {"migration", "status"}, {"migration", "version"}, {"migration", "create"}, {"migration", "create", "one", "extra"}, {"objects", "apply"}, {"mssql", "dsn", "apply"}, {"-unknown"}, {"-f", "status"}, {"-force", "status"}, {"-dir"}, {"migration", "up", "extra"}, {"migration", "up", "-dir", "custom"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			err := Run(context.Background(), args, env(nil), &bytes.Buffer{}, func(migrations.Config) (migrations.Engine, error) {
 				t.Fatal("opened database for invalid input")
@@ -145,7 +145,7 @@ func TestValidationBeforeOpeningDatabase(t *testing.T) {
 }
 
 func TestHelpWithoutDatabase(t *testing.T) {
-	for _, args := range [][]string{nil, {"-h"}, {"--help"}, {"plan", "-h"}, {"apply", "--help"}, {"status", "-h"}, {"rollback", "--help"}, {"migration", "-h"}, {"migration", "create", "--help"}, {"release", "-h"}, {"release", "create", "--help"}, {"release", "validate", "-h"}} {
+	for _, args := range [][]string{nil, {"-h"}, {"--help"}, {"apply", "--help"}, {"status", "-h"}, {"rollback", "--help"}, {"migration", "-h"}, {"migration", "create", "--help"}, {"release", "-h"}, {"release", "create", "--help"}, {"release", "validate", "-h"}} {
 		var out bytes.Buffer
 		err := Run(context.Background(), args, env(nil), &out, func(migrations.Config) (migrations.Engine, error) {
 			t.Fatal("opened database for help")
