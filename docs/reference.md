@@ -87,7 +87,16 @@ optional before `apply`. When everything is current, it shows a brief summary.
 
 `apply` visits every pending release
 in order, advances Goose to that release's migration target, applies its object
-entries, and records it before continuing.
+entries, and records it before continuing. Pass a version to stop after that
+release instead of applying the whole pending chain:
+
+```sh
+./saxbase apply 1.4.0   # apply pending releases up to and including 1.4.0
+./saxbase apply         # continue with the remaining pending releases
+```
+
+The version must exist in the manifest and must not be older than the current
+release; use `rollback VERSION` to move to an older release.
 
 ## Migrations
 

@@ -3,9 +3,11 @@ package cli
 import "strings"
 
 const applyUsage = `Usage:
-  saxbase [options] apply
+  saxbase [options] apply [VERSION]
 
-Apply every pending release in order. Use -f only to rewrite the current development release.
+Apply pending releases in order and record each one. With VERSION, stop after that
+release instead of applying the whole pending chain; use rollback for older versions.
+Use -f only to rewrite the current development release.
 `
 
 const statusUsage = `Usage:

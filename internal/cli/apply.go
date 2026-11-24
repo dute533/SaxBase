@@ -13,7 +13,7 @@ import (
 	"saxbase/internal/releases"
 )
 
-func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDir string, force bool, out io.Writer, open OpenFunc, openObjects OpenObjectsFunc) (err error) {
+func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDir string, force bool, targetVersion string, out io.Writer, open OpenFunc, openObjects OpenObjectsFunc) (err error) {
 	if manifestPath == "" {
 		manifestPath = "database/release.json"
 	}
@@ -42,7 +42,7 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 	if err := requireReconciledCurrent(ctx, history, state, goose, db); err != nil {
 		return err
 	}
-	pending, err := pendingReleases(history, current)
+	pending, err := pendingReleasesUpTo(history, current, targetVersion)
 	if err != nil {
 		return err
 	}
@@ -110,5 +110,11 @@ func runApply(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 	if !changed {
 		return nil
 	}
-	return writeNext(w, "saxbase status")
+	next := "saxbase status"
+	if targetVersion != "" {
+		if targetIndex := releaseIndex(history, targetVersion); targetIndex >= 0 && targetIndex+1 < len(history) {
+			next = "saxbase apply " + history[targetIndex+1].manifest.Version
+		}
+	}
+	return writeNext(w, next)
 }

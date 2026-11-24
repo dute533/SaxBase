@@ -11,6 +11,7 @@ import (
 	"saxbase/internal/dialect"
 	"saxbase/internal/migrations"
 	"saxbase/internal/objects"
+	"saxbase/internal/releaseversion"
 )
 
 // Version is set by the release build; local source builds report dev.
@@ -21,14 +22,14 @@ const usage = `SaxBase
 Usage:
   saxbase --version
   saxbase [-manifest database/release.json] status
-  saxbase [-f] [-manifest database/release.json] apply
+  saxbase [-f] [-manifest database/release.json] apply [VERSION]
   saxbase rollback [VERSION]
   saxbase [-dir database/migrations] migration create NAME
   saxbase [-manifest database/release.json] release create VERSION
   saxbase [-manifest database/release.json] release validate
 
 Commands:
-  apply     Apply every pending manifest release in order and record each one
+  apply     Apply pending manifest releases in order and record each one; stop after VERSION when given
   status    Show current state, pending changes, and deployment blockers
   rollback  Restore the previous or a specified recorded release
   migration create NAME  Create the next sequential Goose SQL migration
@@ -153,7 +154,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 			return nil
 		})
 	}
-	if force && !(len(pos) == 1 && pos[0] == "apply") {
+	if force && !(len(pos) > 0 && pos[0] == "apply") {
 		return withNext(errors.New("-f and -force only apply to the apply command"), "saxbase apply -h")
 	}
 	if len(pos) > 0 && pos[0] == "rollback" {
@@ -171,12 +172,23 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	if len(pos) > 0 && pos[0] == "release" {
 		return runRelease(ctx, pos[1:], manifestPath, objectDir, cfg.Dir, out)
 	}
-	if len(pos) != 1 {
+	if len(pos) == 0 || (len(pos) != 1 && pos[0] != "apply") {
 		return withNext(errors.New("expected COMMAND"), "saxbase -h")
 	}
 	command := pos[0]
+	var applyVersion string
 	switch command {
-	case "apply", "status":
+	case "apply":
+		if len(pos) > 2 {
+			return withNext(errors.New("expected apply [VERSION]"), "saxbase apply -h")
+		}
+		if len(pos) == 2 {
+			if err := releaseversion.Validate(pos[1]); err != nil {
+				return withNext(err, "saxbase apply -h")
+			}
+			applyVersion = pos[1]
+		}
+	case "status":
 	default:
 		return withNext(fmt.Errorf("unknown command %q", command), "saxbase -h")
 	}
@@ -193,7 +205,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		return withNext(errors.New("no database connection is configured"), "set SAXBASE_DSN and SAXBASE_DIALECT or configure saxbase.yaml")
 	}
 	if command == "apply" {
-		return runApply(ctx, cfg, manifestPath, objectDir, force, out, open, openObjects)
+		return runApply(ctx, cfg, manifestPath, objectDir, force, applyVersion, out, open, openObjects)
 	}
 	if command == "status" {
 		return runStatus(ctx, cfg, manifestPath, objectDir, out, open, openObjects)

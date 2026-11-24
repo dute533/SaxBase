@@ -245,6 +245,36 @@ func effectiveCurrent(history []resolvedRelease, state objects.Inspection) (stri
 	return "", errors.New("recorded database releases are not present in manifest history")
 }
 
+// pendingReleasesUpTo returns the releases apply must visit, in order. A supplied
+// target version stops the chain after that release; without one the whole
+// pending chain is returned, exactly like pendingReleases.
+func pendingReleasesUpTo(history []resolvedRelease, current, target string) ([]resolvedRelease, error) {
+	if target == "" {
+		return pendingReleases(history, current)
+	}
+	if len(history) == 0 {
+		return nil, errors.New("manifest contains no releases")
+	}
+	targetIndex := releaseIndex(history, target)
+	if targetIndex < 0 {
+		return nil, withNext(fmt.Errorf("release %s not found in manifest history", target), "saxbase status")
+	}
+	if current == "" {
+		return history[:targetIndex+1], nil
+	}
+	currentIndex := releaseIndex(history, current)
+	if currentIndex < 0 {
+		return nil, fmt.Errorf("current release %s is not in manifest history", current)
+	}
+	if targetIndex < currentIndex {
+		return nil, withNext(fmt.Errorf("release %s is older than the current release %s", target, current), "saxbase rollback "+target)
+	}
+	if targetIndex == currentIndex {
+		return history[currentIndex : currentIndex+1], nil
+	}
+	return history[currentIndex+1 : targetIndex+1], nil
+}
+
 // pendingReleases returns the releases apply must visit, in order. If the
 // newest entry is already current, it is returned so status/apply remain
 // idempotent and can recheck that release.

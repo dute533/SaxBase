@@ -139,6 +139,79 @@ func TestApplyStopsAtFailedRelease(t *testing.T) {
 	}
 }
 
+func TestApplyUpToVersion(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 1;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	files, err := committedFixture(t, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit := files[0].Commit
+	path := filepath.Join(dir, "release.json")
+	base := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: commit}}}
+	if err := base.Write(path); err != nil {
+		t.Fatal(err)
+	}
+	for _, version := range []string{"30.1.0", "30.2.0"} {
+		if err := releases.Append(path, releases.Manifest{Version: version, MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: commit}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	apply := func(args ...string) (string, error) {
+		t.Helper()
+		db := &fakeObjects{currentSet: true}
+		var out bytes.Buffer
+		full := append([]string{"-manifest", path, "-objects-dir", dir}, args...)
+		err := run(context.Background(), full, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &out,
+			func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
+			func(migrations.Config) (objects.Engine, error) { return db, nil })
+		return out.String(), err
+	}
+
+	// A version argument stops the chain after that release.
+	output, err := apply("apply", "30.1.0")
+	if err != nil {
+		t.Fatalf("apply 30.1.0: %v", err)
+	}
+	if !strings.Contains(output, "Applied release 30.0.0") || !strings.Contains(output, "Applied release 30.1.0") ||
+		strings.Contains(output, "Applied release 30.2.0") || !strings.Contains(output, "saxbase apply 30.2.0") {
+		t.Fatalf("apply 30.1.0 output: %s", output)
+	}
+
+	// Without a version the rest of the chain applies.
+	output, err = apply("apply")
+	if err != nil || !strings.Contains(output, "Applied release 30.2.0") {
+		t.Fatalf("apply rest: err=%v output=%s", err, output)
+	}
+
+	// An unknown version and a non-SemVer version are rejected.
+	if _, err = apply("apply", "99.0.0"); err == nil || !strings.Contains(err.Error(), "not found in manifest history") {
+		t.Fatalf("unknown version: %v", err)
+	}
+	if _, err = apply("apply", "not-a-version"); err == nil || !strings.Contains(err.Error(), "invalid release version") {
+		t.Fatalf("invalid version: %v", err)
+	}
+
+	// A version older than the current release points at rollback.
+	db := &fakeObjects{current: "30.2.0", currentSet: true}
+	var out bytes.Buffer
+	err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "apply", "30.1.0"}, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &out,
+		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
+		func(migrations.Config) (objects.Engine, error) { return db, nil })
+	if err == nil || !strings.Contains(err.Error(), "older than the current release") || !strings.Contains(err.Error(), "saxbase rollback 30.1.0") {
+		t.Fatalf("older version: %v", err)
+	}
+
+	// The current version is rechecked idempotently, and -f still works with a version.
+	output, err = apply("-f", "apply", "30.1.0")
+	if err != nil || !strings.Contains(output, "Force-applied release 30.1.0") {
+		t.Fatalf("force apply with version: err=%v output=%s", err, output)
+	}
+}
+
 func TestForceApplyReappliesCurrentRelease(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 1;"), 0600); err != nil {
