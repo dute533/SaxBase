@@ -45,3 +45,18 @@ func TestOpenRejectsInvalidConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestTranslateAnnotations(t *testing.T) {
+	in := "-- migration Up\n-- migration StatementBegin\nCREATE TRIGGER x ON t AS BEGIN SET NOCOUNT ON; END;\n-- migration StatementEnd\n-- migration Down\nDROP TRIGGER x;\n"
+	out, err := translateAnnotations([]byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "-- +goose Up\n-- +goose StatementBegin\nCREATE TRIGGER x ON t AS BEGIN SET NOCOUNT ON; END;\n-- +goose StatementEnd\n-- +goose Down\nDROP TRIGGER x;\n"
+	if string(out) != want {
+		t.Fatalf("translateAnnotations = %q, want %q", out, want)
+	}
+	if _, err := translateAnnotations([]byte("-- +goose Up\nSELECT 1;\n")); err == nil {
+		t.Fatal("expected a goose marker to be rejected")
+	}
+}

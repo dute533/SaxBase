@@ -114,9 +114,16 @@ ALTER TABLE dbo.customers ADD email NVARCHAR(320) NULL;
 ALTER TABLE dbo.customers DROP COLUMN email;
 ```
 
-Write migrations in the selected database's native SQL. SaxBase accepts both
-`-- migration Up` / `-- migration Down` and `-- +goose Up` / `-- +goose Down`
-markers. SQL Server files must not contain `GO` batch separators.
+Write migrations in the selected database's native SQL, using only the
+`-- migration Up` / `-- migration Down` markers (and `-- migration StatementBegin` /
+`-- migration StatementEnd` around multi-statement batches such as triggers).
+SQL Server files must not contain `GO` batch separators.
+Migrating Goose files is a mechanical rewrite:
+
+```sh
+sed -i 's/-- +goose Up/-- migration Up/; s/-- +goose Down/-- migration Down/; s/-- +goose StatementBegin/-- migration StatementBegin/; s/-- +goose StatementEnd/-- migration StatementEnd/' migrations/*.sql
+```
+
 A release's `migration_version` determines how far `apply` or `rollback` moves
 the schema.
 

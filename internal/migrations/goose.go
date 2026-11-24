@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing/fstest"
 
@@ -108,7 +109,10 @@ func gooseFilesystem(root string) (fs.FS, error) {
 			return err
 		}
 		if strings.EqualFold(filepath.Ext(path), ".sql") {
-			data = translateAnnotations(data)
+			data, err = translateAnnotations(data)
+			if err != nil {
+				return fmt.Errorf("%s: %w", path, err)
+			}
 		}
 		relative, err := filepath.Rel(root, path)
 		if err != nil {
@@ -123,17 +127,27 @@ func gooseFilesystem(root string) (fs.FS, error) {
 	return files, nil
 }
 
-func translateAnnotations(data []byte) []byte {
+var gooseAnnotation = regexp.MustCompile(`(?i)^\s*--\s*\+goose\b`)
+
+// translateAnnotations rewrites SaxBase's `-- migration` markers to the Goose
+// annotations the engine understands and rejects leftover Goose markers.
+func translateAnnotations(data []byte) ([]byte, error) {
+	markers := map[string]string{
+		"-- migration Up":             "-- +goose Up",
+		"-- migration Down":           "-- +goose Down",
+		"-- migration StatementBegin": "-- +goose StatementBegin",
+		"-- migration StatementEnd":   "-- +goose StatementEnd",
+	}
 	lines := strings.SplitAfter(string(data), "\n")
 	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "-- migration Up" {
-			lines[i] = strings.Replace(line, "-- migration Up", "-- +goose Up", 1)
-		} else if trimmed == "-- migration Down" {
-			lines[i] = strings.Replace(line, "-- migration Down", "-- +goose Down", 1)
+		if gooseAnnotation.MatchString(line) {
+			return nil, fmt.Errorf("goose marker %q is not supported; use -- migration Up/Down and -- migration StatementBegin/End", strings.TrimSpace(line))
+		}
+		if replacement, ok := markers[strings.TrimSpace(line)]; ok {
+			lines[i] = strings.Replace(line, strings.TrimSpace(line), replacement, 1)
 		}
 	}
-	return []byte(strings.Join(lines, ""))
+	return []byte(strings.Join(lines, "")), nil
 }
 
 func (g *gooseEngine) UpTo(ctx context.Context, version int64) error {
