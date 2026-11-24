@@ -29,12 +29,13 @@ non-zero. Objects added by hand that SaxBase does not manage are ignored.
 `
 
 const correctUsage = `Usage:
-  saxbase [options] correct
+  saxbase [options] correct [-n]
 
 Align the database to the current release: replay the release into a scratch
 database, diff the live schema against it, and apply the corrections (objects,
-triggers, tables, columns, constraints, indexes) in one transaction. Destructive
-steps are printed as warnings. Prints "No drift detected." when clean.
+triggers, tables, columns, constraints, indexes) in one transaction. Column type
+changes may truncate data and are printed as warnings. With -n, print the plan
+and statements without applying anything. Prints "No drift detected." when clean.
 `
 
 const rollbackUsage = `Usage:

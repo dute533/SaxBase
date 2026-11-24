@@ -53,4 +53,15 @@ func TestCorrectCLI(t *testing.T) {
 	if err != nil || strings.TrimSpace(out.String()) != "No drift detected." || len(db.corrected) != 0 {
 		t.Fatalf("clean correct: err=%v output=%s corrected=%v", err, out.String(), db.corrected)
 	}
+
+	// Dry run prints the plan but applies nothing.
+	db = &fakeObjects{current: "30.0.0", currentSet: true, driftStates: map[string]string{"view.sql": "drifted"}}
+	out.Reset()
+	err = run(context.Background(), []string{"-n", "-manifest", path, "-objects-dir", dir, "correct"}, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &out,
+		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
+		func(migrations.Config) (objects.Engine, error) { return db, nil })
+	squeezed = strings.Join(strings.Fields(out.String()), " ")
+	if err != nil || !strings.Contains(squeezed, "Dry run:") || !strings.Contains(squeezed, "correcting view.sql") || !strings.Contains(squeezed, "OR ALTER 1;") || len(db.corrected) != 0 {
+		t.Fatalf("dry run: err=%v output=%s corrected=%v", err, out.String(), db.corrected)
+	}
 }

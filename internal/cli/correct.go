@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 
 	"saxbase/internal/migrations"
 	"saxbase/internal/objects"
@@ -18,7 +17,7 @@ import (
 // Objects that exist only in the live database are left alone (unmanaged).
 // Destructive corrections (column type changes, table creation) are printed as
 // warnings; protected targets ask for confirmation like apply.
-func runCorrect(ctx context.Context, cfg migrations.Config, manifestPath, objectDir string, out io.Writer, open OpenFunc, openObjects OpenObjectsFunc) (err error) {
+func runCorrect(ctx context.Context, cfg migrations.Config, manifestPath, objectDir string, dryRun bool, out io.Writer, open OpenFunc, openObjects OpenObjectsFunc) (err error) {
 	if manifestPath == "" {
 		manifestPath = "database/release.json"
 	}
@@ -76,12 +75,16 @@ func runCorrect(ctx context.Context, cfg migrations.Config, manifestPath, object
 		} else {
 			fmt.Fprintf(out, "correcting %s\n", c.Label)
 		}
-		if os.Getenv("SAXBASE_DEBUG") != "" {
+		if dryRun {
 			for _, s := range c.Statements {
-				fmt.Fprintf(out, "--- %s\n%s\n", c.Label, s)
+				fmt.Fprintf(out, "  %s\n", s)
 			}
 		}
 		stmts = append(stmts, c.Statements...)
+	}
+	if dryRun {
+		fmt.Fprintf(out, "Dry run: %d item(s) would be corrected, nothing applied. Run saxbase correct to apply.\n", len(corrections))
+		return nil
 	}
 	if err := db.CorrectSQL(ctx, stmts); err != nil {
 		return err

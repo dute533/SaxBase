@@ -303,4 +303,7 @@ Objects that exist only in the live database are left alone (unmanaged).
 Destructive steps (column type changes, table creation) are printed as warnings,
 and a fresh schema fingerprint is recorded. On protected targets it asks for
 confirmation like `apply`. Prints `No drift detected.` when there is nothing to
-correct.
+correct. Use `-n` for a dry run that prints the plan and SQL statements without
+applying anything. Note that `correct` never drops tables or columns, but
+reverting a column to a smaller type can truncate its data — that is the case the
+warning covers.

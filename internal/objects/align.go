@@ -91,7 +91,7 @@ func BuildCorrection(ctx context.Context, scratch *sql.DB, name dialect.Name, di
 				return nil, err
 			}
 			for _, s := range stmts {
-				out = append(out, Correction{Label: "table " + id, Statements: []string{s}, Destructive: true})
+				out = append(out, Correction{Label: "table " + id, Statements: []string{s}}) // create only: no data loss
 			}
 		case "column":
 			c, err := alignColumn(ctx, scratch, d, id, added["column "+id])
