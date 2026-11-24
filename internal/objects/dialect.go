@@ -51,13 +51,13 @@ func objectDialectFor(name dialect.Name) (objectDialect, error) {
 			initializeMeta: `IF OBJECT_ID(N'dbo.saxbase_meta', N'U') IS NULL
  CREATE TABLE dbo.saxbase_meta (
  [key] varchar(64) NOT NULL CONSTRAINT PK_saxbase_meta PRIMARY KEY,
- "value" varchar(128) NOT NULL
+ "value" nvarchar(max) NOT NULL
  );`,
 			selectMeta: "SELECT [value] FROM dbo.saxbase_meta WHERE [key]=@key",
 			upsertMeta: `IF OBJECT_ID(N'dbo.saxbase_meta', N'U') IS NULL
  CREATE TABLE dbo.saxbase_meta (
  [key] varchar(64) NOT NULL CONSTRAINT PK_saxbase_meta PRIMARY KEY,
- "value" varchar(128) NOT NULL
+ "value" nvarchar(max) NOT NULL
  );
 UPDATE dbo.saxbase_meta SET [value]=@value WHERE [key]=@key;
 IF @@ROWCOUNT = 0 INSERT INTO dbo.saxbase_meta ([key], [value]) VALUES (@key, @value);`,
@@ -82,12 +82,12 @@ IF @@ROWCOUNT = 0 INSERT INTO dbo.saxbase_meta ([key], [value]) VALUES (@key, @v
 			selectCurrent:     "SELECT version FROM public.saxbase_releases WHERE is_current=true",
 			initializeMeta: `CREATE TABLE IF NOT EXISTS public.saxbase_meta (
  "key" varchar(64) PRIMARY KEY,
- "value" varchar(128) NOT NULL
+ "value" text NOT NULL
  );`,
 			selectMeta: `SELECT "value" FROM public.saxbase_meta WHERE "key"=$1`,
 			upsertMeta: `CREATE TABLE IF NOT EXISTS public.saxbase_meta (
  "key" varchar(64) PRIMARY KEY,
- "value" varchar(128) NOT NULL
+ "value" text NOT NULL
  );
 INSERT INTO public.saxbase_meta ("key", "value") VALUES ($1, $2) ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value";`,
 		}, nil

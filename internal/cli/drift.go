@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"text/tabwriter"
 
 	"saxbase/internal/migrations"
 )
@@ -44,16 +43,17 @@ func runDrift(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 		fmt.Fprintln(out, "No drift detected.")
 		return nil
 	}
-	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	defer func() { err = errors.Join(err, w.Flush()) }()
 	if report.SchemaStored == "" {
-		fmt.Fprintln(w, "Schema fingerprint:\tunrecorded (release predates drift tracking; reapply with saxbase -f apply on a dev database)")
+		fmt.Fprintln(out, "Schema fingerprint: unrecorded (release predates drift tracking; reapply with saxbase -f apply on a dev database)")
 	} else if report.SchemaStored != report.SchemaCurrent {
-		fmt.Fprintln(w, "Schema fingerprint:\tDRIFTED")
+		fmt.Fprintln(out, "Schema fingerprint: DRIFTED")
+		for _, line := range report.SchemaDiff {
+			fmt.Fprintln(out, line)
+		}
 	}
 	for _, row := range report.Objects {
 		if row.State != "ok" {
-			fmt.Fprintf(w, "%s:\t%s\n", row.Path, row.State)
+			fmt.Fprintf(out, "%s: %s\n", row.Path, row.State)
 		}
 	}
 	return errors.New("drift detected")

@@ -19,7 +19,8 @@ func TestSQLServerDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	output, err := execute("drift")
-	if err == nil || !strings.Contains(strings.Join(strings.Fields(output), " "), "drifted") || !strings.Contains(strings.Join(strings.Fields(output), " "), "drift detected") {
+	squeezed := strings.Join(strings.Fields(output), " ")
+	if err == nil || !strings.Contains(squeezed, "value.sql: drifted") || !strings.Contains(squeezed, "~ dbo.saxbase_value v definition changed") {
 		t.Fatalf("object drift not detected: err=%v output=%s", err, output)
 	}
 
@@ -28,7 +29,8 @@ func TestSQLServerDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	output, err = execute("drift")
-	if err == nil || !strings.Contains(strings.Join(strings.Fields(output), " "), "Schema fingerprint: DRIFTED") {
+	squeezed = strings.Join(strings.Fields(output), " ")
+	if err == nil || !strings.Contains(squeezed, "Schema fingerprint: DRIFTED") || !strings.Contains(squeezed, "+ column dbo.customers.extra") {
 		t.Fatalf("schema drift not detected: err=%v output=%s", err, output)
 	}
 
