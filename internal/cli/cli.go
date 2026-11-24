@@ -212,7 +212,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		return runStatus(ctx, cfg, manifestPath, objectDir, out, open, openObjects)
 	}
 	if command == "drift" {
-		return runDrift(ctx, cfg, manifestPath, objectDir, out, openObjects)
+		return runDrift(ctx, cfg, manifestPath, objectDir, out, open, openObjects)
 	}
 	return fmt.Errorf("unknown command %q; use -h for help", command)
 }

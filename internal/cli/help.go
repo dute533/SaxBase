@@ -22,8 +22,10 @@ const driftUsage = `Usage:
 
 Compare the database against the recorded release: the schema fingerprint stored at
 apply time (tables, columns, constraints, indexes, triggers) and every managed object
-definition. Read-only; prints "No drift detected." when clean, otherwise what
-changed (+ added, - removed, ~ definition changed) and exits non-zero.
+definition, plus the live schema against what the release describes (replayed in a
+scratch database on the same server). Read-only; prints "No drift detected." when
+clean, otherwise what changed (+ added, - removed, ~ definition changed) and exits
+non-zero.
 `
 
 const rollbackUsage = `Usage:

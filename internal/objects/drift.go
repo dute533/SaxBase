@@ -136,6 +136,8 @@ func fingerprint(ctx context.Context, db reader) (string, error) {
 			}
 			if q.tag == "module" {
 				parts[len(parts)-1] = hashDefinition(parts[len(parts)-1])
+			} else if q.tag == "index" || q.tag == "key" || q.tag == "fk" || q.tag == "check" {
+				parts[0] = stableName(parts[0])
 			}
 			fmt.Fprintln(&b, q.tag+"\t"+strings.Join(parts, "\t"))
 		}
@@ -151,6 +153,15 @@ func fingerprint(ctx context.Context, db reader) (string, error) {
 func hashDefinition(s string) string {
 	sum := sha256.Sum256([]byte(NormalizeDefinition(s)))
 	return hex.EncodeToString(sum[:])
+}
+
+var autoNameRe = regexp.MustCompile(`(?i)(^|\.)(PK|FK|CK|UQ|DF|IX)__.*$`)
+
+// stableName masks SQL Server auto-generated constraint/index names (e.g.
+// PK__customers__3213E83F), which differ per database, so fingerprints are
+// stable across databases while named constraints stay distinct.
+func stableName(s string) string {
+	return autoNameRe.ReplaceAllString(s, "${1}${2}__auto")
 }
 
 func lineCounts(s string) map[string]int {
@@ -208,6 +219,21 @@ func diffFingerprints(stored, current string) []string {
 	}
 	sort.Strings(diff)
 	return diff
+}
+
+// DiffDescribed renders the non-module differences from a release-described
+// fingerprint (replayed in a scratch database) to the live one: "+ ..." exists
+// only in the live database, "- ..." only in the release description. Module
+// differences are excluded; managed objects are compared per file by Drift.
+func DiffDescribed(described, live string) []string {
+	var out []string
+	for _, line := range diffFingerprints(described, live) {
+		if strings.HasPrefix(line, "+ module") || strings.HasPrefix(line, "- module") || strings.HasPrefix(line, "~ ") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
 }
 
 // recordFingerprint stores the current schema fingerprint. Called inside the

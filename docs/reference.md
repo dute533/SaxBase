@@ -268,14 +268,18 @@ SaxBase last deployed:
 ./saxbase drift
 ```
 
-Two things are compared. The schema fingerprint (tables, columns, indexes,
+Three things are compared. The schema fingerprint (tables, columns, indexes,
 constraints, and module definitions, stored in `dbo.saxbase_meta` at every
-`apply`/`rollback`) must match the live catalog, and every object file pinned
-by the current release must match the live module definition. The command prints
-`No drift detected.` when everything matches; when drift is found it says exactly
-what changed — schema lines as `+ added` / `- removed` / `~ module definition
-changed`, and each drifted or missing object file — and exits non-zero, so it can
-gate a CI pipeline. Fix drift by reapplying the pinned release
+`apply`/`rollback`) must match the live catalog, every object file pinned
+by the current release must match the live module definition, and the live
+schema must match what the release *describes*: the current release is replayed
+into a scratch database on the same server and its fingerprint is diffed against
+the live one. That last check also catches divergence inherited from a baselined
+(Goose) database, where the recorded fingerprint was seeded from the live DB.
+The command prints `No drift detected.` when everything matches; when drift is
+found it says exactly what changed — schema lines as `+ added` / `- removed` /
+`~ module definition changed`, and each drifted or missing object file — and
+exits non-zero, so it can gate a CI pipeline. Fix drift by reapplying the pinned release
 (`saxbase -f apply` on a disposable database); note that a drifted view can
 block reapplying a procedure that depends on it, so restore the drifted object
 from its repo file first.
