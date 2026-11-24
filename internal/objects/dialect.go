@@ -54,7 +54,7 @@ func objectDialectFor(name dialect.Name) (objectDialect, error) {
  [key] varchar(64) NOT NULL CONSTRAINT PK_saxbase_meta PRIMARY KEY,
  "value" nvarchar(max) NOT NULL
  );`,
-			selectMeta: "SELECT [value] FROM dbo.saxbase_meta WHERE [key]=@key",
+			selectMeta: `SELECT CASE WHEN OBJECT_ID(N'dbo.saxbase_meta', N'U') IS NULL THEN NULL ELSE (SELECT [value] FROM dbo.saxbase_meta WHERE [key]=@key) END`,
 			selectModuleDefs: `SELECT m.definition FROM sys.sql_modules m JOIN sys.objects o ON o.object_id = m.object_id JOIN sys.schemas s ON s.schema_id = o.schema_id
 			 WHERE s.name = @schema AND o.name = @name AND o.type IN ('V','P','FN','TF','IF')`,
 			upsertMeta: `IF OBJECT_ID(N'dbo.saxbase_meta', N'U') IS NULL
@@ -87,7 +87,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dbo.saxbase_meta ([key], [value]) VALUES (@key, @v
  "key" varchar(64) PRIMARY KEY,
  "value" text NOT NULL
  );`,
-			selectMeta: `SELECT "value" FROM public.saxbase_meta WHERE "key"=$1`,
+			selectMeta: `SELECT CASE WHEN to_regclass('public.saxbase_meta') IS NULL THEN NULL ELSE (SELECT "value" FROM public.saxbase_meta WHERE "key"=$1) END`,
 			selectModuleDefs: `SELECT pg_get_viewdef(c.oid, true) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 			 WHERE c.relkind IN ('v','m') AND n.nspname = $1 AND c.relname = $2
 			 UNION ALL
