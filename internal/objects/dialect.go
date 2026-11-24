@@ -23,6 +23,7 @@ type objectDialect struct {
 	initializeMeta     string
 	selectMeta         string
 	upsertMeta         string
+	selectModuleDefs   string
 }
 
 func objectDialectFor(name dialect.Name) (objectDialect, error) {
@@ -54,6 +55,8 @@ func objectDialectFor(name dialect.Name) (objectDialect, error) {
  "value" nvarchar(max) NOT NULL
  );`,
 			selectMeta: "SELECT [value] FROM dbo.saxbase_meta WHERE [key]=@key",
+			selectModuleDefs: `SELECT m.definition FROM sys.sql_modules m JOIN sys.objects o ON o.object_id = m.object_id JOIN sys.schemas s ON s.schema_id = o.schema_id
+			 WHERE s.name = @schema AND o.name = @name AND o.type IN ('V','P','FN','TF','IF')`,
 			upsertMeta: `IF OBJECT_ID(N'dbo.saxbase_meta', N'U') IS NULL
  CREATE TABLE dbo.saxbase_meta (
  [key] varchar(64) NOT NULL CONSTRAINT PK_saxbase_meta PRIMARY KEY,
@@ -85,11 +88,13 @@ IF @@ROWCOUNT = 0 INSERT INTO dbo.saxbase_meta ([key], [value]) VALUES (@key, @v
  "value" text NOT NULL
  );`,
 			selectMeta: `SELECT "value" FROM public.saxbase_meta WHERE "key"=$1`,
-			upsertMeta: `CREATE TABLE IF NOT EXISTS public.saxbase_meta (
- "key" varchar(64) PRIMARY KEY,
- "value" text NOT NULL
- );
-INSERT INTO public.saxbase_meta ("key", "value") VALUES ($1, $2) ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value";`,
+			selectModuleDefs: `SELECT pg_get_viewdef(c.oid, true) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+			 WHERE c.relkind IN ('v','m') AND n.nspname = $1 AND c.relname = $2
+			 UNION ALL
+			 SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+			 WHERE p.prokind IN ('f','p') AND n.nspname = $1 AND p.proname = $2`,
+			// Single statement: pgx prepared statements reject multi-command batches.
+			upsertMeta: `INSERT INTO public.saxbase_meta ("key", "value") VALUES ($1, $2) ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value"`,
 		}, nil
 	default:
 		return objectDialect{}, fmt.Errorf("unsupported database dialect %q", name)
@@ -122,6 +127,13 @@ func (d objectDialect) metaArgs(key, value string) []any {
 		return []any{sql.Named("key", key), sql.Named("value", value)}
 	}
 	return []any{key, value}
+}
+
+func (d objectDialect) selectMetaArgs(key string) []any {
+	if d.name == dialect.SQLServer {
+		return []any{sql.Named("key", key)}
+	}
+	return []any{key}
 }
 
 func (d objectDialect) historyExists(ctx context.Context, db reader) (bool, error) {

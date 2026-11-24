@@ -93,7 +93,7 @@ migrations one release at a time.
 
 ## Drift detection
 
-Compare the live database against the current release (SQL Server):
+Compare the live database against the current release:
 
 ```sh
 ./saxbase drift

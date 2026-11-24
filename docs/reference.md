@@ -285,5 +285,4 @@ and are ignored: drift means a described or recorded item was modified or
 removed, or a pinned object file no longer matches. Fix drift by reapplying the pinned release
 (`saxbase -f apply` on a disposable database); note that a drifted view can
 block reapplying a procedure that depends on it, so restore the drifted object
-from its repo file first. Drift detection is implemented for SQL Server only;
-the postgres dialect returns a "not implemented" error.
+from its repo file first. Works for SQL Server and PostgreSQL.

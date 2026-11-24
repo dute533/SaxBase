@@ -39,10 +39,12 @@ func (r DriftReport) Drifted() bool {
 var orAlterRe = regexp.MustCompile(`(?i)^\s*CREATE\s+OR\s+ALTER\s+`)
 
 // NormalizeDefinition canonicalizes an object definition for comparison: it
-// strips the repeatable OR ALTER verb, collapses whitespace and lowercases.
+// strips the repeatable OR ALTER verb, removes semicolons, collapses
+// whitespace and lowercases.
 func NormalizeDefinition(s string) string {
 	s = strings.TrimPrefix(s, "\ufeff")
 	s = orAlterRe.ReplaceAllString(s, "CREATE ")
+	s = strings.ReplaceAll(s, ";", "")
 	return strings.ToLower(strings.Join(strings.Fields(s), " "))
 }
 
@@ -51,9 +53,24 @@ const schemaFingerprintKey = "schema_fingerprint"
 // bookkeeping tables are SaxBase/Goose metadata, not user schema.
 const bookkeepingFilter = "NOT (s.name = 'dbo' AND t.name IN ('saxbase_schema_version','saxbase_releases','saxbase_meta','migrations'))"
 
+const pgSchemaFilter = "n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg\\_%' ESCAPE '\\'"
+const pgBookkeeping = pgSchemaFilter + " AND NOT (n.nspname = 'public' AND c.relname IN ('saxbase_schema_version','saxbase_releases','saxbase_meta'))"
+const pgTableBookkeeping = "table_schema NOT IN ('pg_catalog','information_schema') AND table_schema NOT LIKE 'pg\\_%' ESCAPE '\\' AND NOT (table_schema = 'public' AND table_name IN ('saxbase_schema_version','saxbase_releases','saxbase_meta'))"
+
 type fingerprintQuery struct{ tag, query string }
 
-var fingerprintQueries = []fingerprintQuery{
+// fingerprintQueriesFor returns the canonical catalog queries per dialect.
+func fingerprintQueriesFor(name dialect.Name) ([]fingerprintQuery, error) {
+	switch name {
+	case dialect.SQLServer:
+		return sqlserverFingerprintQueries, nil
+	case dialect.Postgres:
+		return postgresFingerprintQueries, nil
+	}
+	return nil, fmt.Errorf("drift detection is not implemented for dialect %q", name)
+}
+
+var sqlserverFingerprintQueries = []fingerprintQuery{
 	{"schema", `SELECT name FROM sys.schemas WHERE name NOT IN ('sys','INFORMATION_SCHEMA','guest') AND name NOT LIKE 'db\_%' ESCAPE '\' ORDER BY name`},
 	{"table", `SELECT s.name + '.' + t.name FROM sys.tables t JOIN sys.schemas s ON s.schema_id = t.schema_id WHERE ` + bookkeepingFilter + ` ORDER BY 1`},
 	{"column", `SELECT s.name + '.' + t.name + '.' + c.name, ty.name, c.max_length, c.precision, c.scale, c.is_nullable, c.is_identity, ISNULL(dc.definition, ''), ISNULL(cc.definition, '')
@@ -98,12 +115,58 @@ var fingerprintQueries = []fingerprintQuery{
 	WHERE o.type IN ('V','P','FN','TF','IF','TR') ORDER BY 1`},
 }
 
+var postgresFingerprintQueries = []fingerprintQuery{
+	{"schema", `SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_catalog','information_schema') AND schema_name NOT LIKE 'pg\_%' ESCAPE '\' ORDER BY 1`},
+	{"table", `SELECT table_schema || '.' || table_name FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND ` + pgTableBookkeeping + ` ORDER BY 1`},
+	{"column", `SELECT table_schema || '.' || table_name || '.' || column_name, COALESCE(udt_name, data_type), character_maximum_length, numeric_precision, numeric_scale, is_nullable, is_identity, COALESCE(column_default, '')
+	FROM information_schema.columns WHERE ` + pgTableBookkeeping + ` ORDER BY 1, ordinal_position`},
+	{"index", `SELECT schemaname || '.' || tablename || '.' || indexname, indexdef FROM pg_indexes
+	WHERE schemaname NOT IN ('pg_catalog','information_schema') AND schemaname NOT LIKE 'pg\_%' ESCAPE '\'
+	AND NOT (schemaname = 'public' AND tablename IN ('saxbase_schema_version','saxbase_releases','saxbase_meta')) ORDER BY 1`},
+	{"key", `SELECT n.nspname || '.' || c.relname || '.' || con.conname, con.contype::text, pg_get_constraintdef(con.oid)
+	FROM pg_constraint con JOIN pg_class c ON c.oid = con.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+	WHERE con.contype IN ('p','u') AND ` + pgBookkeeping + ` ORDER BY 1`},
+	{"fk", `SELECT n.nspname || '.' || c.relname || '.' || con.conname, con.contype::text, pg_get_constraintdef(con.oid)
+	FROM pg_constraint con JOIN pg_class c ON c.oid = con.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+	WHERE con.contype = 'f' AND ` + pgBookkeeping + ` ORDER BY 1`},
+	{"check", `SELECT n.nspname || '.' || c.relname || '.' || con.conname, con.contype::text, pg_get_constraintdef(con.oid)
+	FROM pg_constraint con JOIN pg_class c ON c.oid = con.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+	WHERE con.contype = 'c' AND ` + pgBookkeeping + ` ORDER BY 1`},
+	{"module", `SELECT n.nspname || '.' || c.relname, 'v', pg_get_viewdef(c.oid, true)
+	FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+	WHERE c.relkind = 'v' AND ` + pgSchemaFilter + ` AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e')
+	UNION ALL
+	SELECT n.nspname || '.' || p.proname, p.prokind::text, pg_get_functiondef(p.oid)
+	FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+	WHERE p.prokind IN ('f','p') AND ` + pgSchemaFilter + ` AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')
+	UNION ALL
+	SELECT n.nspname || '.' || t.tgname, 'tr', pg_get_triggerdef(t.oid)
+	FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+	WHERE NOT t.tgisinternal AND ` + pgSchemaFilter + ` ORDER BY 1`},
+}
+
+type execer interface {
+	reader
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
 // fingerprint renders the canonical schema and module metadata of the database,
 // one tagged line per catalog row. Module definitions are stored as a hash so
 // the text stays small; diffFingerprints reports them as "definition changed".
-func fingerprint(ctx context.Context, db reader) (string, error) {
+// On postgres, search_path is pinned to pg_catalog so pg_get_viewdef renders
+// schema-qualified names exactly as written in the object files.
+func fingerprint(ctx context.Context, db execer, dialectName dialect.Name) (string, error) {
+	queries, err := fingerprintQueriesFor(dialectName)
+	if err != nil {
+		return "", err
+	}
+	if dialectName == dialect.Postgres {
+		if _, err := db.ExecContext(ctx, "SET search_path TO pg_catalog"); err != nil {
+			return "", err
+		}
+	}
 	var b strings.Builder
-	for _, q := range fingerprintQueries {
+	for _, q := range queries {
 		rows, err := db.QueryContext(ctx, q.query)
 		if err != nil {
 			return "", err
@@ -273,7 +336,7 @@ func DiffDescribed(described, live string, managed []File) []string {
 	skip := map[string]bool{}
 	for _, f := range managed {
 		if id, err := objectIdentity(f.SQL); err == nil {
-			skip[strings.ToLower(id.schema+"."+id.name)] = true
+			skip[strings.ToLower(id.schema+"."+id.name)] = true // keyed on name only: object names are unique per schema
 		}
 	}
 	var out []string
@@ -301,12 +364,15 @@ func (s *store) recordFingerprint(ctx context.Context, db interface {
 	reader
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
 }) error {
-	if s.noFingerprint || s.dialect.name != dialect.SQLServer {
+	if s.noFingerprint {
 		return nil
 	}
-	text, err := fingerprint(ctx, db)
+	text, err := fingerprint(ctx, db, s.dialect.name)
 	if err != nil {
 		return fmt.Errorf("compute schema fingerprint: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, s.dialect.initializeMeta); err != nil {
+		return fmt.Errorf("initialize meta table: %w", err)
 	}
 	if _, err := db.ExecContext(ctx, s.dialect.upsertMeta, s.dialect.metaArgs(schemaFingerprintKey, text)...); err != nil {
 		return fmt.Errorf("store schema fingerprint: %w", err)
@@ -314,18 +380,26 @@ func (s *store) recordFingerprint(ctx context.Context, db interface {
 	return nil
 }
 
+// moduleDefinitionMatches compares a live module definition with the pinned
+// file. Catalog definitions that lack a CREATE header (pg_get_viewdef) are
+// wrapped into one so both sides have the same shape.
+func moduleDefinitionMatches(kind, schema, name, definition, fileSQL string) bool {
+	got := NormalizeDefinition(definition)
+	if !strings.HasPrefix(got, "create") {
+		got = NormalizeDefinition("create or replace " + strings.ToLower(kind) + " " + schema + "." + name + " as " + definition)
+	}
+	return got == NormalizeDefinition(fileSQL)
+}
+
 // Drift compares the live database against the given managed object files and
 // the schema fingerprint recorded at apply time.
 func (s *store) Drift(ctx context.Context, files []File) (DriftReport, error) {
-	if s.dialect.name != dialect.SQLServer {
-		return DriftReport{}, fmt.Errorf("drift detection is not implemented for dialect %q", s.dialect.name)
-	}
-	current, err := fingerprint(ctx, s.db)
+	current, err := fingerprint(ctx, s.db, s.dialect.name)
 	if err != nil {
 		return DriftReport{}, err
 	}
 	var stored sql.NullString
-	err = s.db.QueryRowContext(ctx, s.dialect.selectMeta, s.dialect.metaArgs(schemaFingerprintKey, "")...).Scan(&stored)
+	err = s.db.QueryRowContext(ctx, s.dialect.selectMeta, s.dialect.selectMetaArgs(schemaFingerprintKey)...).Scan(&stored)
 	if err != nil && err != sql.ErrNoRows {
 		return DriftReport{}, err
 	}
@@ -341,20 +415,36 @@ func (s *store) Drift(ctx context.Context, files []File) (DriftReport, error) {
 		if err != nil {
 			return DriftReport{}, fmt.Errorf("%s: %w", file.Path, err)
 		}
-		var definition sql.NullString
-		err = s.db.QueryRowContext(ctx,
-			`SELECT m.definition FROM sys.sql_modules m JOIN sys.objects o ON o.object_id = m.object_id JOIN sys.schemas s ON s.schema_id = o.schema_id
-			 WHERE s.name = @schema AND o.name = @name AND o.type IN ('V','P','FN','TF','IF')`,
-			sql.Named("schema", id.schema), sql.Named("name", id.name)).Scan(&definition)
-		state := "ok"
-		switch {
-		case err == sql.ErrNoRows:
-			state = "missing"
-		case err != nil:
+		var rows *sql.Rows
+		if s.dialect.name == dialect.Postgres {
+			if _, err := s.db.ExecContext(ctx, "SET search_path TO pg_catalog"); err != nil {
+				return DriftReport{}, err
+			}
+			rows, err = s.db.QueryContext(ctx, s.dialect.selectModuleDefs, id.schema, id.name)
+		} else {
+			rows, err = s.db.QueryContext(ctx, s.dialect.selectModuleDefs, sql.Named("schema", id.schema), sql.Named("name", id.name))
+		}
+		if err != nil {
 			return DriftReport{}, err
-		case NormalizeDefinition(definition.String) != NormalizeDefinition(file.SQL):
+		}
+		state := "missing"
+		for rows.Next() {
+			var definition string
+			if err := rows.Scan(&definition); err != nil {
+				rows.Close()
+				return DriftReport{}, err
+			}
+			if moduleDefinitionMatches(id.kind, id.schema, id.name, definition, file.SQL) {
+				state = "ok"
+				break
+			}
 			state = "drifted"
 		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return DriftReport{}, err
+		}
+		rows.Close()
 		report.Objects = append(report.Objects, Status{Path: file.Path, State: state, Checksum: file.Checksum})
 	}
 	sort.Slice(report.Objects, func(i, j int) bool { return report.Objects[i].Path < report.Objects[j].Path })

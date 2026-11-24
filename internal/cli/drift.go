@@ -11,54 +11,76 @@ import (
 	"net/url"
 	"strings"
 
+	"saxbase/internal/dialect"
 	"saxbase/internal/migrations"
 	"saxbase/internal/objects"
 )
 
-// withDatabase returns dsn with the database name replaced, supporting both
-// URL-style (sqlserver://...?database=x) and ADO-style (Database=x) DSNs.
+// withDatabase returns dsn with the database name replaced, supporting
+// URL-style DSNs (sqlserver://...?database=x, postgres://.../x) and
+// keyword-style DSNs (Database=x / dbname=x).
 func withDatabase(dsn, name string) string {
-	if strings.HasPrefix(dsn, "sqlserver://") {
+	if strings.Contains(dsn, "://") {
 		if u, err := url.Parse(dsn); err == nil {
-			q := u.Query()
-			q.Set("database", name)
-			u.RawQuery = q.Encode()
+			if u.Scheme == "sqlserver" {
+				q := u.Query()
+				q.Set("database", name)
+				u.RawQuery = q.Encode()
+			} else {
+				u.Path = "/" + name
+			}
 			return u.String()
 		}
 	}
-	parts := strings.Split(dsn, ";")
+	sep := ";"
+	if !strings.Contains(dsn, ";") && strings.Contains(dsn, " ") {
+		sep = " "
+	}
+	parts := strings.Split(dsn, sep)
 	for i, part := range parts {
 		key, _, found := strings.Cut(part, "=")
-		if found && (strings.EqualFold(strings.TrimSpace(key), "Database") || strings.EqualFold(strings.TrimSpace(key), "Initial Catalog")) {
+		key = strings.TrimSpace(key)
+		if found && (strings.EqualFold(key, "Database") || strings.EqualFold(key, "Initial Catalog") || strings.EqualFold(key, "dbname")) {
 			parts[i] = key + "=" + name
-			return strings.Join(parts, ";")
+			return strings.Join(parts, sep)
 		}
 	}
-	return dsn + ";Database=" + name
+	if sep == ";" {
+		return dsn + ";Database=" + name
+	}
+	return dsn + " dbname=" + name
 }
 
 // replayDescribed applies the release to a scratch database on the same server
 // and returns the resulting schema fingerprint: what the release describes.
 // It is a variable so tests can stub it.
 var replayDescribed = func(ctx context.Context, cfg migrations.Config, release resolvedRelease, open OpenFunc, openObjects OpenObjectsFunc) (described string, err error) {
+	driver, maintenance := "sqlserver", "master"
+	if cfg.Dialect == dialect.Postgres {
+		driver, maintenance = "pgx", "postgres"
+	}
 	withDB := func(name string) string { return withDatabase(cfg.DSN, name) }
 	var suffix [8]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
 		return "", err
 	}
 	name := "saxbase_drift_" + hex.EncodeToString(suffix[:])
-	master, err := sql.Open("sqlserver", withDB("master"))
+	master, err := sql.Open(driver, withDB(maintenance))
 	if err != nil {
 		return "", err
 	}
 	defer master.Close()
-	if _, err := master.ExecContext(ctx, "CREATE DATABASE ["+name+"]"); err != nil {
+	create := "CREATE DATABASE [" + name + "]"
+	drop := "ALTER DATABASE [" + name + "] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [" + name + "]"
+	if cfg.Dialect == dialect.Postgres {
+		create = `CREATE DATABASE "` + name + `"`
+		drop = `DROP DATABASE IF EXISTS "` + name + `" WITH (FORCE)`
+	}
+	if _, err := master.ExecContext(ctx, create); err != nil {
 		return "", fmt.Errorf("create scratch database: %w", err)
 	}
 	defer func() {
-		dropCtx := context.Background()
-		master.ExecContext(dropCtx, "ALTER DATABASE ["+name+"] SET SINGLE_USER WITH ROLLBACK IMMEDIATE")
-		if _, dropErr := master.ExecContext(dropCtx, "DROP DATABASE ["+name+"]"); dropErr != nil {
+		if _, dropErr := master.ExecContext(context.Background(), drop); dropErr != nil {
 			err = errors.Join(err, fmt.Errorf("drop scratch database %s: %w", name, dropErr))
 		}
 	}()

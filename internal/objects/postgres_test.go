@@ -18,7 +18,7 @@ func TestPostgresReleaseUsesNativeMetadataSQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := &store{db: db, dialect: spec}
+	store := &store{db: db, dialect: spec, noFingerprint: true}
 	file := objectFile("views/value.sql", "CREATE OR REPLACE VIEW public.value AS SELECT 1 AS value;")
 	release := releaseFor("1.0.0", 1, []File{file})
 
