@@ -22,8 +22,8 @@ const driftUsage = `Usage:
 
 Compare the database against the recorded release: the schema fingerprint stored at
 apply time (tables, columns, constraints, indexes, triggers) and every managed object
-definition. Read-only and silent when clean; prints only the drifted items and exits
-non-zero when drift is detected.
+definition. Read-only; prints "No drift detected." when clean, otherwise only the
+drifted items and exits non-zero.
 `
 
 const rollbackUsage = `Usage:

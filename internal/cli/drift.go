@@ -41,7 +41,8 @@ func runDrift(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 		return err
 	}
 	if !report.Drifted() {
-		return nil // clean: no output
+		fmt.Fprintln(out, "No drift detected.")
+		return nil
 	}
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	defer func() { err = errors.Join(err, w.Flush()) }()

@@ -10,8 +10,8 @@ import (
 func TestSQLServerDrift(t *testing.T) {
 	ctx, db, _, execute, run := integrationDatabase(t)
 	run("apply")
-	if output := run("drift"); output != "" {
-		t.Fatalf("clean drift must be silent, got: %s", output)
+	if output := strings.TrimSpace(run("drift")); output != "No drift detected." {
+		t.Fatalf("clean drift: %s", output)
 	}
 
 	// A direct object edit is drift.
@@ -39,7 +39,7 @@ func TestSQLServerDrift(t *testing.T) {
 	if _, err := db.ExecContext(ctx, "CREATE OR ALTER VIEW dbo.saxbase_value AS SELECT id AS value FROM dbo.customers;"); err != nil {
 		t.Fatal(err)
 	}
-	if output := run("drift"); output != "" {
-		t.Fatalf("drift after manual heal must be silent, got: %s", output)
+	if output := strings.TrimSpace(run("drift")); output != "No drift detected." {
+		t.Fatalf("drift after manual heal: %s", output)
 	}
 }
