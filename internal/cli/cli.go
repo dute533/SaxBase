@@ -23,7 +23,7 @@ Usage:
   saxbase --version
   saxbase [-manifest database/release.json] status
   saxbase [-manifest database/release.json] drift
-  saxbase [-manifest database/release.json] correct
+  saxbase [-manifest database/release.json] drift correct [-n]
   saxbase [-f] [-manifest database/release.json] apply [VERSION]
   saxbase rollback [VERSION]
   saxbase [-dir database/migrations] migration create NAME
@@ -34,7 +34,7 @@ Commands:
   apply     Apply pending manifest releases in order and record each one; stop after VERSION when given
   status    Show current state, pending changes, and deployment blockers
   drift     Compare the database against the recorded release (schema fingerprint and object definitions)
-  correct   Re-apply drifted or missing pinned object files; schema drift is reported, not auto-corrected
+  drift correct [-n]  Align the database to the current release; -n prints the plan without applying
   rollback  Restore the previous or a specified recorded release
   migration create NAME  Create the next sequential Goose SQL migration
   release create VERSION    Add or refresh a release from current object files
@@ -94,7 +94,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	flags.BoolVar(&showVersion, "version", false, "print SaxBase CLI version")
 	flags.BoolVar(&force, "f", false, "rewrite and reapply the selected release")
 	flags.BoolVar(&force, "force", false, "rewrite and reapply the selected release")
-	flags.BoolVar(&dryRun, "n", false, "dry run: show what correct would change, apply nothing")
+	flags.BoolVar(&dryRun, "n", false, "dry run: show what drift correct would change, apply nothing")
+	flags.BoolVar(&dryRun, "dry", false, "dry run: show what drift correct would change, apply nothing")
 	flags.BoolVar(&yes, "yes", false, "confirm writes to protected targets")
 	flags.StringVar(&dir, "dir", "", "migration directory")
 	flags.StringVar(&objectDir, "objects-dir", "", "full-state object directory")
@@ -151,7 +152,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	resolveTarget := func(command string) error {
 		return selectTarget(configPath, target, getenv, &cfg, targetOut, func(name string) error {
 			switch command {
-			case "apply", "rollback", "correct":
+			case "apply", "rollback", "drift correct":
 				if !yes {
 					return confirmWrite(ctx, name, command, input, targetOut)
 				}
@@ -162,8 +163,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	if force && !(len(pos) > 0 && pos[0] == "apply") {
 		return withNext(errors.New("-f and -force only apply to the apply command"), "saxbase apply -h")
 	}
-	if dryRun && !(len(pos) > 0 && pos[0] == "correct") {
-		return withNext(errors.New("-n only applies to the correct command"), "saxbase correct -h")
+	if dryRun && !(len(pos) > 1 && pos[0] == "drift" && pos[1] == "correct") {
+		return withNext(errors.New("-n/--dry only applies to drift correct"), "saxbase drift -h")
 	}
 	if len(pos) > 0 && pos[0] == "rollback" {
 		if err := resolveTarget("rollback"); err != nil {
@@ -180,13 +181,38 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	if len(pos) > 0 && pos[0] == "release" {
 		return runRelease(ctx, pos[1:], manifestPath, objectDir, cfg.Dir, out)
 	}
+	if len(pos) > 1 && pos[0] == "drift" {
+		if pos[1] != "correct" {
+			return withNext(errors.New("expected drift correct"), "saxbase drift -h")
+		}
+		for _, a := range pos[2:] { // allow flags after the subcommand: saxbase drift correct --dry
+			if a == "-n" || a == "--dry" {
+				dryRun = true
+			} else {
+				return withNext(errors.New("expected drift correct [-n|--dry]"), "saxbase drift -h")
+			}
+		}
+		if err := resolveTarget("drift correct"); err != nil {
+			return err
+		}
+		if err := cfg.Dialect.Validate(); err != nil {
+			if dialectErr != nil {
+				return dialectErr
+			}
+			return err
+		}
+		if cfg.DSN == "" {
+			return withNext(errors.New("no database connection is configured"), "set SAXBASE_DSN and SAXBASE_DIALECT or configure saxbase.yaml")
+		}
+		return runCorrect(ctx, cfg, manifestPath, objectDir, dryRun, out, open, openObjects)
+	}
 	if len(pos) == 0 || (len(pos) != 1 && pos[0] != "apply") {
 		return withNext(errors.New("expected COMMAND"), "saxbase -h")
 	}
 	command := pos[0]
 	var applyVersion string
 	switch command {
-	case "apply", "status", "drift", "correct":
+	case "apply", "status", "drift":
 		if len(pos) > 2 || (len(pos) == 2 && command != "apply") {
 			return withNext(errors.New("expected "+command), "saxbase "+command+" -h")
 		}
@@ -219,9 +245,6 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	if command == "drift" {
 		return runDrift(ctx, cfg, manifestPath, objectDir, out, open, openObjects)
-	}
-	if command == "correct" {
-		return runCorrect(ctx, cfg, manifestPath, objectDir, dryRun, out, open, openObjects)
 	}
 	return fmt.Errorf("unknown command %q; use -h for help", command)
 }

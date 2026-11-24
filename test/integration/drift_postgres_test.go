@@ -140,7 +140,7 @@ func TestPostgresDrift(t *testing.T) {
 	}
 
 	// Correction re-applies the pinned object; drift must report clean again.
-	run("correct")
+	run("drift", "correct")
 	if output := strings.TrimSpace(run("drift")); output != "No drift detected." {
 		t.Fatalf("drift after correct: %s", output)
 	}

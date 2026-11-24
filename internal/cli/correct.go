@@ -83,12 +83,12 @@ func runCorrect(ctx context.Context, cfg migrations.Config, manifestPath, object
 		stmts = append(stmts, c.Statements...)
 	}
 	if dryRun {
-		fmt.Fprintf(out, "Dry run: %d item(s) would be corrected, nothing applied. Run saxbase correct to apply.\n", len(corrections))
-		return nil
+		fmt.Fprintf(out, "Dry run: %d item(s) would be corrected, nothing applied.\n", len(corrections))
+		return writeNext(out, "saxbase drift correct")
 	}
 	if err := db.CorrectSQL(ctx, stmts); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "Corrected %d item(s). Run saxbase drift to verify.\n", len(corrections))
-	return nil
+	fmt.Fprintf(out, "Corrected %d item(s).\n", len(corrections))
+	return writeNext(out, "saxbase drift")
 }

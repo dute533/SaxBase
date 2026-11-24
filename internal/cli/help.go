@@ -19,23 +19,20 @@ Status is read-only and is not required before apply.
 
 const driftUsage = `Usage:
   saxbase [options] drift
+  saxbase [options] drift correct [-n|--dry]
 
 Compare the database against the recorded release: the schema fingerprint stored at
 apply time (tables, columns, constraints, indexes, triggers) and every managed object
 definition, plus the live schema against what the release describes (replayed in a
 scratch database on the same server). Read-only; prints "No drift detected." when
 clean, otherwise what changed (+ added, - removed, ~ definition changed) and exits
-non-zero. Objects added by hand that SaxBase does not manage are ignored.
-`
+non-zero, with a tip to run drift correct.
 
-const correctUsage = `Usage:
-  saxbase [options] correct [-n]
-
-Align the database to the current release: replay the release into a scratch
-database, diff the live schema against it, and apply the corrections (objects,
-triggers, tables, columns, constraints, indexes) in one transaction. Column type
-changes may truncate data and are printed as warnings. With -n, print the plan
-and statements without applying anything. Prints "No drift detected." when clean.
+drift correct aligns the database to the current release: it replays the release
+into a scratch database, diffs the live schema against it, and applies the
+corrections (objects, triggers, tables, columns, constraints, indexes) in one
+transaction. Column type changes may truncate data and are printed as warnings.
+With -n/--dry, print the plan and statements without applying anything.
 `
 
 const rollbackUsage = `Usage:
@@ -80,10 +77,8 @@ func commandHelp(args []string) (string, bool) {
 		return applyUsage, true
 	case "status":
 		return statusUsage, true
-	case "drift":
+	case "drift", "drift correct":
 		return driftUsage, true
-	case "correct":
-		return correctUsage, true
 	case "rollback":
 		return rollbackUsage, true
 	case "migration":

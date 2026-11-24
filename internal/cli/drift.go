@@ -201,5 +201,5 @@ func runDrift(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 			fmt.Fprintf(out, "%s: %s\n", row.Path, row.State)
 		}
 	}
-	return errors.New("drift detected")
+	return withNext(errors.New("drift detected"), "saxbase drift correct --dry")
 }

@@ -283,14 +283,14 @@ exits non-zero, so it can gate a CI pipeline. Objects that exist only in the
 live database (tables, views, triggers added by hand) are not managed by SaxBase
 and are ignored: drift means a described or recorded item was modified or
 removed, or a pinned object file no longer matches. Fix drift by reapplying the pinned release
-(`saxbase -f apply` on a disposable database); note that a drifted view can
+(`saxbase drift correct --dry` to preview, `saxbase drift correct` to apply; on a disposable database `saxbase -f apply` also works); note that a drifted view can
 block reapplying a procedure that depends on it, so restore the drifted object
 from its repo file first. Works for SQL Server and PostgreSQL.
 
 ### Correcting drift
 
 ```sh
-./saxbase correct
+./saxbase drift correct [-n]
 ```
 
 Aligns the live database to what the current release describes. The release is
@@ -303,7 +303,7 @@ Objects that exist only in the live database are left alone (unmanaged).
 Destructive steps (column type changes, table creation) are printed as warnings,
 and a fresh schema fingerprint is recorded. On protected targets it asks for
 confirmation like `apply`. Prints `No drift detected.` when there is nothing to
-correct. Use `-n` for a dry run that prints the plan and SQL statements without
-applying anything. Note that `correct` never drops tables or columns, but
+correct. Use `-n`/`--dry` for a dry run that prints the plan and SQL statements without
+applying anything. Note that `drift correct` never drops tables or columns, but
 reverting a column to a smaller type can truncate its data — that is the case the
 warning covers.
