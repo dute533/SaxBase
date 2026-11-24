@@ -41,16 +41,19 @@ func TestDiffFingerprints(t *testing.T) {
 func TestDiffDescribed(t *testing.T) {
 	managed := []File{{Path: "v.sql", SQL: "CREATE OR ALTER VIEW dbo.v AS SELECT 1;"}}
 	described := "module\tdbo.v\tv\t" + hashDefinition("create view dbo.v as select 1") + "\n" +
-		"module\tdbo.tgr\ttr\t" + hashDefinition("create trigger dbo.tgr on dbo.t as return") + "\n"
+		"module\tdbo.tgr\ttr\t" + hashDefinition("create trigger dbo.tgr on dbo.t as return") + "\n" +
+		"column\tdbo.t.c\tint\t1\n"
 	live := "module\tdbo.v\tv\t" + hashDefinition("create view dbo.v as select 1") + "\n" +
 		"module\tdbo.tgr\ttr\t" + hashDefinition("create trigger dbo.tgr on dbo.t as select 1") + "\n" +
-		"module\tdbo.extra_tr\ttr\t" + hashDefinition("create trigger dbo.extra_tr on dbo.t as return") + "\n"
+		"module\tdbo.extra_tr\ttr\t" + hashDefinition("create trigger dbo.extra_tr on dbo.t as return") + "\n" +
+		"column\tdbo.t.c\tint\t2\n"
 	got := DiffDescribed(described, live, managed)
 	want := []string{
-		"+ module\tdbo.extra_tr\ttr\t" + hashDefinition("create trigger dbo.extra_tr on dbo.t as return"),
+		"+ column\tdbo.t.c\tint\t2",
+		"- column\tdbo.t.c\tint\t1",
 		"~ dbo.tgr tr definition changed",
 	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Fatalf("DiffDescribed = %q, want %q (managed dbo.v must be filtered out)", got, want)
+		t.Fatalf("DiffDescribed = %q, want %q (managed dbo.v and added dbo.extra_tr must be filtered out)", got, want)
 	}
 }

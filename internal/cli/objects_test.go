@@ -26,6 +26,8 @@ type fakeObjects struct {
 	appliedVersions []string
 	applyErrAt      string
 	applyErr        error
+	schemaStored    string
+	schemaCurrent   string
 }
 
 func migrationPointer(version int64) *int64 { return &version }
@@ -63,7 +65,14 @@ func (f *fakeObjects) Snapshot(_ context.Context, version string) (objects.Snaps
 
 func (f *fakeObjects) Drift(_ context.Context, files []objects.File) (objects.DriftReport, error) {
 	f.command = "drift"
-	report := objects.DriftReport{SchemaStored: "abc", SchemaCurrent: "abc"}
+	stored, current := f.schemaStored, f.schemaCurrent
+	if stored == "" {
+		stored = "abc"
+	}
+	if current == "" {
+		current = stored
+	}
+	report := objects.DriftReport{SchemaStored: stored, SchemaCurrent: current, SchemaDiff: objects.DiffFingerprints(stored, current)}
 	for _, file := range files {
 		report.Objects = append(report.Objects, objects.Status{Path: file.Path, State: "ok", Checksum: file.Checksum})
 	}

@@ -22,8 +22,10 @@ type DriftReport struct {
 }
 
 // Drifted reports whether the schema fingerprint or any managed object differs.
+// Purely added objects (present live, absent from the recorded state) are not
+// drift; SchemaDiff already excludes them.
 func (r DriftReport) Drifted() bool {
-	if r.SchemaStored != r.SchemaCurrent {
+	if len(r.SchemaDiff) > 0 {
 		return true
 	}
 	for _, row := range r.Objects {
@@ -221,6 +223,47 @@ func diffFingerprints(stored, current string) []string {
 	return diff
 }
 
+// DiffFingerprints renders recorded-to-current schema differences, excluding
+// purely added (unmanaged) objects.
+func DiffFingerprints(stored, current string) []string {
+	return filterAdditions(diffFingerprints(stored, current))
+}
+
+// diffIdentity identifies what a fingerprint line is about, ignoring its
+// value fields: "column\tschema.table.col", "module\tschema.name\ttype", etc.
+func diffIdentity(line string) string {
+	fields := strings.SplitN(line, "\t", 4)
+	if len(fields) < 2 {
+		return line
+	}
+	id := fields[0] + "\t" + fields[1]
+	if fields[0] == "module" && len(fields) > 2 {
+		id += "\t" + fields[2]
+	}
+	return id
+}
+
+// filterAdditions drops "+ ..." diff lines whose identity has no matching
+// "- ..." line. Objects SaxBase does not manage may be added by hand and are
+// not drift; modifications (a "+"/"-" pair on the same identity) and removals
+// ("-" only) are kept.
+func filterAdditions(diff []string) []string {
+	removed := map[string]bool{}
+	for _, line := range diff {
+		if strings.HasPrefix(line, "- ") {
+			removed[diffIdentity(line[2:])] = true
+		}
+	}
+	var out []string
+	for _, line := range diff {
+		if strings.HasPrefix(line, "+ ") && !removed[diffIdentity(line[2:])] {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
 // DiffDescribed renders the differences from a release-described fingerprint
 // (replayed in a scratch database) to the live one: "+ ..." exists only in the
 // live database, "- ..." only in the release description. Modules pinned by
@@ -249,7 +292,7 @@ func DiffDescribed(described, live string, managed []File) []string {
 		}
 		out = append(out, line)
 	}
-	return out
+	return filterAdditions(out)
 }
 
 // recordFingerprint stores the current schema fingerprint. Called inside the
@@ -288,7 +331,7 @@ func (s *store) Drift(ctx context.Context, files []File) (DriftReport, error) {
 	}
 	report := DriftReport{SchemaStored: stored.String, SchemaCurrent: current, Objects: []Status{}}
 	if stored.Valid && stored.String != current {
-		report.SchemaDiff = diffFingerprints(stored.String, current)
+		report.SchemaDiff = DiffFingerprints(stored.String, current)
 	}
 	for _, file := range files {
 		if file.Delete {

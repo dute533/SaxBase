@@ -138,7 +138,7 @@ func runDrift(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 	}
 	if report.SchemaStored == "" {
 		fmt.Fprintln(out, "Schema fingerprint: unrecorded (release predates drift tracking; reapply with saxbase -f apply on a dev database)")
-	} else if report.SchemaStored != report.SchemaCurrent {
+	} else if len(report.SchemaDiff) > 0 {
 		fmt.Fprintln(out, "Schema fingerprint: DRIFTED")
 		for _, line := range report.SchemaDiff {
 			fmt.Fprintln(out, line)

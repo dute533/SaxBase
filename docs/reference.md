@@ -279,7 +279,10 @@ the live one. That last check also catches divergence inherited from a baselined
 The command prints `No drift detected.` when everything matches; when drift is
 found it says exactly what changed — schema lines as `+ added` / `- removed` /
 `~ module definition changed`, and each drifted or missing object file — and
-exits non-zero, so it can gate a CI pipeline. Fix drift by reapplying the pinned release
+exits non-zero, so it can gate a CI pipeline. Objects that exist only in the
+live database (tables, views, triggers added by hand) are not managed by SaxBase
+and are ignored: drift means a described or recorded item was modified or
+removed, or a pinned object file no longer matches. Fix drift by reapplying the pinned release
 (`saxbase -f apply` on a disposable database); note that a drifted view can
 block reapplying a procedure that depends on it, so restore the drifted object
 from its repo file first.

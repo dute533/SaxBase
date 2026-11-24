@@ -25,7 +25,7 @@ apply time (tables, columns, constraints, indexes, triggers) and every managed o
 definition, plus the live schema against what the release describes (replayed in a
 scratch database on the same server). Read-only; prints "No drift detected." when
 clean, otherwise what changed (+ added, - removed, ~ definition changed) and exits
-non-zero.
+non-zero. Objects added by hand that SaxBase does not manage are ignored.
 `
 
 const rollbackUsage = `Usage:
