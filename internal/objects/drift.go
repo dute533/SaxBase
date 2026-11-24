@@ -221,15 +221,31 @@ func diffFingerprints(stored, current string) []string {
 	return diff
 }
 
-// DiffDescribed renders the non-module differences from a release-described
-// fingerprint (replayed in a scratch database) to the live one: "+ ..." exists
-// only in the live database, "- ..." only in the release description. Module
-// differences are excluded; managed objects are compared per file by Drift.
-func DiffDescribed(described, live string) []string {
+// DiffDescribed renders the differences from a release-described fingerprint
+// (replayed in a scratch database) to the live one: "+ ..." exists only in the
+// live database, "- ..." only in the release description. Modules pinned by
+// managed object files are excluded (Drift compares those per file); all other
+// modules, including triggers, are reported.
+func DiffDescribed(described, live string, managed []File) []string {
+	skip := map[string]bool{}
+	for _, f := range managed {
+		if id, err := objectIdentity(f.SQL); err == nil {
+			skip[strings.ToLower(id.schema+"."+id.name)] = true
+		}
+	}
 	var out []string
 	for _, line := range diffFingerprints(described, live) {
-		if strings.HasPrefix(line, "+ module") || strings.HasPrefix(line, "- module") || strings.HasPrefix(line, "~ ") {
-			continue
+		switch {
+		case strings.HasPrefix(line, "~ "):
+			fields := strings.Fields(line[2:])
+			if len(fields) > 0 && skip[strings.ToLower(fields[0])] {
+				continue
+			}
+		case strings.HasPrefix(line, "+ module\t"), strings.HasPrefix(line, "- module\t"):
+			fields := strings.Split(line[2:], "\t")
+			if len(fields) > 1 && skip[strings.ToLower(fields[1])] {
+				continue
+			}
 		}
 		out = append(out, line)
 	}

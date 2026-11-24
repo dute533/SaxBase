@@ -130,7 +130,7 @@ func runDrift(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 	}
 	var describedDiff []string
 	if described != report.SchemaCurrent {
-		describedDiff = objects.DiffDescribed(described, report.SchemaCurrent)
+		describedDiff = objects.DiffDescribed(described, report.SchemaCurrent, history[index].state)
 	}
 	if !report.Drifted() && len(describedDiff) == 0 {
 		fmt.Fprintln(out, "No drift detected.")
