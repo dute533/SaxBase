@@ -51,10 +51,13 @@ func withDatabase(dsn, name string) string {
 	return dsn + " dbname=" + name
 }
 
-// replayDescribed applies the release to a scratch database on the same server
-// and returns the resulting schema fingerprint: what the release describes.
-// It is a variable so tests can stub it.
-var replayDescribed = func(ctx context.Context, cfg migrations.Config, release resolvedRelease, open OpenFunc, openObjects OpenObjectsFunc) (described string, err error) {
+// replayScratch applies the release to a scratch database on the same server
+// and returns a live handle plus the resulting schema fingerprint: what the
+// release describes. The caller must call drop.
+// replayScratch applies the release to a scratch database on the same server
+// and returns a live handle plus the resulting schema fingerprint: what the
+// release describes. The caller must call drop.
+var replayScratch = func(ctx context.Context, cfg migrations.Config, release resolvedRelease, open OpenFunc, openObjects OpenObjectsFunc) (scratch *sql.DB, described string, drop func(), err error) {
 	driver, maintenance := "sqlserver", "master"
 	if cfg.Dialect == dialect.Postgres {
 		driver, maintenance = "pgx", "postgres"
@@ -62,56 +65,77 @@ var replayDescribed = func(ctx context.Context, cfg migrations.Config, release r
 	withDB := func(name string) string { return withDatabase(cfg.DSN, name) }
 	var suffix [8]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
-		return "", err
+		return nil, "", nil, err
 	}
 	name := "saxbase_drift_" + hex.EncodeToString(suffix[:])
 	master, err := sql.Open(driver, withDB(maintenance))
 	if err != nil {
-		return "", err
+		return nil, "", nil, err
 	}
-	defer master.Close()
 	create := "CREATE DATABASE [" + name + "]"
-	drop := "ALTER DATABASE [" + name + "] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [" + name + "]"
+	dropSQL := "ALTER DATABASE [" + name + "] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [" + name + "]"
 	if cfg.Dialect == dialect.Postgres {
 		create = `CREATE DATABASE "` + name + `"`
-		drop = `DROP DATABASE IF EXISTS "` + name + `" WITH (FORCE)`
+		dropSQL = `DROP DATABASE IF EXISTS "` + name + `" WITH (FORCE)`
 	}
 	if _, err := master.ExecContext(ctx, create); err != nil {
-		return "", fmt.Errorf("create scratch database: %w", err)
+		master.Close()
+		return nil, "", nil, fmt.Errorf("create scratch database: %w", err)
 	}
-	defer func() {
-		if _, dropErr := master.ExecContext(context.Background(), drop); dropErr != nil {
-			err = errors.Join(err, fmt.Errorf("drop scratch database %s: %w", name, dropErr))
+	drop = func() {
+		defer master.Close()
+		if _, dropErr := master.ExecContext(context.Background(), dropSQL); dropErr != nil && err == nil {
+			err = fmt.Errorf("drop scratch database %s: %w", name, dropErr)
 		}
-	}()
+	}
+	fail := func(e error) (*sql.DB, string, func(), error) {
+		drop()
+		return nil, "", nil, e
+	}
 	scratchCfg := cfg
 	scratchCfg.DSN = withDB(name)
 	goose, err := open(scratchCfg)
 	if err != nil {
-		return "", err
+		return fail(err)
 	}
 	defer func() { err = errors.Join(err, goose.Close()) }()
 	migrationVersion, err := release.manifest.TargetMigration()
 	if err != nil {
-		return "", err
+		return fail(err)
 	}
 	if err := goose.UpTo(ctx, migrationVersion); err != nil {
-		return "", fmt.Errorf("replay migrations in scratch database: %w", err)
+		return fail(fmt.Errorf("replay migrations in scratch database: %w", err))
 	}
 	db, err := openObjects(scratchCfg)
 	if err != nil {
-		return "", err
+		return fail(err)
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
 	rel := objects.Release{Version: release.manifest.Version, MigrationVersion: migrationVersion, Fingerprint: release.manifest.Fingerprint(release.state)}
 	if _, err := db.Apply(ctx, release.state, nil, rel, false, goose, func(context.Context) error { return nil }); err != nil {
-		return "", fmt.Errorf("replay objects in scratch database: %w", err)
+		return fail(fmt.Errorf("replay objects in scratch database: %w", err))
 	}
 	report, err := db.Drift(ctx, nil)
 	if err != nil {
+		return fail(err)
+	}
+	scratch, err = sql.Open(driver, scratchCfg.DSN)
+	if err != nil {
+		return fail(err)
+	}
+	return scratch, report.SchemaCurrent, drop, nil
+}
+
+var replayDescribed = func(ctx context.Context, cfg migrations.Config, release resolvedRelease, open OpenFunc, openObjects OpenObjectsFunc) (string, error) {
+	scratch, described, drop, err := replayScratch(ctx, cfg, release, open, openObjects)
+	if err != nil {
 		return "", err
 	}
-	return report.SchemaCurrent, nil
+	defer func() {
+		scratch.Close()
+		drop()
+	}()
+	return described, nil
 }
 
 // runDrift is read-only against the target database: it compares the live

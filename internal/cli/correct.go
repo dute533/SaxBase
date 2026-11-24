@@ -5,17 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
+	"os"
 
 	"saxbase/internal/migrations"
 	"saxbase/internal/objects"
 )
 
-// runCorrect heals drift that can be healed safely: pinned object files that
-// drifted or went missing are re-applied from the repo and a fresh schema
-// fingerprint is recorded. Schema (table) drift is reported but never
-// auto-corrected; it needs a migration.
-func runCorrect(ctx context.Context, cfg migrations.Config, manifestPath, objectDir string, out io.Writer, openObjects OpenObjectsFunc) (err error) {
+// runCorrect aligns the live database to the current release description: it
+// replays the release into a scratch database, diffs live against it, and
+// applies the corrections (objects, triggers and other modules, tables,
+// columns, constraints, indexes) in one transaction with a fresh fingerprint.
+// Objects that exist only in the live database are left alone (unmanaged).
+// Destructive corrections (column type changes, table creation) are printed as
+// warnings; protected targets ask for confirmation like apply.
+func runCorrect(ctx context.Context, cfg migrations.Config, manifestPath, objectDir string, out io.Writer, open OpenFunc, openObjects OpenObjectsFunc) (err error) {
 	if manifestPath == "" {
 		manifestPath = "database/release.json"
 	}
@@ -43,44 +46,46 @@ func runCorrect(ctx context.Context, cfg migrations.Config, manifestPath, object
 	if err != nil {
 		return err
 	}
-	byPath := map[string]objects.File{}
-	for _, file := range history[index].state {
-		byPath[file.Path] = file
+	scratch, described, drop, err := replayScratch(ctx, cfg, history[index], open, openObjects)
+	if err != nil {
+		return err
 	}
-	var fix []objects.File
-	for _, row := range report.Objects {
-		if row.State != "ok" {
-			fix = append(fix, byPath[row.Path])
+	defer func() {
+		if scratch != nil {
+			scratch.Close()
 		}
+		drop()
+	}()
+	describedDiff := objects.DiffDescribed(described, report.SchemaCurrent, history[index].state)
+	fileStates := map[string]string{}
+	for _, row := range report.Objects {
+		fileStates[row.Path] = row.State
 	}
-	if len(fix) == 0 && len(report.SchemaDiff) == 0 {
+	corrections, err := objects.BuildCorrection(ctx, scratch, cfg.Dialect, describedDiff, history[index].state, fileStates)
+	if err != nil {
+		return err
+	}
+	if len(corrections) == 0 {
 		fmt.Fprintln(out, "No drift detected.")
 		return nil
 	}
-	if len(fix) > 0 {
-		rows, err := db.Correct(ctx, fix)
-		if err != nil {
-			return err
+	var stmts []string
+	for _, c := range corrections {
+		if c.Destructive {
+			fmt.Fprintf(out, "WARNING (may drop data): %s\n", c.Label)
+		} else {
+			fmt.Fprintf(out, "correcting %s\n", c.Label)
 		}
-		fmt.Fprintln(out, "Corrected objects:")
-		for _, row := range rows {
-			fmt.Fprintf(out, "%s  %s\n", row.State, row.Path)
+		if os.Getenv("SAXBASE_DEBUG") != "" {
+			for _, s := range c.Statements {
+				fmt.Fprintf(out, "--- %s\n%s\n", c.Label, s)
+			}
 		}
+		stmts = append(stmts, c.Statements...)
 	}
-	var remains []string
-	for _, line := range report.SchemaDiff {
-		// Module lines belong to objects, which were just corrected above.
-		if strings.HasPrefix(line, "~ ") || strings.HasPrefix(line, "+ module") || strings.HasPrefix(line, "- module") {
-			continue
-		}
-		remains = append(remains, line)
+	if err := db.CorrectSQL(ctx, stmts); err != nil {
+		return err
 	}
-	if len(remains) > 0 {
-		fmt.Fprintln(out, "Schema drift remains (fix with a migration, then release create + apply):")
-		for _, line := range remains {
-			fmt.Fprintln(out, line)
-		}
-	}
-	fmt.Fprintln(out, "Run saxbase drift to verify.")
+	fmt.Fprintf(out, "Corrected %d item(s). Run saxbase drift to verify.\n", len(corrections))
 	return nil
 }

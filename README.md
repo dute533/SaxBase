@@ -114,7 +114,7 @@ does not manage are ignored. See the [reference](docs/reference.md#drift).
 | `status` | Show current state, pending changes, and deployment blockers |
 | `rollback [VERSION]` | Restore the previous or specified release |
 | `drift` | Detect drift between the database and the current release |
-| `correct` | Re-apply drifted/missing pinned object files (schema drift is reported, not auto-corrected) |
+| `correct` | Align the database to the current release: re-apply drifted objects/triggers, recreate missing tables/columns/constraints (destructive steps are warned about) |
 | `migration create NAME` | Create a sequential Goose migration |
 | `release create VERSION` | Create or refresh a release manifest entry |
 | `release validate` | Validate manifest object references |

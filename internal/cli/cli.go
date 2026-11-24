@@ -217,7 +217,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		return runDrift(ctx, cfg, manifestPath, objectDir, out, open, openObjects)
 	}
 	if command == "correct" {
-		return runCorrect(ctx, cfg, manifestPath, objectDir, out, openObjects)
+		return runCorrect(ctx, cfg, manifestPath, objectDir, out, open, openObjects)
 	}
 	return fmt.Errorf("unknown command %q; use -h for help", command)
 }

@@ -87,14 +87,10 @@ func (f *fakeObjects) Drift(_ context.Context, files []objects.File) (objects.Dr
 	return report, f.err
 }
 
-func (f *fakeObjects) Correct(_ context.Context, files []objects.File) ([]objects.Status, error) {
+func (f *fakeObjects) CorrectSQL(_ context.Context, statements []string) error {
 	f.command = "correct"
-	var rows []objects.Status
-	for _, file := range files {
-		f.corrected = append(f.corrected, file.Path)
-		rows = append(rows, objects.Status{Path: file.Path, State: "corrected", Checksum: file.Checksum})
-	}
-	return rows, f.err
+	f.corrected = append(f.corrected, statements...)
+	return f.err
 }
 
 func (f *fakeObjects) Apply(ctx context.Context, files, _ []objects.File, release objects.Release, force bool, goose migrations.Engine, preflight func(context.Context) error) ([]objects.Status, error) {

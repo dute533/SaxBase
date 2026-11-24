@@ -9,28 +9,20 @@ import (
 	"saxbase/internal/deploymentlock"
 )
 
-// Correct re-applies the given object files (drift correction) and records a
-// fresh schema fingerprint, all in one transaction.
-func (s *store) Correct(ctx context.Context, files []File) (rows []Status, err error) {
+// CorrectSQL applies correction statements in one transaction and records a
+// fresh schema fingerprint.
+func (s *store) CorrectSQL(ctx context.Context, statements []string) (err error) {
 	conn, unlock, err := deploymentlock.Acquire(ctx, s.db, s.dialect.name)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer func() { err = errors.Join(err, unlock()) }()
-	err = rollbackTransaction(ctx, conn, func(tx *sql.Tx) error {
-		for _, file := range files {
-			if file.Delete {
-				continue
+	return rollbackTransaction(ctx, conn, func(tx *sql.Tx) error {
+		for _, stmt := range statements {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("correct: %w", err)
 			}
-			if _, err := tx.ExecContext(ctx, s.dialect.restore(file.SQL)); err != nil {
-				return fmt.Errorf("correct %s: %w", file.Path, err)
-			}
-			rows = append(rows, Status{Path: file.Path, State: "corrected", Checksum: file.Checksum})
 		}
 		return s.recordFingerprint(ctx, tx)
 	})
-	if err != nil {
-		return nil, err
-	}
-	return rows, nil
 }

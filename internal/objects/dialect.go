@@ -56,7 +56,7 @@ func objectDialectFor(name dialect.Name) (objectDialect, error) {
  );`,
 			selectMeta: `SELECT CASE WHEN OBJECT_ID(N'dbo.saxbase_meta', N'U') IS NULL THEN NULL ELSE (SELECT [value] FROM dbo.saxbase_meta WHERE [key]=@key) END`,
 			selectModuleDefs: `SELECT m.definition FROM sys.sql_modules m JOIN sys.objects o ON o.object_id = m.object_id JOIN sys.schemas s ON s.schema_id = o.schema_id
-			 WHERE s.name = @schema AND o.name = @name AND o.type IN ('V','P','FN','TF','IF')`,
+			 WHERE s.name = @schema AND o.name = @name AND o.type IN ('V','P','FN','TF','IF','TR')`,
 			upsertMeta: `IF OBJECT_ID(N'dbo.saxbase_meta', N'U') IS NULL
  CREATE TABLE dbo.saxbase_meta (
  [key] varchar(64) NOT NULL CONSTRAINT PK_saxbase_meta PRIMARY KEY,

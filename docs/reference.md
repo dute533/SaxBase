@@ -293,8 +293,14 @@ from its repo file first. Works for SQL Server and PostgreSQL.
 ./saxbase correct
 ```
 
-Re-applies the pinned object files that drifted or went missing and records a
-fresh schema fingerprint. Schema (table) drift is printed but never
-auto-corrected — changing columns back could lose data; write a migration,
-then `release create` and `apply`. Prints `No drift detected.` when there is
-nothing to correct. On protected targets it asks for confirmation like `apply`.
+Aligns the live database to what the current release describes. The release is
+replayed into a scratch database, the live schema is diffed against it, and the
+differences are applied in one transaction: drifted or missing object files and
+other modules (triggers included) are re-created from the replayed definitions;
+missing tables, columns, constraints and indexes are created; changed columns
+are altered back (SQL Server drops and re-adds dependent constraints first).
+Objects that exist only in the live database are left alone (unmanaged).
+Destructive steps (column type changes, table creation) are printed as warnings,
+and a fresh schema fingerprint is recorded. On protected targets it asks for
+confirmation like `apply`. Prints `No drift detected.` when there is nothing to
+correct.

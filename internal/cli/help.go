@@ -31,10 +31,10 @@ non-zero. Objects added by hand that SaxBase does not manage are ignored.
 const correctUsage = `Usage:
   saxbase [options] correct
 
-Correct detected drift: re-apply pinned object files that drifted or went missing
-and record a fresh schema fingerprint. Schema (table) drift is printed but never
-auto-corrected; fix it with a migration, then release create + apply. Prints
-"No drift detected." when there is nothing to correct.
+Align the database to the current release: replay the release into a scratch
+database, diff the live schema against it, and apply the corrections (objects,
+triggers, tables, columns, constraints, indexes) in one transaction. Destructive
+steps are printed as warnings. Prints "No drift detected." when clean.
 `
 
 const rollbackUsage = `Usage:
