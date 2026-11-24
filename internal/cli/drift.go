@@ -40,23 +40,20 @@ func runDrift(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 	if err != nil {
 		return err
 	}
+	if !report.Drifted() {
+		return nil // clean: no output
+	}
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	defer func() { err = errors.Join(err, w.Flush()) }()
-	fmt.Fprintf(w, "Release:\t%s\n", state.Current)
-	schemaState := "ok"
 	if report.SchemaStored == "" {
-		schemaState = "unrecorded (release predates drift tracking; reapply with saxbase -f apply on a dev database)"
+		fmt.Fprintln(w, "Schema fingerprint:\tunrecorded (release predates drift tracking; reapply with saxbase -f apply on a dev database)")
 	} else if report.SchemaStored != report.SchemaCurrent {
-		schemaState = "DRIFTED"
+		fmt.Fprintln(w, "Schema fingerprint:\tDRIFTED")
 	}
-	fmt.Fprintf(w, "Schema fingerprint:\t%s\n", schemaState)
-	fmt.Fprintln(w, "\nOBJECT\tSTATE\tSHA256")
 	for _, row := range report.Objects {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", row.Path, row.State, row.Checksum)
+		if row.State != "ok" {
+			fmt.Fprintf(w, "%s:\t%s\n", row.Path, row.State)
+		}
 	}
-	if report.Drifted() || report.SchemaStored == "" {
-		return errors.New("drift detected")
-	}
-	fmt.Fprintln(w, "\nNo drift detected.")
-	return nil
+	return errors.New("drift detected")
 }

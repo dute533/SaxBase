@@ -33,9 +33,8 @@ func TestDriftCLI(t *testing.T) {
 	err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "drift"}, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &out,
 		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
 		func(migrations.Config) (objects.Engine, error) { return db, nil })
-	squeezed := strings.Join(strings.Fields(out.String()), " ")
-	if err != nil || !strings.Contains(squeezed, "No drift detected") || !strings.Contains(squeezed, "view.sql ok") {
-		t.Fatalf("drift: err=%v output=%s", err, out.String())
+	if err != nil || out.Len() != 0 {
+		t.Fatalf("clean drift must be silent: err=%v output=%s", err, out.String())
 	}
 
 	db = &fakeObjects{currentSet: true}
