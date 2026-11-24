@@ -61,6 +61,15 @@ func (f *fakeObjects) Snapshot(_ context.Context, version string) (objects.Snaps
 	return objects.Snapshot{Release: objects.Release{Version: version}, Objects: []objects.SnapshotObject{{Path: "view.sql", SQL: "SELECT 1;"}}}, f.err
 }
 
+func (f *fakeObjects) Drift(_ context.Context, files []objects.File) (objects.DriftReport, error) {
+	f.command = "drift"
+	report := objects.DriftReport{SchemaStored: "abc", SchemaCurrent: "abc"}
+	for _, file := range files {
+		report.Objects = append(report.Objects, objects.Status{Path: file.Path, State: "ok", Checksum: file.Checksum})
+	}
+	return report, f.err
+}
+
 func (f *fakeObjects) Apply(ctx context.Context, files, _ []objects.File, release objects.Release, force bool, goose migrations.Engine, preflight func(context.Context) error) ([]objects.Status, error) {
 	if err := preflight(ctx); err != nil {
 		return nil, err

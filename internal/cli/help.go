@@ -17,6 +17,14 @@ Show current release and schema, pending changes, deployment blockers, and next 
 Status is read-only and is not required before apply.
 `
 
+const driftUsage = `Usage:
+  saxbase [options] drift
+
+Compare the database against the recorded release: the schema fingerprint stored at
+apply time (tables, columns, constraints, indexes, triggers) and every managed object
+definition. Read-only; exits non-zero when drift is detected.
+`
+
 const rollbackUsage = `Usage:
   saxbase [options] rollback [VERSION]
 
@@ -59,6 +67,8 @@ func commandHelp(args []string) (string, bool) {
 		return applyUsage, true
 	case "status":
 		return statusUsage, true
+	case "drift":
+		return driftUsage, true
 	case "rollback":
 		return rollbackUsage, true
 	case "migration":

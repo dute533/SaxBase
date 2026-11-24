@@ -20,6 +20,9 @@ type objectDialect struct {
 	clearCurrent       string
 	setCurrent         string
 	selectCurrent      string
+	initializeMeta     string
+	selectMeta         string
+	upsertMeta         string
 }
 
 func objectDialectFor(name dialect.Name) (objectDialect, error) {
@@ -45,6 +48,19 @@ func objectDialectFor(name dialect.Name) (objectDialect, error) {
 			clearCurrent:      "UPDATE dbo.saxbase_releases SET is_current=0",
 			setCurrent:        "UPDATE dbo.saxbase_releases SET is_current=1 WHERE version=@version",
 			selectCurrent:     "SELECT version FROM dbo.saxbase_releases WHERE is_current=1",
+			initializeMeta: `IF OBJECT_ID(N'dbo.saxbase_meta', N'U') IS NULL
+ CREATE TABLE dbo.saxbase_meta (
+ [key] varchar(64) NOT NULL CONSTRAINT PK_saxbase_meta PRIMARY KEY,
+ "value" varchar(128) NOT NULL
+ );`,
+			selectMeta: "SELECT [value] FROM dbo.saxbase_meta WHERE [key]=@key",
+			upsertMeta: `IF OBJECT_ID(N'dbo.saxbase_meta', N'U') IS NULL
+ CREATE TABLE dbo.saxbase_meta (
+ [key] varchar(64) NOT NULL CONSTRAINT PK_saxbase_meta PRIMARY KEY,
+ "value" varchar(128) NOT NULL
+ );
+UPDATE dbo.saxbase_meta SET [value]=@value WHERE [key]=@key;
+IF @@ROWCOUNT = 0 INSERT INTO dbo.saxbase_meta ([key], [value]) VALUES (@key, @value);`,
 		}, nil
 	case dialect.Postgres:
 		return objectDialect{
@@ -64,6 +80,16 @@ func objectDialectFor(name dialect.Name) (objectDialect, error) {
 			clearCurrent:      "UPDATE public.saxbase_releases SET is_current=false",
 			setCurrent:        "UPDATE public.saxbase_releases SET is_current=true WHERE version=$1",
 			selectCurrent:     "SELECT version FROM public.saxbase_releases WHERE is_current=true",
+			initializeMeta: `CREATE TABLE IF NOT EXISTS public.saxbase_meta (
+ "key" varchar(64) PRIMARY KEY,
+ "value" varchar(128) NOT NULL
+ );`,
+			selectMeta: `SELECT "value" FROM public.saxbase_meta WHERE "key"=$1`,
+			upsertMeta: `CREATE TABLE IF NOT EXISTS public.saxbase_meta (
+ "key" varchar(64) PRIMARY KEY,
+ "value" varchar(128) NOT NULL
+ );
+INSERT INTO public.saxbase_meta ("key", "value") VALUES ($1, $2) ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value";`,
 		}, nil
 	default:
 		return objectDialect{}, fmt.Errorf("unsupported database dialect %q", name)
@@ -89,6 +115,13 @@ func (d objectDialect) insertArgs(version, fingerprint string) []any {
 		return []any{sql.Named("version", version), sql.Named("fingerprint", fingerprint)}
 	}
 	return []any{version, fingerprint}
+}
+
+func (d objectDialect) metaArgs(key, value string) []any {
+	if d.name == dialect.SQLServer {
+		return []any{sql.Named("key", key), sql.Named("value", value)}
+	}
+	return []any{key, value}
 }
 
 func (d objectDialect) historyExists(ctx context.Context, db reader) (bool, error) {

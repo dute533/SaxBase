@@ -1,0 +1,49 @@
+package cli
+
+import (
+	"bytes"
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"saxbase/internal/migrations"
+	"saxbase/internal/objects"
+	"saxbase/internal/releases"
+)
+
+func TestDriftCLI(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "view.sql"), []byte("SELECT 1;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	files, err := committedFixture(t, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "release.json")
+	manifest := releases.Manifest{Version: "30.0.0", MigrationVersion: migrationPointer(30), Objects: []releases.Object{{Path: "view.sql", Commit: files[0].Commit}}}
+	if err := manifest.Write(path); err != nil {
+		t.Fatal(err)
+	}
+
+	db := &fakeObjects{current: "30.0.0", currentSet: true}
+	var out bytes.Buffer
+	err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "drift"}, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &out,
+		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
+		func(migrations.Config) (objects.Engine, error) { return db, nil })
+	squeezed := strings.Join(strings.Fields(out.String()), " ")
+	if err != nil || !strings.Contains(squeezed, "No drift detected") || !strings.Contains(squeezed, "view.sql ok") {
+		t.Fatalf("drift: err=%v output=%s", err, out.String())
+	}
+
+	db = &fakeObjects{currentSet: true}
+	out.Reset()
+	err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "drift"}, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &out,
+		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
+		func(migrations.Config) (objects.Engine, error) { return db, nil })
+	if err == nil || !strings.Contains(err.Error(), "no release is recorded") {
+		t.Fatalf("unversioned drift: err=%v output=%s", err, out.String())
+	}
+}

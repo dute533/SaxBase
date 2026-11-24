@@ -258,3 +258,22 @@ Running `saxbase rollback` from the first release removes its managed objects
 and runs migration Down steps to schema 0. Release history is retained; `apply`
 can deploy the release chain again. If a Down step fails, repair the migration
 and rerun `saxbase rollback` to finish returning to the initial state.
+
+## Drift
+
+`saxbase drift` is a read-only check that compares the live database with what
+SaxBase last deployed:
+
+```sh
+./saxbase drift
+```
+
+Two things are compared. The schema fingerprint (tables, columns, indexes,
+constraints, and module definitions, stored in `dbo.saxbase_meta` at every
+`apply`/`rollback`) must match the live catalog, and every object file pinned
+by the current release must match the live module definition. The command
+prints `ok` or `drifted` per object and exits non-zero when drift is found, so
+it can gate a CI pipeline. Fix drift by reapplying the pinned release
+(`saxbase -f apply` on a disposable database); note that a drifted view can
+block reapplying a procedure that depends on it, so restore the drifted object
+from its repo file first.

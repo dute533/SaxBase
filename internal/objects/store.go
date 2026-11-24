@@ -13,6 +13,8 @@ import (
 type store struct {
 	db      *sql.DB
 	dialect objectDialect
+	// noFingerprint skips schema fingerprint recording (used by SQL mocks).
+	noFingerprint bool
 }
 
 func Open(cfg migrations.Config) (Engine, error) {
@@ -121,6 +123,9 @@ func (s *store) applyOn(ctx context.Context, db transactionStarter, files, basel
 		}
 	}
 
+	if err := s.recordFingerprint(ctx, tx); err != nil {
+		return nil, err
+	}
 	if err := s.setCurrent(ctx, tx, release.Version); err != nil {
 		return nil, err
 	}

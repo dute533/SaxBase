@@ -26,6 +26,7 @@ type Engine interface {
 	Reconcile(context.Context, Snapshot, migrations.Engine) error
 	Reconciled(context.Context, Snapshot) (bool, error)
 	Inspect(context.Context) (Inspection, error)
+	Drift(context.Context, []File) (DriftReport, error)
 	Close() error
 }
 

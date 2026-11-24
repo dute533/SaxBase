@@ -22,6 +22,7 @@ const usage = `SaxBase
 Usage:
   saxbase --version
   saxbase [-manifest database/release.json] status
+  saxbase [-manifest database/release.json] drift
   saxbase [-f] [-manifest database/release.json] apply [VERSION]
   saxbase rollback [VERSION]
   saxbase [-dir database/migrations] migration create NAME
@@ -31,6 +32,7 @@ Usage:
 Commands:
   apply     Apply pending manifest releases in order and record each one; stop after VERSION when given
   status    Show current state, pending changes, and deployment blockers
+  drift     Compare the database against the recorded release (schema fingerprint and object definitions)
   rollback  Restore the previous or a specified recorded release
   migration create NAME  Create the next sequential Goose SQL migration
   release create VERSION    Add or refresh a release from current object files
@@ -178,7 +180,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	command := pos[0]
 	var applyVersion string
 	switch command {
-	case "apply":
+	case "apply", "status", "drift":
 		if len(pos) > 2 {
 			return withNext(errors.New("expected apply [VERSION]"), "saxbase apply -h")
 		}
@@ -188,7 +190,6 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 			}
 			applyVersion = pos[1]
 		}
-	case "status":
 	default:
 		return withNext(fmt.Errorf("unknown command %q", command), "saxbase -h")
 	}
@@ -209,6 +210,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	if command == "status" {
 		return runStatus(ctx, cfg, manifestPath, objectDir, out, open, openObjects)
+	}
+	if command == "drift" {
+		return runDrift(ctx, cfg, manifestPath, objectDir, out, openObjects)
 	}
 	return fmt.Errorf("unknown command %q; use -h for help", command)
 }
