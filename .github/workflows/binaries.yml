@@ -122,4 +122,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$RELEASE_TAG" dist/*.tar.gz dist/*.zip dist/*_checksums.txt --verify-tag --draft --generate-notes --title "$RELEASE_TAG"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/*.tar.gz dist/*.zip dist/*_checksums.txt --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/*.tar.gz dist/*.zip dist/*_checksums.txt --verify-tag --draft --generate-notes --title "$RELEASE_TAG"
+          fi
