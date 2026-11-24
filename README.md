@@ -91,6 +91,21 @@ Pass a version to traverse back through multiple releases:
 SaxBase restores historical object definitions and runs the required Goose Down
 migrations one release at a time.
 
+## Drift detection
+
+Compare the live database against the current release (SQL Server):
+
+```sh
+./saxbase drift
+```
+
+It prints `No drift detected.` when clean, and exits non-zero with exactly what
+changed when not: the schema fingerprint recorded at the last `apply`/`rollback`
+is diffed against the live catalog, pinned object files are compared with the live
+definitions, and the release is replayed into a scratch database to catch
+divergence from what the release describes. Objects added by hand that SaxBase
+does not manage are ignored. See the [reference](docs/reference.md#drift).
+
 ## Commands
 
 | Command | Purpose |
@@ -98,6 +113,7 @@ migrations one release at a time.
 | `apply` | Apply every pending release |
 | `status` | Show current state, pending changes, and deployment blockers |
 | `rollback [VERSION]` | Restore the previous or specified release |
+| `drift` | Detect drift between the database and the current release |
 | `migration create NAME` | Create a sequential Goose migration |
 | `release create VERSION` | Create or refresh a release manifest entry |
 | `release validate` | Validate manifest object references |
