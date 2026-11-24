@@ -286,3 +286,15 @@ removed, or a pinned object file no longer matches. Fix drift by reapplying the 
 (`saxbase -f apply` on a disposable database); note that a drifted view can
 block reapplying a procedure that depends on it, so restore the drifted object
 from its repo file first. Works for SQL Server and PostgreSQL.
+
+### Correcting drift
+
+```sh
+./saxbase correct
+```
+
+Re-applies the pinned object files that drifted or went missing and records a
+fresh schema fingerprint. Schema (table) drift is printed but never
+auto-corrected — changing columns back could lose data; write a migration,
+then `release create` and `apply`. Prints `No drift detected.` when there is
+nothing to correct. On protected targets it asks for confirmation like `apply`.

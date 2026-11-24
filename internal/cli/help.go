@@ -28,6 +28,15 @@ clean, otherwise what changed (+ added, - removed, ~ definition changed) and exi
 non-zero. Objects added by hand that SaxBase does not manage are ignored.
 `
 
+const correctUsage = `Usage:
+  saxbase [options] correct
+
+Correct detected drift: re-apply pinned object files that drifted or went missing
+and record a fresh schema fingerprint. Schema (table) drift is printed but never
+auto-corrected; fix it with a migration, then release create + apply. Prints
+"No drift detected." when there is nothing to correct.
+`
+
 const rollbackUsage = `Usage:
   saxbase [options] rollback [VERSION]
 
@@ -72,6 +81,8 @@ func commandHelp(args []string) (string, bool) {
 		return statusUsage, true
 	case "drift":
 		return driftUsage, true
+	case "correct":
+		return correctUsage, true
 	case "rollback":
 		return rollbackUsage, true
 	case "migration":

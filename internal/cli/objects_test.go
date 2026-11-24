@@ -28,6 +28,8 @@ type fakeObjects struct {
 	applyErr        error
 	schemaStored    string
 	schemaCurrent   string
+	driftStates     map[string]string
+	corrected       []string
 }
 
 func migrationPointer(version int64) *int64 { return &version }
@@ -74,9 +76,25 @@ func (f *fakeObjects) Drift(_ context.Context, files []objects.File) (objects.Dr
 	}
 	report := objects.DriftReport{SchemaStored: stored, SchemaCurrent: current, SchemaDiff: objects.DiffFingerprints(stored, current)}
 	for _, file := range files {
-		report.Objects = append(report.Objects, objects.Status{Path: file.Path, State: "ok", Checksum: file.Checksum})
+		state := "ok"
+		if f.driftStates != nil {
+			if s, ok := f.driftStates[file.Path]; ok {
+				state = s
+			}
+		}
+		report.Objects = append(report.Objects, objects.Status{Path: file.Path, State: state, Checksum: file.Checksum})
 	}
 	return report, f.err
+}
+
+func (f *fakeObjects) Correct(_ context.Context, files []objects.File) ([]objects.Status, error) {
+	f.command = "correct"
+	var rows []objects.Status
+	for _, file := range files {
+		f.corrected = append(f.corrected, file.Path)
+		rows = append(rows, objects.Status{Path: file.Path, State: "corrected", Checksum: file.Checksum})
+	}
+	return rows, f.err
 }
 
 func (f *fakeObjects) Apply(ctx context.Context, files, _ []objects.File, release objects.Release, force bool, goose migrations.Engine, preflight func(context.Context) error) ([]objects.Status, error) {

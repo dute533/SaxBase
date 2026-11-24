@@ -128,9 +128,9 @@ func TestPostgresDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A direct object edit is drift too. (CREATE OR REPLACE VIEW cannot drop
-	// columns, so the probe adds one.)
-	if _, err := db.ExecContext(ctx, "CREATE OR REPLACE VIEW public.saxbase_customers AS SELECT id, name, 'x' AS extra FROM public.customers;"); err != nil {
+	// A direct object edit is drift too. (Same columns: CREATE OR REPLACE VIEW
+	// cannot drop columns, and correct re-applies the file that way.)
+	if _, err := db.ExecContext(ctx, "CREATE OR REPLACE VIEW public.saxbase_customers AS SELECT id, name FROM public.customers WHERE id > 0;"); err != nil {
 		t.Fatal(err)
 	}
 	output, err = execute("drift")
@@ -139,14 +139,9 @@ func TestPostgresDrift(t *testing.T) {
 		t.Fatalf("object drift not detected: err=%v output=%s", err, output)
 	}
 
-	// Heal manually; drift must report clean again.
-	if _, err := db.ExecContext(ctx, "DROP VIEW public.saxbase_customers"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(ctx, "CREATE VIEW public.saxbase_customers AS SELECT id, name FROM public.customers"); err != nil {
-		t.Fatal(err)
-	}
+	// Correction re-applies the pinned object; drift must report clean again.
+	run("correct")
 	if output := strings.TrimSpace(run("drift")); output != "No drift detected." {
-		t.Fatalf("drift after manual heal: %s", output)
+		t.Fatalf("drift after correct: %s", output)
 	}
 }

@@ -35,6 +35,12 @@ func TestSQLServerDrift(t *testing.T) {
 		t.Fatalf("object drift not detected: err=%v output=%s", err, output)
 	}
 
+	// Correction re-applies the pinned object; drift must report clean again.
+	run("correct")
+	if output := strings.TrimSpace(run("drift")); output != "No drift detected." {
+		t.Fatalf("drift after correct: %s", output)
+	}
+
 	// A structural modification of a managed table (column type) is drift too.
 	if _, err := db.ExecContext(ctx, "ALTER TABLE dbo.customers ALTER COLUMN nickname nvarchar(200) NULL;"); err != nil {
 		t.Fatal(err)

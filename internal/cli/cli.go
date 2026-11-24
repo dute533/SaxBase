@@ -23,6 +23,7 @@ Usage:
   saxbase --version
   saxbase [-manifest database/release.json] status
   saxbase [-manifest database/release.json] drift
+  saxbase [-manifest database/release.json] correct
   saxbase [-f] [-manifest database/release.json] apply [VERSION]
   saxbase rollback [VERSION]
   saxbase [-dir database/migrations] migration create NAME
@@ -33,6 +34,7 @@ Commands:
   apply     Apply pending manifest releases in order and record each one; stop after VERSION when given
   status    Show current state, pending changes, and deployment blockers
   drift     Compare the database against the recorded release (schema fingerprint and object definitions)
+  correct   Re-apply drifted or missing pinned object files; schema drift is reported, not auto-corrected
   rollback  Restore the previous or a specified recorded release
   migration create NAME  Create the next sequential Goose SQL migration
   release create VERSION    Add or refresh a release from current object files
@@ -148,7 +150,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	resolveTarget := func(command string) error {
 		return selectTarget(configPath, target, getenv, &cfg, targetOut, func(name string) error {
 			switch command {
-			case "apply", "rollback":
+			case "apply", "rollback", "correct":
 				if !yes {
 					return confirmWrite(ctx, name, command, input, targetOut)
 				}
@@ -180,9 +182,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	command := pos[0]
 	var applyVersion string
 	switch command {
-	case "apply", "status", "drift":
-		if len(pos) > 2 {
-			return withNext(errors.New("expected apply [VERSION]"), "saxbase apply -h")
+	case "apply", "status", "drift", "correct":
+		if len(pos) > 2 || (len(pos) == 2 && command != "apply") {
+			return withNext(errors.New("expected "+command), "saxbase "+command+" -h")
 		}
 		if len(pos) == 2 {
 			if err := releaseversion.Validate(pos[1]); err != nil {
@@ -213,6 +215,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	if command == "drift" {
 		return runDrift(ctx, cfg, manifestPath, objectDir, out, open, openObjects)
+	}
+	if command == "correct" {
+		return runCorrect(ctx, cfg, manifestPath, objectDir, out, openObjects)
 	}
 	return fmt.Errorf("unknown command %q; use -h for help", command)
 }
