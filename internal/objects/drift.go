@@ -13,21 +13,16 @@ import (
 	"saxbase/internal/dialect"
 )
 
-// DriftReport compares the live database against the recorded release state.
+// DriftReport compares the live database against the pinned object files.
+// SchemaCurrent is the live catalog fingerprint; schema-level drift is detected
+// by the caller diffing it against the release description.
 type DriftReport struct {
-	SchemaStored  string
 	SchemaCurrent string
-	SchemaDiff    []string // human-readable changes from SchemaStored to SchemaCurrent
 	Objects       []Status
 }
 
-// Drifted reports whether the schema fingerprint or any managed object differs.
-// Purely added objects (present live, absent from the recorded state) are not
-// drift; SchemaDiff already excludes them.
+// Drifted reports whether any managed object differs from its pinned file.
 func (r DriftReport) Drifted() bool {
-	if len(r.SchemaDiff) > 0 {
-		return true
-	}
 	for _, row := range r.Objects {
 		if row.State != "ok" {
 			return true
@@ -48,14 +43,12 @@ func NormalizeDefinition(s string) string {
 	return strings.ToLower(strings.Join(strings.Fields(s), " "))
 }
 
-const schemaFingerprintKey = "schema_fingerprint"
-
 // bookkeeping tables are SaxBase/Goose metadata, not user schema.
-const bookkeepingFilter = "NOT (s.name = 'dbo' AND t.name IN ('saxbase_schema_version','saxbase_releases','saxbase_meta','migrations'))"
+const bookkeepingFilter = "NOT (s.name = 'dbo' AND t.name IN ('saxbase_schema_version','saxbase_releases','migrations'))"
 
 const pgSchemaFilter = "n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg\\_%' ESCAPE '\\'"
-const pgBookkeeping = pgSchemaFilter + " AND NOT (n.nspname = 'public' AND c.relname IN ('saxbase_schema_version','saxbase_releases','saxbase_meta'))"
-const pgTableBookkeeping = "table_schema NOT IN ('pg_catalog','information_schema') AND table_schema NOT LIKE 'pg\\_%' ESCAPE '\\' AND NOT (table_schema = 'public' AND table_name IN ('saxbase_schema_version','saxbase_releases','saxbase_meta'))"
+const pgBookkeeping = pgSchemaFilter + " AND NOT (n.nspname = 'public' AND c.relname IN ('saxbase_schema_version','saxbase_releases'))"
+const pgTableBookkeeping = "table_schema NOT IN ('pg_catalog','information_schema') AND table_schema NOT LIKE 'pg\\_%' ESCAPE '\\' AND NOT (table_schema = 'public' AND table_name IN ('saxbase_schema_version','saxbase_releases'))"
 
 type fingerprintQuery struct{ tag, query string }
 
@@ -122,7 +115,7 @@ var postgresFingerprintQueries = []fingerprintQuery{
 	FROM information_schema.columns WHERE ` + pgTableBookkeeping + ` ORDER BY 1, ordinal_position`},
 	{"index", `SELECT schemaname || '.' || tablename || '.' || indexname, indexdef FROM pg_indexes
 	WHERE schemaname NOT IN ('pg_catalog','information_schema') AND schemaname NOT LIKE 'pg\_%' ESCAPE '\'
-	AND NOT (schemaname = 'public' AND tablename IN ('saxbase_schema_version','saxbase_releases','saxbase_meta')) ORDER BY 1`},
+	AND NOT (schemaname = 'public' AND tablename IN ('saxbase_schema_version','saxbase_releases')) ORDER BY 1`},
 	{"key", `SELECT n.nspname || '.' || c.relname || '.' || con.conname, con.contype::text, pg_get_constraintdef(con.oid)
 	FROM pg_constraint con JOIN pg_class c ON c.oid = con.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace
 	WHERE con.contype IN ('p','u') AND ` + pgBookkeeping + ` ORDER BY 1`},
@@ -358,28 +351,6 @@ func DiffDescribed(described, live string, managed []File) []string {
 	return filterAdditions(out)
 }
 
-// recordFingerprint stores the current schema fingerprint. Called inside the
-// release transaction so the recorded state always matches what was applied.
-func (s *store) recordFingerprint(ctx context.Context, db interface {
-	reader
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}) error {
-	if s.noFingerprint {
-		return nil
-	}
-	text, err := fingerprint(ctx, db, s.dialect.name)
-	if err != nil {
-		return fmt.Errorf("compute schema fingerprint: %w", err)
-	}
-	if _, err := db.ExecContext(ctx, s.dialect.initializeMeta); err != nil {
-		return fmt.Errorf("initialize meta table: %w", err)
-	}
-	if _, err := db.ExecContext(ctx, s.dialect.upsertMeta, s.dialect.metaArgs(schemaFingerprintKey, text)...); err != nil {
-		return fmt.Errorf("store schema fingerprint: %w", err)
-	}
-	return nil
-}
-
 // moduleDefinitionMatches compares a live module definition with the pinned
 // file. Catalog definitions that lack a CREATE header (pg_get_viewdef) are
 // wrapped into one so both sides have the same shape.
@@ -392,21 +363,14 @@ func moduleDefinitionMatches(kind, schema, name, definition, fileSQL string) boo
 }
 
 // Drift compares the live database against the given managed object files and
-// the schema fingerprint recorded at apply time.
+// returns the live schema fingerprint for the caller to diff against the
+// release description.
 func (s *store) Drift(ctx context.Context, files []File) (DriftReport, error) {
 	current, err := fingerprint(ctx, s.db, s.dialect.name)
 	if err != nil {
 		return DriftReport{}, err
 	}
-	var stored sql.NullString
-	err = s.db.QueryRowContext(ctx, s.dialect.selectMeta, s.dialect.selectMetaArgs(schemaFingerprintKey)...).Scan(&stored)
-	if err != nil && err != sql.ErrNoRows {
-		return DriftReport{}, err
-	}
-	report := DriftReport{SchemaStored: stored.String, SchemaCurrent: current, Objects: []Status{}}
-	if stored.Valid && stored.String != current {
-		report.SchemaDiff = DiffFingerprints(stored.String, current)
-	}
+	report := DriftReport{SchemaCurrent: current, Objects: []Status{}}
 	for _, file := range files {
 		if file.Delete {
 			continue

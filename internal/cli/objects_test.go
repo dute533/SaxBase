@@ -26,7 +26,6 @@ type fakeObjects struct {
 	appliedVersions []string
 	applyErrAt      string
 	applyErr        error
-	schemaStored    string
 	schemaCurrent   string
 	driftStates     map[string]string
 	corrected       []string
@@ -67,14 +66,11 @@ func (f *fakeObjects) Snapshot(_ context.Context, version string) (objects.Snaps
 
 func (f *fakeObjects) Drift(_ context.Context, files []objects.File) (objects.DriftReport, error) {
 	f.command = "drift"
-	stored, current := f.schemaStored, f.schemaCurrent
-	if stored == "" {
-		stored = "abc"
-	}
+	current := f.schemaCurrent
 	if current == "" {
-		current = stored
+		current = "abc"
 	}
-	report := objects.DriftReport{SchemaStored: stored, SchemaCurrent: current, SchemaDiff: objects.DiffFingerprints(stored, current)}
+	report := objects.DriftReport{SchemaCurrent: current}
 	for _, file := range files {
 		state := "ok"
 		if f.driftStates != nil {

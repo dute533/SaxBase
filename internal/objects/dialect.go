@@ -20,9 +20,6 @@ type objectDialect struct {
 	clearCurrent       string
 	setCurrent         string
 	selectCurrent      string
-	initializeMeta     string
-	selectMeta         string
-	upsertMeta         string
 	selectModuleDefs   string
 }
 
@@ -49,21 +46,8 @@ func objectDialectFor(name dialect.Name) (objectDialect, error) {
 			clearCurrent:      "UPDATE dbo.saxbase_releases SET is_current=0",
 			setCurrent:        "UPDATE dbo.saxbase_releases SET is_current=1 WHERE version=@version",
 			selectCurrent:     "SELECT version FROM dbo.saxbase_releases WHERE is_current=1",
-			initializeMeta: `IF OBJECT_ID(N'dbo.saxbase_meta', N'U') IS NULL
- CREATE TABLE dbo.saxbase_meta (
- [key] varchar(64) NOT NULL CONSTRAINT PK_saxbase_meta PRIMARY KEY,
- "value" nvarchar(max) NOT NULL
- );`,
-			selectMeta: `SELECT CASE WHEN OBJECT_ID(N'dbo.saxbase_meta', N'U') IS NULL THEN NULL ELSE (SELECT [value] FROM dbo.saxbase_meta WHERE [key]=@key) END`,
 			selectModuleDefs: `SELECT m.definition FROM sys.sql_modules m JOIN sys.objects o ON o.object_id = m.object_id JOIN sys.schemas s ON s.schema_id = o.schema_id
 			 WHERE s.name = @schema AND o.name = @name AND o.type IN ('V','P','FN','TF','IF','TR')`,
-			upsertMeta: `IF OBJECT_ID(N'dbo.saxbase_meta', N'U') IS NULL
- CREATE TABLE dbo.saxbase_meta (
- [key] varchar(64) NOT NULL CONSTRAINT PK_saxbase_meta PRIMARY KEY,
- "value" nvarchar(max) NOT NULL
- );
-UPDATE dbo.saxbase_meta SET [value]=@value WHERE [key]=@key;
-IF @@ROWCOUNT = 0 INSERT INTO dbo.saxbase_meta ([key], [value]) VALUES (@key, @value);`,
 		}, nil
 	case dialect.Postgres:
 		return objectDialect{
@@ -83,18 +67,11 @@ IF @@ROWCOUNT = 0 INSERT INTO dbo.saxbase_meta ([key], [value]) VALUES (@key, @v
 			clearCurrent:      "UPDATE public.saxbase_releases SET is_current=false",
 			setCurrent:        "UPDATE public.saxbase_releases SET is_current=true WHERE version=$1",
 			selectCurrent:     "SELECT version FROM public.saxbase_releases WHERE is_current=true",
-			initializeMeta: `CREATE TABLE IF NOT EXISTS public.saxbase_meta (
- "key" varchar(64) PRIMARY KEY,
- "value" text NOT NULL
- );`,
-			selectMeta: `SELECT CASE WHEN to_regclass('public.saxbase_meta') IS NULL THEN NULL ELSE (SELECT "value" FROM public.saxbase_meta WHERE "key"=$1) END`,
 			selectModuleDefs: `SELECT pg_get_viewdef(c.oid, true) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 			 WHERE c.relkind IN ('v','m') AND n.nspname = $1 AND c.relname = $2
 			 UNION ALL
 			 SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 			 WHERE p.prokind IN ('f','p') AND n.nspname = $1 AND p.proname = $2`,
-			// Single statement: pgx prepared statements reject multi-command batches.
-			upsertMeta: `INSERT INTO public.saxbase_meta ("key", "value") VALUES ($1, $2) ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value"`,
 		}, nil
 	default:
 		return objectDialect{}, fmt.Errorf("unsupported database dialect %q", name)
@@ -120,20 +97,6 @@ func (d objectDialect) insertArgs(version, fingerprint string) []any {
 		return []any{sql.Named("version", version), sql.Named("fingerprint", fingerprint)}
 	}
 	return []any{version, fingerprint}
-}
-
-func (d objectDialect) metaArgs(key, value string) []any {
-	if d.name == dialect.SQLServer {
-		return []any{sql.Named("key", key), sql.Named("value", value)}
-	}
-	return []any{key, value}
-}
-
-func (d objectDialect) selectMetaArgs(key string) []any {
-	if d.name == dialect.SQLServer {
-		return []any{sql.Named("key", key)}
-	}
-	return []any{key}
 }
 
 func (d objectDialect) historyExists(ctx context.Context, db reader) (bool, error) {

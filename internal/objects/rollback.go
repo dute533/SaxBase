@@ -72,9 +72,6 @@ func (s *store) Reconcile(ctx context.Context, target Snapshot, goose migrations
 		if err := s.restoreFiles(ctx, tx, targetFiles); err != nil {
 			return err
 		}
-		if err := s.recordFingerprint(ctx, tx); err != nil {
-			return err
-		}
 		if err := s.setCurrentFingerprint(ctx, tx, target.Version, target.Fingerprint); err != nil {
 			return err
 		}
@@ -196,9 +193,6 @@ func (s *store) Rollback(ctx context.Context, target, source Snapshot, goose mig
 			return err
 		}
 		if err := dropExtra(tx); err != nil {
-			return err
-		}
-		if err := s.recordFingerprint(ctx, tx); err != nil {
 			return err
 		}
 		if err := s.setCurrentFingerprint(ctx, tx, target.Version, target.Fingerprint); err != nil {

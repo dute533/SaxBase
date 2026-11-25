@@ -47,7 +47,7 @@ func TestDriftCLI(t *testing.T) {
 	replayDescribed = func(context.Context, migrations.Config, resolvedRelease, OpenFunc, OpenObjectsFunc) (string, error) {
 		return "column\tdbo.t.c\tint\t1\n", nil
 	}
-	db = &fakeObjects{current: "30.0.0", currentSet: true, schemaStored: "column\tdbo.t.c\tint\t2\n", schemaCurrent: "column\tdbo.t.c\tint\t2\n"}
+	db = &fakeObjects{current: "30.0.0", currentSet: true, schemaCurrent: "column\tdbo.t.c\tint\t2\n"}
 	out.Reset()
 	err = run(context.Background(), []string{"-manifest", path, "-objects-dir", dir, "drift"}, env(map[string]string{"SAXBASE_DIALECT": "sqlserver", "SAXBASE_DSN": "dsn"}), &out,
 		func(migrations.Config) (migrations.Engine, error) { return &fakeEngine{}, nil },
@@ -58,7 +58,7 @@ func TestDriftCLI(t *testing.T) {
 	}
 
 	// A purely added object (not managed by the release) is not drift.
-	db = &fakeObjects{current: "30.0.0", currentSet: true, schemaStored: "column\tdbo.t.c\tint\t2\ntable\tdbo.handmade\n", schemaCurrent: "column\tdbo.t.c\tint\t2\ntable\tdbo.handmade\n"}
+	db = &fakeObjects{current: "30.0.0", currentSet: true, schemaCurrent: "column\tdbo.t.c\tint\t2\ntable\tdbo.handmade\n"}
 	replayDescribed = func(context.Context, migrations.Config, resolvedRelease, OpenFunc, OpenObjectsFunc) (string, error) {
 		return "column\tdbo.t.c\tint\t2\n", nil
 	}
@@ -72,7 +72,7 @@ func TestDriftCLI(t *testing.T) {
 
 	// A purely added live object on top of a modified described one: only the
 	// modification is drift.
-	db = &fakeObjects{current: "30.0.0", currentSet: true, schemaStored: "column\tdbo.t.c\tint\t2\ntable\tdbo.handmade\n", schemaCurrent: "column\tdbo.t.c\tint\t2\ntable\tdbo.handmade\n"}
+	db = &fakeObjects{current: "30.0.0", currentSet: true, schemaCurrent: "column\tdbo.t.c\tint\t2\ntable\tdbo.handmade\n"}
 	replayDescribed = func(context.Context, migrations.Config, resolvedRelease, OpenFunc, OpenObjectsFunc) (string, error) {
 		return "column\tdbo.t.c\tint\t1\n", nil
 	}

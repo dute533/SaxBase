@@ -121,7 +121,7 @@ func TestPostgresDrift(t *testing.T) {
 	}
 	output, err := execute("drift")
 	squeezed := strings.Join(strings.Fields(output), " ")
-	if err == nil || !strings.Contains(squeezed, "Schema fingerprint: DRIFTED") || !strings.Contains(squeezed, "column public.customers.nickname") {
+	if err == nil || !strings.Contains(squeezed, "Release-described schema") || !strings.Contains(squeezed, "column public.customers.nickname") {
 		t.Fatalf("schema drift not detected: err=%v output=%s", err, output)
 	}
 	if _, err := db.ExecContext(ctx, "ALTER TABLE public.customers ADD COLUMN nickname text;"); err != nil {
@@ -135,7 +135,7 @@ func TestPostgresDrift(t *testing.T) {
 	}
 	output, err = execute("drift")
 	squeezed = strings.Join(strings.Fields(output), " ")
-	if err == nil || !strings.Contains(squeezed, "views/customers.sql: drifted") || !strings.Contains(squeezed, "definition changed") {
+	if err == nil || !strings.Contains(squeezed, "views/customers.sql: drifted") {
 		t.Fatalf("object drift not detected: err=%v output=%s", err, output)
 	}
 

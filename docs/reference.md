@@ -268,20 +268,18 @@ SaxBase last deployed:
 ./saxbase drift
 ```
 
-Three things are compared. The schema fingerprint (tables, columns, indexes,
-constraints, and module definitions, stored in `dbo.saxbase_meta` at every
-`apply`/`rollback`) must match the live catalog, every object file pinned
-by the current release must match the live module definition, and the live
-schema must match what the release *describes*: the current release is replayed
-into a scratch database on the same server and its fingerprint is diffed against
-the live one. That last check also catches divergence inherited from a baselined
-(Goose) database, where the recorded fingerprint was seeded from the live DB.
+Two things are compared: every object file pinned by the current release must
+match the live module definition, and the live schema must match what the
+release *describes*: the current release is replayed into a scratch database on
+the same server and its catalog fingerprint (tables, columns, indexes,
+constraints, and module definitions) is diffed against the live one. That check
+also catches divergence inherited from a baselined (Goose) database.
 The command prints `No drift detected.` when everything matches; when drift is
 found it says exactly what changed — schema lines as `+ added` / `- removed` /
 `~ module definition changed`, and each drifted or missing object file — and
 exits non-zero, so it can gate a CI pipeline. Objects that exist only in the
 live database (tables, views, triggers added by hand) are not managed by SaxBase
-and are ignored: drift means a described or recorded item was modified or
+and are ignored: drift means a described item was modified or
 removed, or a pinned object file no longer matches. Fix drift by reapplying the pinned release
 (`saxbase drift correct --dry` to preview, `saxbase drift correct` to apply; on a disposable database `saxbase -f apply` also works); note that a drifted view can
 block reapplying a procedure that depends on it, so restore the drifted object
@@ -300,8 +298,8 @@ other modules (triggers included) are re-created from the replayed definitions;
 missing tables, columns, constraints and indexes are created; changed columns
 are altered back (SQL Server drops and re-adds dependent constraints first).
 Objects that exist only in the live database are left alone (unmanaged).
-Destructive steps (column type changes, table creation) are printed as warnings,
-and a fresh schema fingerprint is recorded. On protected targets it asks for
+Destructive steps (column type changes, table creation) are printed as warnings.
+On protected targets it asks for
 confirmation like `apply`. Prints `No drift detected.` when there is nothing to
 correct. Use `-n`/`--dry` for a dry run that prints the plan and SQL statements without
 applying anything. Note that `drift correct` never drops tables or columns, but

@@ -139,9 +139,8 @@ var replayDescribed = func(ctx context.Context, cfg migrations.Config, release r
 }
 
 // runDrift is read-only against the target database: it compares the live
-// database against the recorded release (schema fingerprint plus managed
-// object definitions) and against what the release describes (replayed in a
-// scratch database).
+// database against the managed object files and against what the release
+// describes (replayed in a scratch database).
 func runDrift(ctx context.Context, cfg migrations.Config, manifestPath, objectDir string, out io.Writer, open OpenFunc, openObjects OpenObjectsFunc) (err error) {
 	if manifestPath == "" {
 		manifestPath = "database/release.json"
@@ -181,14 +180,6 @@ func runDrift(ctx context.Context, cfg migrations.Config, manifestPath, objectDi
 	if !report.Drifted() && len(describedDiff) == 0 {
 		fmt.Fprintln(out, "No drift detected.")
 		return nil
-	}
-	if report.SchemaStored == "" {
-		fmt.Fprintln(out, "Schema fingerprint: unrecorded (release predates drift tracking; reapply with saxbase -f apply on a dev database)")
-	} else if len(report.SchemaDiff) > 0 {
-		fmt.Fprintln(out, "Schema fingerprint: DRIFTED")
-		for _, line := range report.SchemaDiff {
-			fmt.Fprintln(out, line)
-		}
 	}
 	if len(describedDiff) > 0 {
 		fmt.Fprintf(out, "Release-described schema (%s): DRIFTED\n", state.Current)

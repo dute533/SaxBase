@@ -9,8 +9,7 @@ import (
 	"saxbase/internal/deploymentlock"
 )
 
-// CorrectSQL applies correction statements in one transaction and records a
-// fresh schema fingerprint.
+// CorrectSQL applies correction statements in one transaction.
 func (s *store) CorrectSQL(ctx context.Context, statements []string) (err error) {
 	conn, unlock, err := deploymentlock.Acquire(ctx, s.db, s.dialect.name)
 	if err != nil {
@@ -23,6 +22,6 @@ func (s *store) CorrectSQL(ctx context.Context, statements []string) (err error)
 				return fmt.Errorf("correct: %w", err)
 			}
 		}
-		return s.recordFingerprint(ctx, tx)
+		return nil
 	})
 }

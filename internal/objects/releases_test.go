@@ -31,7 +31,7 @@ func mockStore(t *testing.T) (*store, sqlmock.Sqlmock) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &store{db: db, dialect: spec, noFingerprint: true}, mock
+	return &store{db: db, dialect: spec}, mock
 }
 
 func expectReleaseStart(mock sqlmock.Sqlmock, schema int64) {
